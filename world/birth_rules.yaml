@@ -1,0 +1,22 @@
+# 降生规则配置
+
+birth:
+  genetics:
+    mutationRange: 0.1
+    dualTalentInheritance: 0.15
+    latentTraitCount: [2, 3]
+    
+  childhood:
+    imprintCount: [1, 3]
+    imprintAgeRange: [0, 6]
+    traumaticWeightThreshold: 0.7
+    
+  family:
+    wealthyColdProbability: 0.15
+    poorWarmProbability: 0.15
+    strictFamilyProbability: 0.2
+    neglectFamilyProbability: 0.1
+    normalFamilyProbability: 0.4
+
+  naming:
+    style: "random"                  # random / cultural / user_defined

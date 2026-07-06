@@ -1,0 +1,63 @@
+# 全生命周期数字生命世界 — 世界配置
+# Phase 1 核心配置
+
+globalTimeClock:
+  epoch: "2026-01-01T00:00:00"
+  realToWorldRatio: "1h = 1day"    # 现实1小时 = 世界1天
+  defaultSpeed: 1.0
+  allowUserSpeedControl: true
+  allowPause: true
+
+lifecycle:
+  maxAge: 100
+  deathMode: "natural"              # natural / configurable / immortal
+  agingEffects: true
+  agingStartAge: 30
+  stageTransitions:
+    infant:   { age: 0,  duration: 3 }
+    toddler:  { age: 3,  duration: 3 }
+    childhood:{ age: 6,  duration: 6 }
+    teenage:  { age: 12, duration: 6 }
+    youngAdult:{ age: 18, duration: 12 }
+    adult:    { age: 30, duration: 20 }
+    senior:   { age: 50, duration: 30 }
+    elder:    { age: 80, duration: 20 }
+
+globalEvents:
+  disasterProbability: 0.001
+  pandemicProbability: 0.0001
+  holidays:
+    - name: "新年"
+      month: 1
+      day: 1
+      impact: "所有角色喜悦+0.2"
+    - name: "中秋节"
+      month: 9
+      day: 15
+      impact: "所有角色归属感需求+0.1"
+  eraEvents:
+    - year: 10
+      event: "世界大战"
+      impact: "所有角色安全感需求+0.3"
+    - year: 25
+      event: "科技革命"
+      impact: "所有角色开放性+0.1"
+
+personality:
+  dailyDriftRate: 0.001
+  maxDailyChange: 0.05
+  cooldownDuration: 7               # 天
+  hardMin: 0.05
+  hardMax: 0.95
+
+memory:
+  baseRetentionHours: 24
+  emotionalWeightMultiplier: 3.0
+  recallBonus: 12.0
+  traumaMinRetention: 0.2
+  archiveThreshold: 0.05
+
+social:
+  maxInteractionsPerHeartbeat: 3
+  conflictCooldownDays: 3
+  rumorSpreadProbability: 0.3

@@ -1,0 +1,19 @@
+{
+  "version": "16.2.0",
+  "build": 275,
+  "minSdk": 23,
+  "forceUpdate": false,
+  "releaseDate": "2026-07-06",
+  "downloadUrl": "https://solace-auth.pages.dev/api/v1/download?v=16.2.0",
+  "changelog": [
+    "HF Space chatgpt2api 全面对接",
+    "图片生成和多模态 API 统一接入 HF Space",
+    "API Key 默认 chatgpt2api，零配置",
+    "故事书场景状态系统上线",
+    "消息乱码检测增强（多脚本混杂拦截）",
+    "数据库迁移 v48",
+    "FA 模式安全分类器规避全面优化",
+    "联系人点击响应修复"
+  ],
+  "announcement": "HF Space 全面对接版本。图片生成和多模态 API 统一接入 qwen2apiloliu-chatgpt2api-v2.hf.space，API Key 默认 chatgpt2api。故事书场景状态系统、乱码拦截增强、数据库迁移 v48。"
+}

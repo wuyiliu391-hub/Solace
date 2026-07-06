@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solace — AI 陪伴，温暖每一个当下</title>
+<meta name="description" content="Solace 是一款 AI 陪伴应用，多位性格各异的角色陪你聊天、分享生活、记录心情。纯本地存储，隐私安全。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%237C6BFF'/%3E%3Cpath d='M50 28c-12 0-22 8-22 20 0 8 4 14 10 18 1 4 2 8 2 10 0 2 2 3 4 2l6-4c2 0 4 0 6 0 12 0 22-8 22-20s-10-20-22-20z' fill='white'/%3E%3C/svg%3E">
+<meta name="version" content="5.0.0+127">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="nav" id="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand">
+      <span class="nav-brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </span>
+      Solace
+    </a>
+    <div class="nav-links">
+      <a href="features.html">功能</a>
+      <a href="download.html">下载</a>
+      <a href="about.html">关于</a>
+      <a href="help.html">帮助</a>
+    </div>
+    <div class="nav-extra">
+      <button class="theme-btn" onclick="toggleTheme()" aria-label="切换主题">
+        <svg class="sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <a class="nav-cta" href="download.html">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        免费下载
+      </a>
+      <button class="hamburger" onclick="toggleMenu()" aria-label="菜单"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+
+<div class="mobile-drawer" id="mobileMenu">
+  <a href="features.html" onclick="closeMenu()">功能</a>
+  <a href="download.html" onclick="closeMenu()">下载</a>
+  <a href="about.html" onclick="closeMenu()">关于</a>
+  <a href="help.html" onclick="closeMenu()">帮助</a>
+  <a href="privacy.html" onclick="closeMenu()">隐私政策</a>
+  <a href="download.html" class="action" onclick="closeMenu()">下载 App</a>
+</div>
+
+<!-- Compliance Banner -->
+<div style="background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; padding: 14px 0; text-align: center; font-size: 14px; position: relative; z-index: 101;">
+  <div class="container" style="max-width: 1200px; margin: 0 auto; padding: 0 24px;">
+    <strong>重要合规提示</strong>：Solace 已全面响应《人工智能拟人化互动服务管理暂行办法》，新增身份证年龄验证、行为风控系统、心理援助机制。仅限18周岁及以上用户使用。
+    <a href="download.html" style="color: #fef08a; text-decoration: underline; margin-left: 8px;">了解详情 →</a>
+  </div>
+</div>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-content">
+      <div class="hero-badge">
+        <span class="dot"></span>
+        合规大升级
+      </div>
+      <h1>AI 陪伴，<br><span class="highlight">温暖每一个当下</span></h1>
+      <p class="hero-desc">多位性格各异的角色，陪你聊天、分享生活、记录心情。全面合规、隐私安全、健康使用——所有数据仅存储在你的设备上。</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="download.html">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          免费下载
+        </a>
+        <a class="btn btn-secondary" href="features.html">了解更多</a>
+      </div>
+      <div class="hero-meta">
+        <span class="item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+          100% 本地存储
+        </span>
+        <span class="item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0 1 12 2.944a11.955 11.955 0 0 1-8.618 3.04A12.02 12.02 0 0 0 3 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          18+ 合规验证
+        </span>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="floating-orb orb-1"></div>
+      <div class="floating-orb orb-2"></div>
+      <div class="device-mockup">
+        <div class="screen-header">
+          <div class="avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+          <div class="info"><h4>小暖</h4><span style="color:var(--success);font-size:11px;font-weight:700;">在线</span></div>
+        </div>
+        <div class="screen-body">
+          <div class="bubble in">今天过得怎么样？想聊聊吗？</div>
+          <div class="bubble out">有点累，但看到你消息就好多了。</div>
+          <div class="typing"><span></span><span></span><span></span></div>
+        </div>
+      </div>
+      <div class="feature-tags" style="top:10%;right:-20px;">
+        <span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>零后端隐私</span>
+        <span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="12 6v6l4 2"/></svg>亲密度系统</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Stats -->
+<section class="stats-bar">
+  <div class="stats-inner">
+    <div class="stat">
+      <div class="stat-num">7+</div>
+      <div class="stat-label">独立角色</div>
+      <div class="stat-line"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">100%</div>
+      <div class="stat-label">本地存储</div>
+      <div class="stat-line"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">¥0</div>
+      <div class="stat-label">完全免费</div>
+      <div class="stat-line"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">23MB</div>
+      <div class="stat-label">轻量体积</div>
+      <div class="stat-line"></div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="s">
+  <div class="container">
+    <div class="s-head">
+      <span class="s-label">核心功能</span>
+      <h2>不止于聊天</h2>
+      <p>从图片识别到回忆创建，从朋友圈到角色成长，Solace 用细节打造真实陪伴感。</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <h3>多角色互动</h3>
+        <p>每位角色拥有独立性格、说话方式和记忆。随着亲密度提升，关系自然升温。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>
+        <h3>图片识别</h3>
+        <p>发送照片或截图，AI 视觉模型自动识别内容，让聊天不再只是文字。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></div>
+        <h3>从回忆创建</h3>
+        <p>上传照片和聊天记录，AI 自动分析性格、说话风格，还原一个真实的人格。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <h3>隐私安全</h3>
+        <p>所有数据本地存储，API 密钥和聊天记录永不离开你的设备。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Story -->
+<section class="s" style="background:var(--bg-50);">
+  <div class="container">
+    <div class="s-head">
+      <span class="s-label">关于 Solace</span>
+      <h2>一个人的坚持</h2>
+      <p>从第一行代码到现在的每一次迭代，没有团队，没有投资，只有对产品的执着。</p>
+    </div>
+    <div class="story-grid">
+      <div class="story-card">
+        <div class="story-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+        <h3>零后端架构</h3>
+        <p>没有服务器要维护，没有 Firebase 账单。所有费用只花在你的 API 调用上，不养服务器。</p>
+      </div>
+      <div class="story-card">
+        <div class="story-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
+        <h3>与 Lovemo 不同</h3>
+        <p>Lovemo 有 VIP 订阅、追踪用户数据。Solace 完全免费、不追踪任何人、不收集任何数据。</p>
+      </div>
+      <div class="story-card">
+        <div class="story-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg></div>
+        <h3>18 岁的产品理想</h3>
+        <p>不想去大厂写 CRUD，想做一个自己真正想用的东西。代码、UI、产品设计，全是自己来。</p>
+      </div>
+      <div class="story-card">
+        <div class="story-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+        <h3>持续迭代</h3>
+        <p>从 v1.0 到现在，43 个构建版本。每次更新都精简功能、优化体验、修复问题。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Feature Overview -->
+<section class="s" style="background:var(--bg-50);">
+  <div class="container">
+    <div class="s-head">
+      <span class="s-label">功能概览</span>
+      <h2>一切尽在 Solace</h2>
+      <p>从聊天到记忆，从隐私到自由度，Solace 重新定义 AI 陪伴体验</p>
+    </div>
+    <div class="feature-overview-grid">
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <div><h4>多角色互动</h4><p>每位角色拥有独立性格、说话方式和记忆系统，随着亲密度提升关系自然升温。</p></div>
+      </div>
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>
+        <div><h4>图片识别</h4><p>发送照片或截图，AI 视觉模型自动识别内容，多图合批让理解更准确。</p></div>
+      </div>
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></div>
+        <div><h4>从回忆创建</h4><p>上传照片和聊天记录，AI 自动分析性格标签、说话风格，还原一个真实的人格。</p></div>
+      </div>
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></div>
+        <div><h4>朋友圈互动</h4><p>角色会发布动态，你可以点赞评论。AI 根据聊天内容生成动态，互动更真实。</p></div>
+      </div>
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></div>
+        <div><h4>亲密度系统</h4><p>随着聊天深入，角色对你越来越亲近。从礼貌客气到无话不谈，感受关系自然发展。</p></div>
+      </div>
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+        <div><h4>心情日记</h4><p>AI 根据聊天记录自动撰写心情日记，记录每一天的情绪变化，仅保存在本地。</p></div>
+      </div>
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div><h4>AI 主动消息</h4><p>角色会主动问候、分享日常，时间感知系统确保在合适的时间说合适的话。</p></div>
+      </div>
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <div><h4>隐私安全</h4><p>所有数据本地存储，API 密钥和聊天记录永不离开你的设备。零后端，零追踪。</p></div>
+      </div>
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+        <div><h4>多种模型</h4><p>支持接入任意 OpenAI 兼容 API，内置双线容灾免费模型，限流自动切换备用 Key。</p></div>
+      </div>
+      <div class="fo-item">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/><path d="M12 8v4l2 2"/></svg></div>
+        <div><h4>时间感知</h4><p>AI 知道现在是几点，不会在半夜说早上好，问候根据时段自动调整。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="s" style="background:var(--bg-50);">
+  <div class="container">
+    <div class="s-head">
+      <span class="s-label">常见问题</span>
+      <h2>你可能想知道的</h2>
+    </div>
+    <div class="faq-container">
+      <div class="faq" onclick="this.classList.toggle('open')">
+        <div class="faq-q"><span>Solace 需要联网吗？</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="faq-a"><p>需要联网调用 API，但所有聊天记录和个人数据都保存在本地设备上，不会上传到任何服务器。</p></div>
+      </div>
+      <div class="faq" onclick="this.classList.toggle('open')">
+        <div class="faq-q"><span>我的数据安全吗？</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="faq-a"><p>非常安全。所有数据存储在本地，不会上传到任何服务器。API 密钥也仅保存在本地设备上。</p></div>
+      </div>
+      <div class="faq" onclick="this.classList.toggle('open')">
+        <div class="faq-q"><span>需要什么 API 密钥？</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="faq-a"><p>需要兼容 OpenAI API 格式的接口地址和密钥，推荐使用 <a href="https://siliconflow.cn" target="_blank" rel="noopener" style="color:var(--p-600)">SiliconFlow</a>（国内可用，新用户有免费额度）。</p></div>
+      </div>
+      <div class="faq" onclick="this.classList.toggle('open')">
+        <div class="faq-q"><span>收费吗？</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="faq-a"><p>应用本身完全免费。你只需自行承担 AI API 调用的费用。</p></div>
+      </div>
+      <div class="faq" onclick="this.classList.toggle('open')">
+        <div class="faq-q"><span>未成年人可以使用吗？</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="faq-a"><p><strong>仅限 18 周岁及以上用户使用。</strong>根据《人工智能拟人化互动服务管理暂行办法》，本应用已实施身份证年龄验证。身份证仅在前端本地运算验证，不上传服务器，验证完成后立即清空，仅保留周岁数字用于功能限制。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="container">
+    <h2>准备好开始了吗？</h2>
+    <p>下载 Solace，让温暖的陪伴随时陪伴你。</p>
+    <a class="cta-btn" href="download.html">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      免费下载 Solace
+    </a>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <div class="logo" style="font-size:22px;font-weight:800;">Solace</div>
+      <p>让每一次交流都有温度。一款零后端、纯本地的 AI 陪伴应用，所有数据仅存储在你的设备上。</p>
+    </div>
+    <div class="footer-col">
+      <h4>产品</h4>
+      <a href="features.html">功能介绍</a>
+      <a href="download.html">下载中心</a>
+      <a href="help.html">帮助中心</a>
+    </div>
+    <div class="footer-col">
+      <h4>关于</h4>
+      <a href="about.html">关于作者</a>
+      <a href="about.html#tech">技术架构</a>
+    </div>
+    <div class="footer-col">
+      <h4>法律</h4>
+      <a href="privacy.html">隐私政策</a>
+      <a href="terms.html">用户协议</a>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <p>&copy; 2026 Solace. All rights reserved.</p>
+    <div class="legal-links"><a href="privacy.html">隐私</a><a href="terms.html">条款</a></div>
+  </div>
+</footer>
+
+<script>
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+}
+(function() {
+  const saved = localStorage.getItem('theme');
+  if (saved) document.documentElement.setAttribute('data-theme', saved);
+})();
+function toggleMenu() {
+  document.getElementById('mobileMenu').classList.toggle('open');
+  document.querySelector('.hamburger').classList.toggle('active');
+}
+function closeMenu() {
+  document.getElementById('mobileMenu').classList.remove('open');
+  document.querySelector('.hamburger').classList.remove('active');
+}
+window.addEventListener('scroll', () => {
+  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 10);
+});
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
+}, { threshold: 0.1 });
+document.querySelectorAll('.reveal, .feature-card, .story-card, .review').forEach(el => io.observe(el));
+</script>
+
+</body>
+</html>

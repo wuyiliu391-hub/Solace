@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "bzip2": "^0.1.1",
+    "compressing": "^2.1.1",
+    "tar": "^7.5.16"
+  }
+}

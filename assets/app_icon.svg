@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- 左侧浅蓝渐变 -->
+    <linearGradient id="blue" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#B3E5FC"/>
+      <stop offset="100%" stop-color="#81D4FA"/>
+    </linearGradient>
+    <!-- 右侧浅粉渐变 -->
+    <linearGradient id="pink" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F8BBD0"/>
+      <stop offset="100%" stop-color="#F48FB1"/>
+    </linearGradient>
+    <!-- 文字裁剪：左半 -->
+    <clipPath id="leftHalf">
+      <rect x="0" y="0" width="512" height="1024"/>
+    </clipPath>
+    <!-- 文字裁剪：右半 -->
+    <clipPath id="rightHalf">
+      <rect x="512" y="0" width="512" height="1024"/>
+    </clipPath>
+  </defs>
+
+  <!-- 背景：左浅蓝右浅粉 -->
+  <rect x="0" y="0" width="512" height="1024" fill="url(#blue)"
+        clip-path="inset(0 0 0 0 round 220px 0 0 220px)"/>
+  <rect x="512" y="0" width="512" height="1024" fill="url(#pink)"
+        clip-path="inset(0 0 0 0 round 0 220px 220px 0)"/>
+
+  <!-- 白色爱心（居中） -->
+  <g transform="translate(512, 400)">
+    <path d="M0,-160 C-45,-220 -160,-220 -160,-100 C-160,0 0,100 0,160 C0,100 160,0 160,-100 C160,-220 45,-220 0,-160 Z"
+          fill="white" opacity="0.95"/>
+  </g>
+
+  <!-- Solace 文字（偏下）：左蓝右粉 -->
+  <text x="512" y="810" text-anchor="middle"
+        font-family="Helvetica Neue, Arial, sans-serif"
+        font-size="130" font-weight="700" letter-spacing="12"
+        fill="#4FC3F7" clip-path="url(#leftHalf)">Solace</text>
+  <text x="512" y="810" text-anchor="middle"
+        font-family="Helvetica Neue, Arial, sans-serif"
+        font-size="130" font-weight="700" letter-spacing="12"
+        fill="#F48FB1" clip-path="url(#rightHalf)">Solace</text>
+</svg>

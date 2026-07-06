@@ -1,0 +1,42 @@
+buildscript {
+    ext.kotlin_version = '2.1.0'
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://mirrors.tuna.tsinghua.edu.cn/maven/gradle-plugin' }
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://mirrors.tuna.tsinghua.edu.cn/maven/gradle-plugin' }
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+    project.evaluationDependsOn(':app')
+
+    // 为使用旧版 Flutter Gradle 属性的插件提供兼容
+    project.ext.flutter = [
+        compileSdkVersion: 34,
+        minSdkVersion: 23,
+        targetSdkVersion: 35
+    ]
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

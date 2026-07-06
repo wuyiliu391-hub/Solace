@@ -1,0 +1,192 @@
+{
+  "packName": "小狗表情包",
+  "packId": "puppy_default",
+  "description": "可爱白色小狗手绘表情包",
+  "author": "用户上传",
+  "stickers": [
+    {
+      "id": "puppy_happy_1",
+      "file": "mmexport1779624243874.jpeg",
+      "name": "小狗小摆",
+      "tags": ["开心", "高兴", "摇摆", "兴奋"],
+      "emotion": "happy",
+      "intensity": 0.7
+    },
+    {
+      "id": "puppy_star_eyes",
+      "file": "mmexport1779624244097.jpeg",
+      "name": "星星眼",
+      "tags": ["期待", "崇拜", "想要", "惊喜"],
+      "emotion": "excited",
+      "intensity": 0.8
+    },
+    {
+      "id": "puppy_joy",
+      "file": "mmexport1779624244229.jpeg",
+      "name": "超开心",
+      "tags": ["开心", "兴奋", "高兴", "激动"],
+      "emotion": "happy",
+      "intensity": 0.9
+    },
+    {
+      "id": "puppy_shy_pinch",
+      "file": "mmexport1779624244316.jpeg",
+      "name": "害羞捏脸",
+      "tags": ["害羞", "撒娇", "腼腆", "可爱"],
+      "emotion": "shy",
+      "intensity": 0.6
+    },
+    {
+      "id": "puppy_love_heart",
+      "file": "mmexport1779624244428.jpeg",
+      "name": "爱心",
+      "tags": ["喜欢", "爱", "心动", "甜蜜"],
+      "emotion": "love",
+      "intensity": 0.8
+    },
+    {
+      "id": "puppy_cool",
+      "file": "mmexport1779624244507.jpeg",
+      "name": "酷酷",
+      "tags": ["酷", "得意", "装酷", "自信"],
+      "emotion": "cool",
+      "intensity": 0.5
+    },
+    {
+      "id": "puppy_tea",
+      "file": "mmexport1779624244566.jpeg",
+      "name": "喝奶茶",
+      "tags": ["悠闲", "放松", "日常", "惬意"],
+      "emotion": "relaxed",
+      "intensity": 0.3
+    },
+    {
+      "id": "puppy_love_eyes",
+      "file": "mmexport1779624244627.jpeg",
+      "name": "爱心眼",
+      "tags": ["迷恋", "花痴", "喜欢", "爱慕"],
+      "emotion": "love",
+      "intensity": 0.9
+    },
+    {
+      "id": "puppy_pet",
+      "file": "mmexport1779624244693.jpeg",
+      "name": "被摸头",
+      "tags": ["享受", "舒服", "被宠爱", "幸福"],
+      "emotion": "happy",
+      "intensity": 0.6
+    },
+    {
+      "id": "puppy_love_beam",
+      "file": "mmexport1779624244756.jpeg",
+      "name": "发射爱心",
+      "tags": ["超级喜欢", "爱", "发射爱心", "表白"],
+      "emotion": "love",
+      "intensity": 1.0
+    },
+    {
+      "id": "puppy_hug",
+      "file": "mmexport1779624244815.jpeg",
+      "name": "抱抱",
+      "tags": ["拥抱", "安慰", "温暖", "亲密"],
+      "emotion": "affectionate",
+      "intensity": 0.7
+    },
+    {
+      "id": "puppy_thanks",
+      "file": "mmexport1779624244872.jpeg",
+      "name": "谢谢",
+      "tags": ["感谢", "谢谢", "感恩", "开心"],
+      "emotion": "grateful",
+      "intensity": 0.6
+    },
+    {
+      "id": "puppy_shy_love",
+      "file": "mmexport1779624245002.jpeg",
+      "name": "害羞喜欢",
+      "tags": ["害羞", "喜欢", "腼腆", "心动"],
+      "emotion": "shy",
+      "intensity": 0.7
+    },
+    {
+      "id": "puppy_upset",
+      "file": "mmexport1779624245064.jpeg",
+      "name": "委屈",
+      "tags": ["委屈", "不满", "生气", "难过"],
+      "emotion": "sad",
+      "intensity": 0.6
+    },
+    {
+      "id": "puppy_lick",
+      "file": "mmexport1779624245161.jpeg",
+      "name": "舔屏",
+      "tags": ["喜欢", "痴迷", "PrPr", "花痴"],
+      "emotion": "excited",
+      "intensity": 0.9
+    },
+    {
+      "id": "puppy_wait",
+      "file": "mmexport1779624245220.jpeg",
+      "name": "期待",
+      "tags": ["期待", "思念", "等待", "盼望"],
+      "emotion": "anticipating",
+      "intensity": 0.5
+    },
+    {
+      "id": "puppy_dance",
+      "file": "mmexport1779624590587.jpeg",
+      "name": "大狗大摆",
+      "tags": ["得意", "摇摆", "嚣张", "开心"],
+      "emotion": "happy",
+      "intensity": 0.8
+    },
+    {
+      "id": "puppy_angry_wait",
+      "file": "mmexport1779624590868.jpeg",
+      "name": "你给我等着",
+      "tags": ["生气", "愤怒", "威胁", "警告"],
+      "emotion": "angry",
+      "intensity": 0.9
+    },
+    {
+      "id": "puppy_tea_calm",
+      "file": "mmexport1779624590956.jpeg",
+      "name": "喝茶冷静",
+      "tags": ["冷静", "淡定", "无语", "悠闲"],
+      "emotion": "calm",
+      "intensity": 0.3
+    },
+    {
+      "id": "puppy_beg",
+      "file": "mmexport1779624591045.jpeg",
+      "name": "求了",
+      "tags": ["乞求", "拜托", "可怜", "请求"],
+      "emotion": "pleading",
+      "intensity": 0.7
+    },
+    {
+      "id": "puppy_kissed",
+      "file": "mmexport1779624591124.jpeg",
+      "name": "被亲了",
+      "tags": ["害羞", "开心", "被亲", "甜蜜"],
+      "emotion": "shy",
+      "intensity": 0.8
+    },
+    {
+      "id": "puppy_miss_call",
+      "file": "mmexport1779624591201.jpeg",
+      "name": "好想你",
+      "tags": ["想念", "思念", "打电话", "委屈"],
+      "emotion": "missing",
+      "intensity": 0.8
+    },
+    {
+      "id": "puppy_wait_bow",
+      "file": "mmexport1779624591274.jpeg",
+      "name": "等你",
+      "tags": ["等待", "期待", "约会", "开心"],
+      "emotion": "anticipating",
+      "intensity": 0.6
+    }
+  ]
+}

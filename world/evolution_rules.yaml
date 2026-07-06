@@ -1,0 +1,106 @@
+# ============================================================
+# 全生命周期数字生命世界 — Phase 2
+# 人格演化规则配置
+# ============================================================
+
+evolution:
+  # 每日微量漂移
+  dailyDrift:
+    rate: 0.001                    # 每天最多变化 0.1%
+    factors: ["基因表达", "当前环境", "社交频率", "年龄"]
+
+  # 事件驱动变化
+  eventDriven:
+    trauma:
+      impactMultiplier: 3.0
+      recoveryRate: 0.01           # 每天恢复 1%
+      canCauseTrait: true
+    achievement:
+      impactMultiplier: 1.5
+      affectsConfidence: true
+    betrayal:
+      impactMultiplier: 4.0
+      affectsTrust: true
+      canCauseTrauma: true
+    heartbreak:
+      impactMultiplier: 3.5
+      affectsIntimacy: true
+    loss:
+      impactMultiplier: 3.0
+      affectsAttachment: true
+    reconciliation:
+      impactMultiplier: 2.0
+      healingRate: 0.02            # 每天恢复 2%
+
+  # 年龄修正系数
+  ageModifier:
+    infant:     { volatility: 0.5, plasticity: 0.3 }
+    toddler:    { volatility: 0.8, plasticity: 0.5 }
+    childhood:  { volatility: 1.0, plasticity: 0.8 }
+    teenage:    { volatility: 1.5, plasticity: 1.0 }
+    youngAdult: { volatility: 1.0, plasticity: 0.7 }
+    adult:      { volatility: 0.5, plasticity: 0.4 }
+    senior:     { volatility: 0.2, plasticity: 0.2 }
+    elder:      { volatility: 0.1, plasticity: 0.1 }
+
+  # 阈值保护
+  threshold:
+    hardMin: 0.05
+    hardMax: 0.95
+    maxDailyChange: 0.05
+    cooldownDays: 7
+
+  # 自我保护机制
+  selfProtection:
+    highNeuroticism:
+      threshold: 0.85
+      action: "isolate"
+      recoveryRate: 0.002
+      durationDays: 14
+    lowAgreeableness:
+      threshold: 0.15
+      action: "avoid"
+      recoveryRate: 0.001
+      durationDays: 21
+    prolongedIsolation:
+      daysWithoutSocial: 3
+      action: "freeze"
+      recoveryRate: 0.003
+      durationDays: 7
+
+# ============================================================
+# 马斯洛需求配置
+# ============================================================
+maslow:
+  # 需求增长速率（未被满足时每心跳的增长量）
+  growthRate:
+    survival: 0.1
+    safety: 0.08
+    belonging: 0.06
+    esteem: 0.05
+    selfActualization: 0.03
+    transcendence: 0.01
+
+  # 需求衰减速率（被满足后每心跳的衰减量）
+  decayRate: 0.05
+
+  # 需求对行为的影响权重
+  behaviorWeight:
+    survival: 0.95
+    safety: 0.85
+    belonging: 0.70
+    esteem: 0.55
+    selfActualization: 0.40
+    transcendence: 0.25
+
+# ============================================================
+# 永生配置
+# ============================================================
+immortality:
+  minAge: 40
+  selfActualizationThreshold: 0.6
+  requiresInnerConflict: true
+  personalityBias:
+    openness: 0.3               # 高开放性倾向永生
+    neuroticism: -0.2           # 高神经质倾向不永生
+    conscientiousness: -0.1     # 高尽责性倾向接受自然规律
