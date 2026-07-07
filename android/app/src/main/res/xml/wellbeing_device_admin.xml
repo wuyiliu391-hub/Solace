@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Solace 作息陪伴 — 设备管理策略
+  仅声明 force-lock（锁屏）一项能力，用于「到点休息」时本地触发锁屏。
+  不声明 wipe-data、reset-password、encrypted-storage 等任何其它策略，
+  最小权限，杜绝越界。锁屏后用户用自己的 PIN 秒解，可逆、低伤害。
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>

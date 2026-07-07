@@ -10,6 +10,7 @@ import '../../config/tts_config.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../settings/ai_config_screen.dart';
 import '../settings/about_screen.dart';
+import '../settings/wellbeing_screen.dart';
 import '../../utils/safe_file_picker.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -100,6 +101,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: '配置 AI 接口和模型',
               onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const AIConfigScreen())),
+              colorScheme: colorScheme,
+            ),
+          ], colorScheme),
+          const SizedBox(height: 12),
+          _buildSectionTitle('陪伴', colorScheme),
+          _buildCard([
+            _buildNavTile(
+              icon: Icons.favorite_outline,
+              iconBgColor: Colors.pink.withOpacity(0.1),
+              title: '作息陪伴',
+              subtitle: '让 TA 关心你的作息，到点温柔提醒休息（本地）',
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const WellbeingScreen())),
               colorScheme: colorScheme,
             ),
           ], colorScheme),

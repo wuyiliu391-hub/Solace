@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <application
         android:label="Solace"
         android:name="${applicationName}"
@@ -48,6 +49,19 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- 作息陪伴 — 设备管理员（仅锁屏 force-lock），用户主动授予、可随时撤销 -->
+        <receiver
+            android:name=".WellbeingAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/wellbeing_device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- ─── 权限声明 ─── -->
@@ -84,4 +98,9 @@
     
     <!-- 设备操控 — 通知监听（可选，用于读取通知） -->
     <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"/>
+
+    <!-- 作息陪伴 — 使用情况统计（数字健康公开接口，仅前台 App 名 + 时长，读不到应用内文字）。
+         系统级权限，靠用户在 设置→特殊访问权限→使用情况访问 中手动授予。 -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions"/>
 </manifest>

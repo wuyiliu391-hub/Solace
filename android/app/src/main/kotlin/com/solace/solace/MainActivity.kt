@@ -1,13 +1,19 @@
 package com.solace.solace
 
 import android.accessibilityservice.AccessibilityService
+import android.app.AppOpsManager
+import android.app.admin.DevicePolicyManager
+import android.app.usage.UsageStatsManager
+import android.content.ComponentName
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.BatteryManager
 import android.os.Environment
+import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
 import android.view.KeyEvent
@@ -121,6 +127,14 @@ class MainActivity : FlutterActivity() {
                 deviceChannel?.invokeMethod(method, data)
             }
         }
+
+        // ─── 作息陪伴 MethodChannel（本地，零外传；只做锁屏 + 使用时长感知） ───
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.solace.solace/wellbeing"
+        ).setMethodCallHandler { call, result ->
+            handleWellbeingMethodCall(call, result)
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -133,6 +147,114 @@ class MainActivity : FlutterActivity() {
             return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    // ─── 作息陪伴方法处理（本地锁屏 + 使用时长感知，零数据外传） ───
+
+    private fun wellbeingAdmin(): ComponentName =
+        ComponentName(this, WellbeingAdminReceiver::class.java)
+
+    private fun handleWellbeingMethodCall(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        try {
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            when (call.method) {
+                // 是否已授予「设备管理员（仅锁屏）」
+                "isAdminActive" -> {
+                    result.success(dpm.isAdminActive(wellbeingAdmin()))
+                }
+                // 拉起系统的设备管理员授权页（用户主动同意才生效）
+                "requestAdmin" -> {
+                    val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                        putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, wellbeingAdmin())
+                        putExtra(
+                            DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                            "授予后，Solace 才能在你设定的休息时段温柔地为你锁屏。仅锁屏，你用自己的密码即可解开，可随时在系统设置里撤销。"
+                        )
+                    }
+                    startActivity(intent)
+                    result.success(true)
+                }
+                // 本地触发锁屏（仅在已授权时可用）
+                "lockNow" -> {
+                    if (dpm.isAdminActive(wellbeingAdmin())) {
+                        dpm.lockNow()
+                        result.success(true)
+                    } else {
+                        result.error("NO_ADMIN", "设备管理员未授权", null)
+                    }
+                }
+                // 是否已授予「使用情况访问」
+                "hasUsageAccess" -> {
+                    result.success(hasUsageStatsPermission())
+                }
+                // 拉起系统的「使用情况访问」授权页
+                "requestUsageAccess" -> {
+                    startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    result.success(true)
+                }
+                // 查询最近 N 分钟的前台使用时长（按包名聚合，只有包名+毫秒时长）
+                "queryUsage" -> {
+                    if (!hasUsageStatsPermission()) {
+                        result.error("NO_USAGE_ACCESS", "使用情况访问未授权", null)
+                        return
+                    }
+                    val windowMinutes = call.argument<Int>("windowMinutes") ?: 30
+                    result.success(queryForegroundUsage(windowMinutes))
+                }
+                else -> result.notImplemented()
+            }
+        } catch (e: Exception) {
+            result.error("WELLBEING_ERROR", e.message, null)
+        }
+    }
+
+    private fun hasUsageStatsPermission(): Boolean {
+        return try {
+            val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    packageName
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                appOps.checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    packageName
+                )
+            }
+            mode == AppOpsManager.MODE_ALLOWED
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * 汇总最近 windowMinutes 分钟内各前台应用的使用时长。
+     * 只返回 {packageName, totalMs}，不读取任何应用内文字/内容。
+     */
+    private fun queryForegroundUsage(windowMinutes: Int): String {
+        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val end = System.currentTimeMillis()
+        val begin = end - windowMinutes * 60_000L
+        val stats = usm.queryUsageStats(
+            UsageStatsManager.INTERVAL_BEST, begin, end
+        ) ?: emptyList()
+        val arr = JSONArray()
+        for (s in stats) {
+            if (s.totalTimeInForeground <= 0) continue
+            arr.put(JSONObject().apply {
+                put("packageName", s.packageName)
+                put("totalMs", s.totalTimeInForeground)
+                put("lastUsed", s.lastTimeUsed)
+            })
+        }
+        return arr.toString()
     }
 
     // ─── 设备操控方法处理 ───

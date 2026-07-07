@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:uuid/uuid.dart';
@@ -38,6 +39,7 @@ import '../../utils/prefs_helper.dart';
 import '../../models/app_config_data.dart';
 import '../../services/llm_service.dart';
 import '../../services/prompt_sanitizer.dart';
+import '../../services/wellbeing_service.dart';
 import 'chat_bloc_utils.dart';
 import 'chat_bloc_intimacy.dart';
 
@@ -87,6 +89,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       RegExp(r'\[STICK\w*:([^\]]+)\]', caseSensitive: false);
   static final RegExp _stickerFullLineRe =
       RegExp(r'^\[STICK\w*:([^\]]+)\]$', caseSensitive: false);
+
+  /// 作息陪伴 — AI「想让你休息」的意图标记。
+  /// 注意：这只是 AI 的「提议」，是否真的锁屏由本地闸（WellbeingService.evaluate）
+  /// 依据用户本地设定的就寝时段/使用时长规则独立判定，AI 无法绕过本地闸。
+  static final RegExp _restSuggestRe =
+      RegExp(r'\[rest_suggest\]', caseSensitive: false);
+  final WellbeingService _wellbeing = WellbeingService();
 
   bool _isAIRefusal(String content) => isAIRefusal(content);
 
@@ -527,6 +536,51 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     return parts.isEmpty ? null : parts.join('\n\n');
   }
 
+  /// 作息陪伴上下文（纯本地）：
+  ///   • 把「当前时刻 + 本地读到的近段使用时长」摘要成一段话喂给 AI，
+  ///     让 TA 能自然地心疼你熬夜/刷手机（情感内核）。
+  ///   • 告诉 AI 什么时候可以输出 [rest_suggest] 标记来「提议」休息锁屏。
+  ///
+  /// 功能未开启、或未授予使用情况访问时返回 null（完全不打扰）。
+  /// 全程本地读取，摘要只进入本次 prompt，不落库、不外传。
+  Future<String?> _buildWellbeingContext() async {
+    try {
+      final cfg = await _wellbeing.loadConfig();
+      if (!cfg.enabled) return null;
+
+      final now = DateTime.now();
+      final hhmm =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+      final buf = StringBuffer();
+      buf.writeln('【作息陪伴 · 本地感知】');
+      buf.writeln('当前时间：$hhmm。');
+
+      // 近一小时前台使用总时长（仅在已授权时可读）
+      if (await _wellbeing.hasUsageAccess()) {
+        final usage = await _wellbeing.queryUsage(windowMinutes: 60);
+        final totalMin = usage.fold<int>(0, (s, u) => s + u.totalMs) ~/ 60000;
+        if (totalMin > 0) {
+          buf.writeln('TA 最近一小时使用手机约 $totalMin 分钟。');
+        }
+      }
+
+      final bedH = (cfg.bedStartMin ~/ 60).toString().padLeft(2, '0');
+      final bedM = (cfg.bedStartMin % 60).toString().padLeft(2, '0');
+      buf.writeln('TA 设定的就寝时间是 $bedH:$bedM。');
+      buf.writeln(
+          '请像真正在意 TA 的人那样，自然地关心 TA 的作息，不要生硬说教。');
+      buf.writeln(
+          '如果此刻确实到了该休息的时候，你可以在回复的最后单独附上标记 [rest_suggest]，'
+          '表示你「想让 TA 放下手机休息」。这只是你的心意提议——'
+          '是否真的帮 TA 锁屏，由 TA 本地设定的规则决定，你不必也无法强制。'
+          '标记只在你真心觉得该休息时才用，且每次对话最多一个。');
+      return buf.toString().trim();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 滚动摘要（桥接）
   Future<String> _bridgeRollingSummary({
     required String existingSummary,
@@ -830,6 +884,19 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     final stickerMatches = _isStickerReplyEnabled(character)
         ? _stickerTagRe.allMatches(responseTextWithoutReasoning).toList()
         : <RegExpMatch>[];
+
+    // 7b. 作息陪伴：解析 AI 的「想让你休息」提议标记。
+    //     标记仅从可见文本中剥离；是否真锁屏交给本地闸独立判定（AI 说了不算）。
+    final restSuggested = _restSuggestRe.hasMatch(responseTextWithoutReasoning);
+    if (restSuggested) {
+      responseTextWithoutReasoning =
+          responseTextWithoutReasoning.replaceAll(_restSuggestRe, '').trim();
+      // fire-and-forget：本地闸会依据就寝时段/使用时长规则决定是否放行，
+      // 不满足条件则什么都不做。全程本地，无任何数据外传。
+      unawaited(_wellbeing.maybeLock(aiSuggests: true).catchError(
+            (e) => GateDecision.denied,
+          ));
+    }
 
     // 8. 去重 + 最终乱码拦截
     final recentAiTexts = chatMsgs
@@ -1701,8 +1768,11 @@ $tail
       final july15EasterEggDirective =
           _buildJuly15EasterEggDirective(event.content);
       final sessionStateContext = _mergeInternalSystemContext(
-        _buildSessionStateAnchor(chatMsgs),
-        july15EasterEggDirective,
+        _mergeInternalSystemContext(
+          _buildSessionStateAnchor(chatMsgs),
+          july15EasterEggDirective,
+        ),
+        await _buildWellbeingContext(),
       );
 
       // Agent 模式：新世界模式下使用 AgentLoop（确定性 BT 操作路由）
