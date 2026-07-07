@@ -1,6 +1,6 @@
 part of 'virtual_phone_bloc.dart';
 
-enum VpStatus { initial, loading, generating, ready, failed }
+enum VpStatus { initial, loading, generating, ready, failed, notGenerated }
 
 class VirtualPhoneState extends Equatable {
   final VpStatus status;

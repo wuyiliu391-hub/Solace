@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../blocs/virtual_phone/virtual_phone_bloc.dart';
@@ -12,12 +14,16 @@ enum VpAppKind { messages, contacts, notes, moments }
 class VpAppPage extends StatelessWidget {
   final VpAppKind kind;
   final String ownerName;
+
+  /// 手机主人（角色本人）头像，用于聊天页气泡/顶栏，视觉对齐单聊。
+  final String? ownerAvatarUrl;
   final VirtualPhoneState state;
 
   const VpAppPage({
     super.key,
     required this.kind,
     required this.ownerName,
+    this.ownerAvatarUrl,
     required this.state,
   });
 
@@ -50,7 +56,10 @@ class VpAppPage extends StatelessWidget {
   Widget _buildContent(BuildContext context) {
     switch (kind) {
       case VpAppKind.messages:
-        return _MessagesList(state: state, ownerName: ownerName);
+        return _MessagesList(
+            state: state,
+            ownerName: ownerName,
+            ownerAvatarUrl: ownerAvatarUrl);
       case VpAppKind.contacts:
         return _ContactsList(contacts: state.contacts);
       case VpAppKind.notes:
@@ -74,7 +83,9 @@ Widget _emptyHint(String text) => Center(
 class _MessagesList extends StatelessWidget {
   final VirtualPhoneState state;
   final String ownerName;
-  const _MessagesList({required this.state, required this.ownerName});
+  final String? ownerAvatarUrl;
+  const _MessagesList(
+      {required this.state, required this.ownerName, this.ownerAvatarUrl});
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +113,7 @@ class _MessagesList extends StatelessWidget {
               chat: chat,
               messages: state.messagesByChat[chat.id] ?? const [],
               ownerName: ownerName,
+              ownerAvatarUrl: ownerAvatarUrl,
             ),
           )),
         );
@@ -110,67 +122,206 @@ class _MessagesList extends StatelessWidget {
   }
 }
 
+/// 虚拟手机聊天记录页 —— 视觉 1:1 对齐单聊页（抖音风）。
+/// 手机主人（角色本人，fromOwner=true）在右侧蓝色气泡（等同单聊里的"我"），
+/// 对方（chat.title）在左侧白色气泡。纯文本、只读。
 class _ChatThreadPage extends StatelessWidget {
   final VpChat chat;
   final List<VpChatMessage> messages;
   final String ownerName;
+  final String? ownerAvatarUrl;
   const _ChatThreadPage({
     required this.chat,
     required this.messages,
     required this.ownerName,
+    this.ownerAvatarUrl,
   });
+
+  // 抖音风格配色（与单聊 _MessageBubble 保持一致）
+  static const Color _douyinBlue = Color(0xFF2B7BF5);
+  static const Color _douyinBlueDark = Color(0xFF4A90F7);
+  static const Color _bubbleLight = Color(0xFFFFFFFF);
+  static const Color _bubbleDark = Color(0xFF2C2C2C);
+  static const Color _textOnBlue = Colors.white;
+  static const Color _textOnWhite = Color(0xFF1A1A1A);
+  static const Color _textOnDark = Color(0xFFE8EAED);
+  static const double _avatarSize = 32.0;
+  static const double _bubbleRadius = 12.0;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+    final pageBg = isDark ? const Color(0xFF000000) : const Color(0xFFF5F5F5);
+    final partnerName = chat.title.isEmpty ? '对方' : chat.title;
+
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      appBar: AppBar(title: Text(chat.title), centerTitle: true),
+      backgroundColor: pageBg,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _appBarAvatar(partnerName),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                partnerName,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
       body: SafeArea(
         child: messages.isEmpty
             ? _emptyHint('没有消息')
             : ListView.builder(
-                padding: const EdgeInsets.all(12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 itemCount: messages.length,
-                itemBuilder: (context, i) {
-                  final m = messages[i];
-                  return _bubble(context, m);
-                },
+                itemBuilder: (context, i) => _row(context, messages[i], isDark),
               ),
       ),
     );
   }
 
-  Widget _bubble(BuildContext context, VpChatMessage m) {
-    final theme = Theme.of(context);
-    final mine = m.fromOwner; // 手机主人（角色本人）在右侧
-    final bg = mine ? const Color(0xFF95EC69) : theme.colorScheme.surfaceVariant;
+  /// 顶栏对方头像（首字母）+ 绿色在线点，模拟单聊。
+  Widget _appBarAvatar(String name) {
+    return SizedBox(
+      width: 36,
+      height: 36,
+      child: Stack(
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: const Color(0xFFE8E4EC),
+            child: Text(
+              name.isNotEmpty ? name.characters.first : '?',
+              style: const TextStyle(
+                  color: Color(0xFF9C27B0),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: const Color(0xFF34C759),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, VpChatMessage m, bool isDark) {
+    final mine = m.fromOwner; // 主人（角色）在右，等同单聊里的"我"
+    final bubbleColor = mine
+        ? (isDark ? _douyinBlueDark : _douyinBlue)
+        : (isDark ? _bubbleDark : _bubbleLight);
+    final textColor =
+        mine ? _textOnBlue : (isDark ? _textOnDark : _textOnWhite);
+
+    final avatar = mine
+        ? _avatar(ownerAvatarUrl, ownerName, isOwner: true)
+        : _avatar(null, chat.title, isOwner: false);
+
+    final bubble = Container(
+      constraints:
+          BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.68),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: bubbleColor,
+        borderRadius: BorderRadius.circular(_bubbleRadius),
+      ),
+      child: Text(m.content,
+          style: TextStyle(color: textColor, fontSize: 15, height: 1.35)),
+    );
+
+    final rowChildren = mine
+        ? [bubble, const SizedBox(width: 8), avatar]
+        : [avatar, const SizedBox(width: 8), bubble];
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
+          Row(
+            mainAxisAlignment:
+                mine ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: rowChildren,
+          ),
           if (m.timeLabel.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(bottom: 2),
+              padding: EdgeInsets.only(
+                  top: 3, left: mine ? 0 : _avatarSize + 8,
+                  right: mine ? _avatarSize + 8 : 0),
               child: Text(m.timeLabel,
-                  style: const TextStyle(color: Colors.grey, fontSize: 10)),
+                  style: TextStyle(
+                      color: isDark ? Colors.white38 : Colors.black38,
+                      fontSize: 10)),
             ),
-          Container(
-            constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.72),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Text(m.content,
-                style: TextStyle(
-                    color: mine ? Colors.black87 : theme.colorScheme.onSurface)),
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _avatar(String? url, String name, {required bool isOwner}) {
+    Widget fallback() => Container(
+          width: _avatarSize,
+          height: _avatarSize,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isOwner
+                ? const Color(0xFFD2E3FC)
+                : const Color(0xFFE8E4EC),
+          ),
+          child: Text(
+            name.isNotEmpty ? name.characters.first : '?',
+            style: TextStyle(
+                color: isOwner
+                    ? const Color(0xFF1A73E8)
+                    : const Color(0xFF9C27B0),
+                fontSize: 14,
+                fontWeight: FontWeight.w600),
+          ),
+        );
+
+    if (url == null || url.isEmpty) return fallback();
+
+    final isFile =
+        url.startsWith('/') || url.startsWith('C:') || url.startsWith('\\');
+    return SizedBox(
+      width: _avatarSize,
+      height: _avatarSize,
+      child: ClipOval(
+        child: isFile
+            ? Image.file(File(url),
+                width: _avatarSize,
+                height: _avatarSize,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => fallback())
+            : Image.network(url,
+                width: _avatarSize,
+                height: _avatarSize,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => fallback()),
       ),
     );
   }

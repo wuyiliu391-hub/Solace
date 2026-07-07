@@ -18,6 +18,8 @@ import '../../models/intimacy_event.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
 import '../virtual_phone/virtual_phone_screen.dart';
+import '../../models/virtual_phone/virtual_phone.dart';
+import '../../services/virtual_phone_generator.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../services/ai_status_service.dart';
 import '../../services/heartbeat_service.dart';
@@ -1247,6 +1249,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       // 后台预生成常用回复音频（不阻塞 UI）
       _pregenerateVoiceReplies();
 
+      // 后台静默预生成该角色的虚拟手机内容（仅未生成过时，省 token）
+      _pregenerateVirtualPhone();
+
       // 从塔罗牌等活动预填消息，自动发送
       if (widget.initialMessage != null && widget.initialMessage!.isNotEmpty) {
         Future.delayed(const Duration(milliseconds: 800), () {
@@ -1257,6 +1262,72 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         });
       }
     }
+  }
+
+  /// 后台静默预生成该角色的虚拟手机内容。
+  ///
+  /// 只在「从未生成过 / 上次失败」时才跑一次 LLM，成功后永久缓存，
+  /// 之后点手机图标进去只读缓存、不再花 token。用户仍可手动刷新重生成。
+  void _pregenerateVirtualPhone() {
+    Future.microtask(() async {
+      try {
+        final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+        final characterId = widget.session.aiCharacterId;
+
+        var phone = await storage.getVirtualPhoneByCharacter(characterId);
+        // 正在生成中（其它入口触发）跳过
+        if (phone != null && phone.status == 'generating') return;
+
+        final character = await storage.getAICharacter(characterId);
+        if (character == null) return;
+        final user = await storage.getCurrentUser();
+        final generator = VirtualPhoneGenerator(
+          aiService: AIService(storage),
+          storage: storage,
+        );
+
+        // 已就绪：不重建，改为「生活推进」——像真人一样，手机内容跟着最近发生的事缓慢生长。
+        // 仅当自上次更新以来又聊了足够多、且过了冷却期，才后台静默追加少量新内容。
+        if (phone != null && phone.isReady) {
+          const advanceMsgThreshold = 20; // 新增可见消息阈值
+          const advanceCooldown = Duration(hours: 6); // 冷却，避免频繁增量
+          final nowMsgCount =
+              await storage.countVisibleChatMessages(characterId, user?.id ?? '');
+          final delta = nowMsgCount - phone.lastAdvanceMsgCount;
+          final cooledDown = phone.lastAdvanceAt == null ||
+              DateTime.now().difference(phone.lastAdvanceAt!) >= advanceCooldown;
+          if (delta >= advanceMsgThreshold && cooledDown) {
+            await generator.advanceLife(
+              phone: phone,
+              character: character,
+              userNickname: user?.nickname ?? '',
+              userId: user?.id ?? '',
+            );
+            debugPrint(
+                'VirtualPhone: 后台生活推进完成 -> ${character.name} (Δmsg=$delta)');
+          }
+          return;
+        }
+
+        // 从未生成/上次失败：首次全量建档
+        phone ??= VirtualPhone(
+          id: const Uuid().v4(),
+          characterId: characterId,
+          ownerName: character.name,
+          createdAt: DateTime.now(),
+        );
+        await storage.saveVirtualPhone(phone);
+        await generator.generateAll(
+          phone: phone,
+          character: character,
+          userNickname: user?.nickname ?? '',
+          userId: user?.id ?? '',
+        );
+        debugPrint('VirtualPhone: 后台预生成完成 -> ${character.name}');
+      } catch (e) {
+        debugPrint('VirtualPhone 后台预生成失败: $e');
+      }
+    });
   }
 
   /// 后台预生成角色常用回复的 TTS 音频（已禁用，避免阻塞 TTS 队列）

@@ -791,130 +791,47 @@ class _DiscoverPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final isDark = cs.brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor:
-          isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF8F9FA),
       appBar: AppBar(
-        title: const Text('发现'),
-        backgroundColor: Colors.transparent,
-        foregroundColor: cs.onSurface,
-        elevation: 0,
-        centerTitle: true,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: [
-          const SizedBox(height: 8),
-          _section(context, cs, tt, '社交互动', [
-            _entry(Icons.photo_library_outlined, '朋友圈', '查看 AI 的动态',
-                '/moments', const Color(0xFF1A73E8)),
-            _entry(Icons.psychology_outlined, '记忆库', '回顾你们的回忆', '/memory',
-                const Color(0xFF9334E6)),
-            _entry(Icons.mark_email_unread_outlined, '信箱', '查看 AI 写给你的来信',
-                '/mailbox', const Color(0xFFE8710A)),
-          ]),
-          const SizedBox(height: 16),
-          _section(context, cs, tt, '成长记录', [
-            _entry(Icons.trending_up, '成长轨迹', '查看成长记录', '/growth',
-                const Color(0xFF1E8E3E)),
-            _entry(Icons.auto_awesome, 'AI 动态', '查看 AI 的活动', '/ai_activity',
-                const Color(0xFFF9AB00)),
-            _entry(Icons.thermostat, '关系温度', '查看关系仪表盘', '/relationship',
-                const Color(0xFFD93025)),
-          ]),
-          const SizedBox(height: 16),
-          _section(context, cs, tt, '休闲娱乐', [
-            _entry(Icons.auto_stories, '故事书', '与 AI 共创互动故事', '/story',
-                const Color(0xFFEA4C89)),
-            _entry(Icons.casino, '幸运转盘', '试试手气', '/lucky_wheel',
-                const Color(0xFF12B5CB)),
-            _entry(Icons.auto_fix_high, '塔罗牌', '每日占卜', '/tarot',
-                const Color(0xFF7B61FF)),
-          ]),
-          const SizedBox(height: 24),
-        ],
-      ),
+          title: const Text('发现'), backgroundColor: cs.surface, elevation: 0),
+      body: ListView(children: [
+        _tile(context, Icons.photo_library, '朋友圈', '查看 AI 的动态', '/moments', cs,
+            tt),
+        _tile(context, Icons.psychology, '记忆库', '回顾你们的回忆', '/memory', cs, tt),
+        _tile(context, Icons.mark_email_unread_outlined, '信箱', '查看 AI 写给你的来信',
+            '/mailbox', cs, tt),
+        _tile(context, Icons.auto_stories, '故事书', '与 AI 共创互动故事', '/story', cs,
+            tt),
+        _tile(context, Icons.casino, '幸运转盘', '试试手气', '/lucky_wheel', cs, tt),
+        _tile(context, Icons.auto_fix_high, '塔罗牌', '每日占卜', '/tarot', cs, tt),
+        _tile(context, Icons.trending_up, '成长轨迹', '查看成长记录', '/growth', cs, tt),
+        _tile(context, Icons.auto_awesome, 'AI 动态', '查看 AI 的活动', '/ai_activity',
+            cs, tt),
+        _tile(context, Icons.thermostat, '关系温度', '查看关系仪表盘', '/relationship', cs,
+            tt),
+      ]),
     );
   }
 
-  Widget _section(BuildContext context, ColorScheme cs, TextTheme tt,
-      String title, List<_DiscoverEntry> entries) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-          child: Text(
-            title,
-            style: tt.bodySmall?.copyWith(
-              color: cs.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            color: cs.surface,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              for (int i = 0; i < entries.length; i++) ...[
-                if (i > 0)
-                  Divider(
-                    height: 1,
-                    thickness: 0.5,
-                    indent: 64,
-                    color: cs.outlineVariant.withOpacity(0.5),
-                  ),
-                _tile(context, entries[i], cs, tt),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _tile(BuildContext ctx, _DiscoverEntry e, ColorScheme cs,
-      TextTheme tt) {
+  Widget _tile(BuildContext ctx, IconData icon, String title, String subtitle,
+      String route, ColorScheme cs, TextTheme tt) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: e.color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(e.icon, color: e.color, size: 22),
-      ),
-      title: Text(e.title,
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+              color: cs.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, color: cs.primary, size: 22)),
+      title: Text(title,
           style: tt.bodyLarge?.copyWith(fontWeight: FontWeight.w500)),
-      subtitle: Text(e.subtitle,
+      subtitle: Text(subtitle,
           style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
       trailing: Icon(Icons.chevron_right, color: cs.onSurfaceVariant, size: 20),
-      onTap: () => onNavigate?.call(e.route),
+      onTap: () => onNavigate?.call(route),
     );
   }
 }
-
-class _DiscoverEntry {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final String route;
-  final Color color;
-  const _DiscoverEntry(
-      this.icon, this.title, this.subtitle, this.route, this.color);
-}
-
-_DiscoverEntry _entry(IconData icon, String title, String subtitle,
-        String route, Color color) =>
-    _DiscoverEntry(icon, title, subtitle, route, color);
 
 class _ChatLauncher extends StatefulWidget {
   final String sessionId;

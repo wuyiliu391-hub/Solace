@@ -64,8 +64,6 @@ class BtOperationLockService {
         return BtActionScope.profileScope;
       case BtPermissionCategory.appearance:
         return BtActionScope.appearanceScope;
-      case BtPermissionCategory.device:
-        return BtActionScope.deviceScope;
     }
   }
 
@@ -123,37 +121,6 @@ class BtOperationLockService {
       case BtActionType.setDarkTheme:
       case BtActionType.setSystemTheme:
         return BtTargetType.theme;
-
-      // 设备操控
-      case BtActionType.phoneTap:
-      case BtActionType.phoneSwipe:
-      case BtActionType.phoneLongPress:
-      case BtActionType.phoneScroll:
-      case BtActionType.phoneBack:
-      case BtActionType.phoneHome:
-      case BtActionType.phoneRecentApps:
-      case BtActionType.phoneTypeText:
-      case BtActionType.phoneClickText:
-        return BtTargetType.device;
-      case BtActionType.phoneOpenApp:
-        return BtTargetType.phoneApp;
-      case BtActionType.phoneScreenRead:
-      case BtActionType.phoneTakeScreenshot:
-        return BtTargetType.phoneScreen;
-      case BtActionType.phoneGetNotifications:
-      case BtActionType.phoneOpenNotificationsPanel:
-      case BtActionType.phoneQuickSettings:
-        return BtTargetType.phoneNotification;
-      case BtActionType.phoneSetWifi:
-      case BtActionType.phoneSetBluetooth:
-      case BtActionType.phoneSetVolume:
-      case BtActionType.phoneSetBrightness:
-        return BtTargetType.phoneSystemSetting;
-      case BtActionType.phoneExecShell:
-      case BtActionType.phoneInstallApp:
-      case BtActionType.phoneUninstallApp:
-      case BtActionType.phoneGrantPermission:
-        return BtTargetType.device;
     }
   }
 

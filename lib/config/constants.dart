@@ -261,32 +261,6 @@ class PrefKeys {
   static const String btPermissionDarkTheme = 'bt_permission_dark_theme';
   static const String btPermissionSystemTheme = 'bt_permission_system_theme';
 
-  // ─── 设备操控 ───
-  static const String btPermissionDeviceMaster = 'bt_permission_device_master';
-  static const String btPermissionDeviceTap = 'bt_permission_device_tap';
-  static const String btPermissionDeviceSwipe = 'bt_permission_device_swipe';
-  static const String btPermissionDeviceLongPress =
-      'bt_permission_device_long_press';
-  static const String btPermissionDeviceNavigate =
-      'bt_permission_device_navigate';
-  static const String btPermissionDeviceTypeText =
-      'bt_permission_device_type_text';
-  static const String btPermissionDeviceClickText =
-      'bt_permission_device_click_text';
-  static const String btPermissionDeviceOpenApp =
-      'bt_permission_device_open_app';
-  static const String btPermissionDeviceScreenRead =
-      'bt_permission_device_screen_read';
-  static const String btPermissionDeviceNotifications =
-      'bt_permission_device_notifications';
-  static const String btPermissionDeviceScreenshot =
-      'bt_permission_device_screenshot';
-  static const String btPermissionDeviceSystemSettings =
-      'bt_permission_device_system_settings';
-  static const String btPermissionDeviceShell = 'bt_permission_device_shell';
-  static const String btPermissionDeviceAppManagement =
-      'bt_permission_device_app_management';
-
   static const List<String> btAllPermissionKeys = [
     btPermissionContactRemark,
     btPermissionContactAvatar,
@@ -311,21 +285,6 @@ class PrefKeys {
     btPermissionLightTheme,
     btPermissionDarkTheme,
     btPermissionSystemTheme,
-
-    // 设备操控
-    btPermissionDeviceTap,
-    btPermissionDeviceSwipe,
-    btPermissionDeviceLongPress,
-    btPermissionDeviceNavigate,
-    btPermissionDeviceTypeText,
-    btPermissionDeviceClickText,
-    btPermissionDeviceOpenApp,
-    btPermissionDeviceScreenRead,
-    btPermissionDeviceNotifications,
-    btPermissionDeviceScreenshot,
-    btPermissionDeviceSystemSettings,
-    btPermissionDeviceShell,
-    btPermissionDeviceAppManagement,
   ];
 
   // ─── Core Hub 中层 ───
@@ -430,7 +389,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 50;
+  static const int dbVersion = 51;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;

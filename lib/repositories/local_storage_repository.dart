@@ -579,6 +579,68 @@ class LocalStorageRepository {
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'updatedAt': 'TEXT NOT NULL DEFAULT ""',
     },
+    'virtual_phones': {
+      'id': 'TEXT PRIMARY KEY',
+      'characterId': 'TEXT NOT NULL DEFAULT ""',
+      'ownerName': 'TEXT NOT NULL DEFAULT ""',
+      'wallpaperColor': 'INTEGER NOT NULL DEFAULT 4283871606',
+      'status': "TEXT NOT NULL DEFAULT 'empty'",
+      'generatedAt': 'TEXT',
+      'lastAdvanceMsgCount': 'INTEGER NOT NULL DEFAULT 0',
+      'lastAdvanceAt': 'TEXT',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'updatedAt': 'TEXT',
+      'sync_seq': 'INTEGER NOT NULL DEFAULT 0',
+    },
+    'vp_contacts': {
+      'id': 'TEXT PRIMARY KEY',
+      'phoneId': 'TEXT NOT NULL DEFAULT ""',
+      'characterId': 'TEXT NOT NULL DEFAULT ""',
+      'name': 'TEXT NOT NULL DEFAULT ""',
+      'relation': 'TEXT NOT NULL DEFAULT ""',
+      'note': 'TEXT NOT NULL DEFAULT ""',
+      'accentColor': 'INTEGER NOT NULL DEFAULT 4278223103',
+      'isUser': 'INTEGER NOT NULL DEFAULT 0',
+      'pinned': 'INTEGER NOT NULL DEFAULT 0',
+      'orderIndex': 'INTEGER NOT NULL DEFAULT 0',
+    },
+    'vp_chats': {
+      'id': 'TEXT PRIMARY KEY',
+      'phoneId': 'TEXT NOT NULL DEFAULT ""',
+      'characterId': 'TEXT NOT NULL DEFAULT ""',
+      'contactId': 'TEXT NOT NULL DEFAULT ""',
+      'title': 'TEXT NOT NULL DEFAULT ""',
+      'lastPreview': 'TEXT NOT NULL DEFAULT ""',
+      'orderIndex': 'INTEGER NOT NULL DEFAULT 0',
+    },
+    'vp_chat_messages': {
+      'id': 'TEXT PRIMARY KEY',
+      'chatId': 'TEXT NOT NULL DEFAULT ""',
+      'fromOwner': 'INTEGER NOT NULL DEFAULT 0',
+      'content': 'TEXT NOT NULL DEFAULT ""',
+      'timeLabel': 'TEXT NOT NULL DEFAULT ""',
+      'orderIndex': 'INTEGER NOT NULL DEFAULT 0',
+    },
+    'vp_notes': {
+      'id': 'TEXT PRIMARY KEY',
+      'phoneId': 'TEXT NOT NULL DEFAULT ""',
+      'characterId': 'TEXT NOT NULL DEFAULT ""',
+      'title': 'TEXT NOT NULL DEFAULT ""',
+      'body': 'TEXT NOT NULL DEFAULT ""',
+      'dateLabel': 'TEXT NOT NULL DEFAULT ""',
+      'aboutUser': 'INTEGER NOT NULL DEFAULT 0',
+      'orderIndex': 'INTEGER NOT NULL DEFAULT 0',
+    },
+    'vp_moments': {
+      'id': 'TEXT PRIMARY KEY',
+      'phoneId': 'TEXT NOT NULL DEFAULT ""',
+      'characterId': 'TEXT NOT NULL DEFAULT ""',
+      'content': 'TEXT NOT NULL DEFAULT ""',
+      'timeLabel': 'TEXT NOT NULL DEFAULT ""',
+      'likes': 'INTEGER NOT NULL DEFAULT 0',
+      'comments': 'TEXT NOT NULL DEFAULT ""',
+      'orderIndex': 'INTEGER NOT NULL DEFAULT 0',
+    },
     'ai_wallets': {
       'characterId': 'TEXT PRIMARY KEY',
       'balance': 'INTEGER NOT NULL DEFAULT 50',
@@ -776,6 +838,14 @@ class LocalStorageRepository {
       case 'story_scenes':
       case 'story_saves':
         await _createStoryTables(db);
+        break;
+      case 'virtual_phones':
+      case 'vp_contacts':
+      case 'vp_chats':
+      case 'vp_chat_messages':
+      case 'vp_notes':
+      case 'vp_moments':
+        await _createVirtualPhoneTables(db);
         break;
       case 'shop_items':
         await db.execute(
@@ -1316,12 +1386,19 @@ class LocalStorageRepository {
       // 虚拟手机模块（每个 AI 角色的专属虚构手机，纯本地生成内容）
       await _createVirtualPhoneTables(db);
     }
+    if (oldVersion < 51) {
+      // 虚拟手机「生活推进」增量追踪列（首次全量后，跟随关系缓慢生长）
+      await _addColumnIfNotExists(
+          db, 'virtual_phones', 'lastAdvanceMsgCount', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'virtual_phones', 'lastAdvanceAt', 'TEXT');
+    }
   }
 
   /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
   static Future<void> _createVirtualPhoneTables(Database db) async {
     await db.execute(
-        ''' CREATE TABLE IF NOT EXISTS virtual_phones ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, ownerName TEXT NOT NULL DEFAULT '', wallpaperColor INTEGER NOT NULL DEFAULT 4283871606, status TEXT NOT NULL DEFAULT 'empty', generatedAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+        ''' CREATE TABLE IF NOT EXISTS virtual_phones ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, ownerName TEXT NOT NULL DEFAULT '', wallpaperColor INTEGER NOT NULL DEFAULT 4283871606, status TEXT NOT NULL DEFAULT 'empty', generatedAt TEXT, lastAdvanceMsgCount INTEGER NOT NULL DEFAULT 0, lastAdvanceAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
         ''' CREATE INDEX IF NOT EXISTS idx_vphone_char ON virtual_phones(characterId) ''');
     await db.execute(
@@ -3717,6 +3794,18 @@ class LocalStorageRepository {
       'moment_bookmarks',
       'moment_notifications',
       'trending_tags',
+      // 故事书模块（DB v49）
+      'story_books',
+      'story_segments',
+      'story_scenes',
+      'story_saves',
+      // 虚拟手机模块（DB v50）
+      'virtual_phones',
+      'vp_contacts',
+      'vp_chats',
+      'vp_chat_messages',
+      'vp_notes',
+      'vp_moments',
     ];
     for (int i = 0; i < allTables.length; i++) {
       final table = allTables[i];
@@ -3882,6 +3971,18 @@ class LocalStorageRepository {
       'moment_bookmarks',
       'moment_notifications',
       'trending_tags',
+      // 故事书模块（DB v49）
+      'story_books',
+      'story_segments',
+      'story_scenes',
+      'story_saves',
+      // 虚拟手机模块（DB v50）
+      'virtual_phones',
+      'vp_contacts',
+      'vp_chats',
+      'vp_chat_messages',
+      'vp_notes',
+      'vp_moments',
     ];
 
     final totalTables = allTables.length;
@@ -5064,6 +5165,33 @@ class LocalStorageRepository {
     final maps =
         await db.query('virtual_phones', where: 'id = ?', whereArgs: [id]);
     return maps.isNotEmpty ? VirtualPhone.fromMap(maps.first) : null;
+  }
+
+  /// 统计某角色与某用户之间「真实单聊」的可见消息累计数。
+  /// 作为虚拟手机「生活推进」的活跃度信号（排除系统/隐藏/幽灵消息）。
+  Future<int> countVisibleChatMessages(
+      String characterId, String userId) async {
+    try {
+      final db = await _ensureDb();
+      final sessions = await getChatSessionsByCharacterId(characterId);
+      final mine = sessions.where((s) => s.userId == userId).toList();
+      if (mine.isEmpty) return 0;
+      var total = 0;
+      for (final s in mine) {
+        final rows = await db.rawQuery(
+          "SELECT COUNT(*) AS c FROM chat_messages WHERE chatId = ? "
+          "AND (isSystem IS NULL OR isSystem = 0) "
+          "AND (isHidden IS NULL OR isHidden = 0) "
+          "AND (isGhost IS NULL OR isGhost = 0)",
+          [s.id],
+        );
+        total += Sqflite.firstIntValue(rows) ?? 0;
+      }
+      return total;
+    } catch (e) {
+      debugPrint('countVisibleChatMessages failed: $e');
+      return 0;
+    }
   }
 
   /// 清空某部手机的全部子内容（重新全量生成前调用）

@@ -58,7 +58,7 @@ class _LoaderState extends State<_Loader> {
     if (!mounted) return;
     context.read<VirtualPhoneBloc>().add(
           VirtualPhoneOpened(widget.character,
-              userNickname: user?.nickname ?? ''),
+              userNickname: user?.nickname ?? '', userId: user?.id ?? ''),
         );
   }
 
@@ -73,18 +73,19 @@ class _VirtualPhoneView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return BlocBuilder<VirtualPhoneBloc, VirtualPhoneState>(
       builder: (context, state) {
-        final wallpaper = Color(state.phone?.wallpaperColor ?? 0xFFF472B6);
         return Scaffold(
+          backgroundColor: cs.surface,
           body: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  wallpaper,
-                  Color.lerp(wallpaper, Colors.black, 0.45) ?? wallpaper,
+                  cs.surface,
+                  cs.surfaceContainerHighest,
                 ],
               ),
             ),
@@ -100,38 +101,53 @@ class _VirtualPhoneView extends StatelessWidget {
   Widget _buildBody(BuildContext context, VirtualPhoneState state) {
     switch (state.status) {
       case VpStatus.loading:
+        return _buildLoading(context);
       case VpStatus.generating:
         return _buildGenerating(context, state);
       case VpStatus.failed:
         return _buildFailed(context, state);
       case VpStatus.ready:
+      case VpStatus.notGenerated:
+        // 外壳与图标常驻写死；内容有没有都进主屏，内页各自处理空态。
         return _buildHome(context, state);
       case VpStatus.initial:
-        return const Center(
-            child: CircularProgressIndicator(color: Colors.white));
+        return _buildLoading(context);
     }
   }
 
-  Widget _buildGenerating(BuildContext context, VirtualPhoneState state) {
+  Widget _buildLoading(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Column(
       children: [
         _topBar(context, character.name),
         const Spacer(),
-        const CircularProgressIndicator(color: Colors.white),
+        CircularProgressIndicator(color: cs.primary),
+        const Spacer(),
+      ],
+    );
+  }
+
+  Widget _buildGenerating(BuildContext context, VirtualPhoneState state) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        _topBar(context, character.name),
+        const Spacer(),
+        CircularProgressIndicator(color: cs.primary),
         const SizedBox(height: 20),
         Text(
           state.status == VpStatus.generating
               ? '正在生成 ${character.name} 的手机世界…'
               : '载入中…',
-          style: const TextStyle(color: Colors.white, fontSize: 15),
+          style: TextStyle(color: cs.onSurface, fontSize: 15),
         ),
         const SizedBox(height: 8),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 48),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 48),
           child: Text(
             '依据 TA 的人设虚构，全部内容仅存本地',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white70, fontSize: 12),
+            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
           ),
         ),
         const Spacer(),
@@ -140,16 +156,17 @@ class _VirtualPhoneView extends StatelessWidget {
   }
 
   Widget _buildFailed(BuildContext context, VirtualPhoneState state) {
+    final cs = Theme.of(context).colorScheme;
     return Column(
       children: [
         _topBar(context, character.name),
         const Spacer(),
-        const Icon(Icons.cloud_off_rounded, color: Colors.white70, size: 48),
+        Icon(Icons.cloud_off_rounded, color: cs.onSurfaceVariant, size: 48),
         const SizedBox(height: 16),
         Text(
           state.error ?? '生成失败',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white, fontSize: 14),
+          style: TextStyle(color: cs.onSurface, fontSize: 14),
         ),
         const SizedBox(height: 20),
         FilledButton.tonal(
@@ -162,6 +179,7 @@ class _VirtualPhoneView extends StatelessWidget {
     );
   }
   Widget _buildHome(BuildContext context, VirtualPhoneState state) {
+    final cs = Theme.of(context).colorScheme;
     return Column(
       children: [
         _topBar(context, character.name, showRefresh: true),
@@ -172,6 +190,7 @@ class _VirtualPhoneView extends StatelessWidget {
             crossAxisCount: 4,
             mainAxisSpacing: 22,
             crossAxisSpacing: 8,
+            childAspectRatio: 0.72,
             children: [
               _appIcon(
                 context,
@@ -209,11 +228,14 @@ class _VirtualPhoneView extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.only(bottom: 12, left: 24, right: 24),
           child: Text(
-            '虚构内容 · 仅存本地',
+            state.status == VpStatus.notGenerated
+                ? '内容正在后台准备中，稍后再来即可 · 也可点右上角刷新立即生成'
+                : '虚构内容 · 仅存本地',
+            textAlign: TextAlign.center,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.6), fontSize: 11),
+                color: cs.onSurfaceVariant, fontSize: 11),
           ),
         ),
       ],
@@ -225,6 +247,7 @@ class _VirtualPhoneView extends StatelessWidget {
       builder: (_) => VpAppPage(
         kind: kind,
         ownerName: character.name,
+        ownerAvatarUrl: character.avatarUrl,
         state: state,
       ),
     ));
@@ -289,7 +312,8 @@ class _VirtualPhoneView extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             label,
-            style: const TextStyle(color: Colors.white, fontSize: 12),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface, fontSize: 12),
           ),
         ],
       ),
@@ -297,50 +321,102 @@ class _VirtualPhoneView extends StatelessWidget {
   }
 
   Widget _topBar(BuildContext context, String name, {bool showRefresh = false}) {
+    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 8, 8, 0),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                color: Colors.white, size: 20),
+            icon: Icon(Icons.arrow_back_ios_new_rounded,
+                color: cs.onSurface, size: 20),
             onPressed: () => Navigator.of(context).maybePop(),
           ),
           Expanded(
             child: Text(
               '$name 的手机',
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: cs.onSurface,
                   fontSize: 16,
                   fontWeight: FontWeight.w600),
             ),
           ),
           if (showRefresh)
-            IconButton(
-              tooltip: '重新生成',
-              icon: const Icon(Icons.refresh_rounded,
-                  color: Colors.white, size: 22),
-              onPressed: () => _confirmRefresh(context),
+            PopupMenuButton<String>(
+              tooltip: '更新',
+              icon: Icon(Icons.refresh_rounded, color: cs.onSurface, size: 22),
+              onSelected: (v) {
+                if (v == 'advance') {
+                  _confirmAdvance(context);
+                } else if (v == 'rebuild') {
+                  _confirmRebuild(context);
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'advance',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.auto_awesome_rounded),
+                    title: Text('更新最近生活'),
+                    subtitle: Text('追加近况，保留旧内容'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'rebuild',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.restart_alt_rounded),
+                    title: Text('彻底重建'),
+                    subtitle: Text('清空后全部重新生成'),
+                  ),
+                ),
+              ],
             ),
         ],
       ),
     );
   }
 
-  Future<void> _confirmRefresh(BuildContext context) async {
+  /// 生活推进：增量追加最近内容，不清空。
+  Future<void> _confirmAdvance(BuildContext context) async {
     final bloc = context.read<VirtualPhoneBloc>();
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('重新生成'),
-        content: const Text('会依据角色人设重新虚构整台手机的内容，原内容将被替换。确定吗？'),
+        title: const Text('更新最近生活'),
+        content: const Text('会依据你们最近的相处，往手机里补充一些新动态/心事，旧内容保留。'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('取消')),
           FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('重新生成')),
+              child: const Text('更新')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      bloc.add(const VirtualPhoneAdvanced());
+    }
+  }
+
+  /// 彻底重建：清空后全量重新生成（二级、谨慎）。
+  Future<void> _confirmRebuild(BuildContext context) async {
+    final bloc = context.read<VirtualPhoneBloc>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('彻底重建'),
+        content: const Text('会清空这台手机的全部内容，依据角色人设与记忆重新虚构一遍。原有的动态、聊天、备忘都会被替换。确定吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('彻底重建')),
         ],
       ),
     );

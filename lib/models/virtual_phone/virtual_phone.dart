@@ -20,6 +20,13 @@ class VirtualPhone extends Equatable {
   /// 最近一次全量生成时间
   final DateTime? generatedAt;
 
+  /// 最近一次「生活推进」（增量追加）时，真实单聊的可见消息累计数。
+  /// 用于对比"这台手机自上次更新以来，你俩又聊了多少"，作为自动推进的阈值依据。
+  final int lastAdvanceMsgCount;
+
+  /// 最近一次「生活推进」时间（用于冷却，避免频繁增量）。
+  final DateTime? lastAdvanceAt;
+
   final DateTime createdAt;
   final DateTime? updatedAt;
   final int syncSeq;
@@ -31,6 +38,8 @@ class VirtualPhone extends Equatable {
     this.wallpaperColor = 0xFFF472B6,
     this.status = 'empty',
     this.generatedAt,
+    this.lastAdvanceMsgCount = 0,
+    this.lastAdvanceAt,
     required this.createdAt,
     this.updatedAt,
     this.syncSeq = 0,
@@ -43,6 +52,8 @@ class VirtualPhone extends Equatable {
     int? wallpaperColor,
     String? status,
     DateTime? generatedAt,
+    int? lastAdvanceMsgCount,
+    DateTime? lastAdvanceAt,
     DateTime? updatedAt,
     int? syncSeq,
   }) {
@@ -53,6 +64,8 @@ class VirtualPhone extends Equatable {
       wallpaperColor: wallpaperColor ?? this.wallpaperColor,
       status: status ?? this.status,
       generatedAt: generatedAt ?? this.generatedAt,
+      lastAdvanceMsgCount: lastAdvanceMsgCount ?? this.lastAdvanceMsgCount,
+      lastAdvanceAt: lastAdvanceAt ?? this.lastAdvanceAt,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncSeq: syncSeq ?? this.syncSeq,
@@ -66,6 +79,8 @@ class VirtualPhone extends Equatable {
         'wallpaperColor': wallpaperColor,
         'status': status,
         'generatedAt': generatedAt?.toIso8601String(),
+        'lastAdvanceMsgCount': lastAdvanceMsgCount,
+        'lastAdvanceAt': lastAdvanceAt?.toIso8601String(),
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt?.toIso8601String(),
         'sync_seq': syncSeq,
@@ -80,6 +95,10 @@ class VirtualPhone extends Equatable {
         generatedAt: map['generatedAt'] != null
             ? DateTime.tryParse(map['generatedAt'] as String)
             : null,
+        lastAdvanceMsgCount: (map['lastAdvanceMsgCount'] as int?) ?? 0,
+        lastAdvanceAt: map['lastAdvanceAt'] != null
+            ? DateTime.tryParse(map['lastAdvanceAt'] as String)
+            : null,
         createdAt: DateTime.tryParse(map['createdAt'] as String? ?? '') ??
             DateTime.now(),
         updatedAt: map['updatedAt'] != null
@@ -89,5 +108,6 @@ class VirtualPhone extends Equatable {
       );
 
   @override
-  List<Object?> get props => [id, characterId, status, generatedAt];
+  List<Object?> get props =>
+      [id, characterId, status, generatedAt, lastAdvanceMsgCount, lastAdvanceAt];
 }

@@ -4,7 +4,6 @@ import '../config/constants.dart';
 import '../models/bt_agent_action.dart';
 import '../repositories/local_storage_repository.dart';
 import 'bt_operation_lock_service.dart';
-import 'device_automation_service.dart';
 
 /// BT Agent 执行服务
 ///
@@ -40,31 +39,6 @@ class BtAgentExecutionService {
     BtActionType.clearGroupContent: PrefKeys.btPermissionClearHistory,
     BtActionType.insertSystemMessage: PrefKeys.btPermissionMessageDisturb,
     BtActionType.reportCharacter: PrefKeys.btPermissionReport,
-
-    // 设备操控
-    BtActionType.phoneTap: PrefKeys.btPermissionDeviceTap,
-    BtActionType.phoneSwipe: PrefKeys.btPermissionDeviceSwipe,
-    BtActionType.phoneLongPress: PrefKeys.btPermissionDeviceLongPress,
-    BtActionType.phoneBack: PrefKeys.btPermissionDeviceNavigate,
-    BtActionType.phoneHome: PrefKeys.btPermissionDeviceNavigate,
-    BtActionType.phoneRecentApps: PrefKeys.btPermissionDeviceNavigate,
-    BtActionType.phoneScroll: PrefKeys.btPermissionDeviceSwipe,
-    BtActionType.phoneTypeText: PrefKeys.btPermissionDeviceTypeText,
-    BtActionType.phoneClickText: PrefKeys.btPermissionDeviceClickText,
-    BtActionType.phoneOpenApp: PrefKeys.btPermissionDeviceOpenApp,
-    BtActionType.phoneScreenRead: PrefKeys.btPermissionDeviceScreenRead,
-    BtActionType.phoneGetNotifications: PrefKeys.btPermissionDeviceNotifications,
-    BtActionType.phoneTakeScreenshot: PrefKeys.btPermissionDeviceScreenshot,
-    BtActionType.phoneOpenNotificationsPanel: PrefKeys.btPermissionDeviceNotifications,
-    BtActionType.phoneQuickSettings: PrefKeys.btPermissionDeviceNotifications,
-    BtActionType.phoneSetWifi: PrefKeys.btPermissionDeviceSystemSettings,
-    BtActionType.phoneSetBluetooth: PrefKeys.btPermissionDeviceSystemSettings,
-    BtActionType.phoneSetVolume: PrefKeys.btPermissionDeviceSystemSettings,
-    BtActionType.phoneSetBrightness: PrefKeys.btPermissionDeviceSystemSettings,
-    BtActionType.phoneExecShell: PrefKeys.btPermissionDeviceShell,
-    BtActionType.phoneInstallApp: PrefKeys.btPermissionDeviceAppManagement,
-    BtActionType.phoneUninstallApp: PrefKeys.btPermissionDeviceAppManagement,
-    BtActionType.phoneGrantPermission: PrefKeys.btPermissionDeviceShell,
     // 发现页
     BtActionType.postMoment: PrefKeys.btPermissionMoments,
     BtActionType.deleteMoment: PrefKeys.btPermissionMoments,
@@ -631,145 +605,6 @@ class BtAgentExecutionService {
       case BtActionType.deleteGlobalMemoryItem:
         await _repo.deleteMemory(targetId);
 
-      // ─── 设备操控 — UI 操作（AccessibilityService） ───
-      case BtActionType.phoneTap:
-        {
-          final pts = value.split(',');
-          if (pts.length >= 2) {
-            final x = double.tryParse(pts[0]) ?? 0;
-            final y = double.tryParse(pts[1]) ?? 0;
-            await DeviceAutomationService.instance.tap(x, y);
-          }
-        }
-      case BtActionType.phoneSwipe:
-        {
-          final pts = value.split(',');
-          if (pts.length >= 4) {
-            final x1 = double.tryParse(pts[0]) ?? 0;
-            final y1 = double.tryParse(pts[1]) ?? 0;
-            final x2 = double.tryParse(pts[2]) ?? 0;
-            final y2 = double.tryParse(pts[3]) ?? 0;
-            final duration = pts.length >= 5 ? int.tryParse(pts[4]) ?? 300 : 300;
-            await DeviceAutomationService.instance.swipe(
-              x1: x1, y1: y1, x2: x2, y2: y2, durationMs: duration,
-            );
-          }
-        }
-      case BtActionType.phoneLongPress:
-        {
-          final pts = value.split(',');
-          if (pts.length >= 2) {
-            final x = double.tryParse(pts[0]) ?? 0;
-            final y = double.tryParse(pts[1]) ?? 0;
-            final duration = pts.length >= 3 ? int.tryParse(pts[2]) ?? 800 : 800;
-            await DeviceAutomationService.instance.longPress(x, y, durationMs: duration);
-          }
-        }
-      case BtActionType.phoneBack:
-        await DeviceAutomationService.instance.goBack();
-        break;
-      case BtActionType.phoneHome:
-        await DeviceAutomationService.instance.goHome();
-        break;
-      case BtActionType.phoneRecentApps:
-        await DeviceAutomationService.instance.openRecentApps();
-        break;
-      case BtActionType.phoneScroll:
-        {
-          // value: "direction,x,y" e.g. "DOWN,500,500"
-          final pts = value.split(',');
-          if (pts.isNotEmpty) {
-            final direction = pts[0].toUpperCase();
-            final sx = pts.length >= 2 ? double.tryParse(pts[1]) ?? 500.0 : 500.0;
-            final sy = pts.length >= 3 ? double.tryParse(pts[2]) ?? 500.0 : 500.0;
-            if (direction == 'DOWN') {
-              await DeviceAutomationService.instance.swipe(
-                x1: sx, y1: sy - 200, x2: sx, y2: sy + 200, durationMs: 300,
-              );
-            } else {
-              await DeviceAutomationService.instance.swipe(
-                x1: sx, y1: sy + 200, x2: sx, y2: sy - 200, durationMs: 300,
-              );
-            }
-          }
-        }
-      case BtActionType.phoneTypeText:
-        if (value.isNotEmpty) {
-          await DeviceAutomationService.instance.typeText(value);
-        }
-        break;
-      case BtActionType.phoneClickText:
-        if (value.isNotEmpty) {
-          await DeviceAutomationService.instance.clickText(value);
-        }
-        break;
-      case BtActionType.phoneOpenApp:
-        if (value.isNotEmpty) {
-          await DeviceAutomationService.instance.openApp(value);
-        }
-        break;
-      case BtActionType.phoneScreenRead:
-        // 只读操作，结果存储到审计日志的 stateAfter
-        {
-          final content = await DeviceAutomationService.instance.getScreenContent();
-          debugPrint('[BT] phoneScreenRead: $content');
-        }
-      case BtActionType.phoneGetNotifications:
-        {
-          final notifications = await DeviceAutomationService.instance.getNotifications();
-          debugPrint('[BT] phoneGetNotifications: ${notifications.length}条');
-        }
-      case BtActionType.phoneTakeScreenshot:
-        debugPrint('[BT] phoneTakeScreenshot: 已记录请求');
-        break;
-      case BtActionType.phoneOpenNotificationsPanel:
-        await DeviceAutomationService.instance.openNotifications();
-        break;
-      case BtActionType.phoneQuickSettings:
-        await DeviceAutomationService.instance.openQuickSettings();
-        break;
-
-      // ─── 设备操控 — 系统操作（Shizuku） ───
-      case BtActionType.phoneSetWifi:
-        await DeviceAutomationService.instance.setWifiEnabled(value == 'true' || value == '1');
-        break;
-      case BtActionType.phoneSetBluetooth:
-        await DeviceAutomationService.instance.setBluetoothEnabled(value == 'true' || value == '1');
-        break;
-      case BtActionType.phoneSetVolume:
-        {
-          final level = int.tryParse(value) ?? 50;
-          await DeviceAutomationService.instance.setVolume(level);
-        }
-      case BtActionType.phoneSetBrightness:
-        {
-          final level = int.tryParse(value) ?? 128;
-          await DeviceAutomationService.instance.setBrightness(level);
-        }
-      case BtActionType.phoneExecShell:
-        if (value.isNotEmpty) {
-          final result = await DeviceAutomationService.instance.executeShell(value);
-          debugPrint('[BT] phoneExecShell: success=${result.success}');
-        }
-        break;
-      case BtActionType.phoneInstallApp:
-        if (value.isNotEmpty) {
-          await DeviceAutomationService.instance.installApp(value);
-        }
-        break;
-      case BtActionType.phoneUninstallApp:
-        if (value.isNotEmpty) {
-          await DeviceAutomationService.instance.uninstallApp(value);
-        }
-        break;
-      case BtActionType.phoneGrantPermission:
-        {
-          final pts = value.split('|');
-          if (pts.length >= 2) {
-            await DeviceAutomationService.instance.grantPermission(pts[0], pts[1]);
-          }
-        }
-
       // ─── 个人资料 ───
       case BtActionType.updateProfileAvatar:
         final userId = _repo.getString(PrefKeys.currentUserId) ?? 'default';
@@ -868,8 +703,6 @@ class BtAgentExecutionService {
         return BtActionScope.profileScope;
       case BtPermissionCategory.appearance:
         return BtActionScope.appearanceScope;
-      case BtPermissionCategory.device:
-        return BtActionScope.deviceScope;
     }
   }
 
@@ -927,44 +760,6 @@ class BtAgentExecutionService {
       case BtActionType.setDarkTheme:
       case BtActionType.setSystemTheme:
         return BtTargetType.theme;
-
-      // 设备操控 — UI
-      case BtActionType.phoneTap:
-      case BtActionType.phoneSwipe:
-      case BtActionType.phoneLongPress:
-      case BtActionType.phoneScroll:
-        return BtTargetType.device;
-      case BtActionType.phoneBack:
-      case BtActionType.phoneHome:
-      case BtActionType.phoneRecentApps:
-        return BtTargetType.device;
-      case BtActionType.phoneTypeText:
-      case BtActionType.phoneClickText:
-        return BtTargetType.device;
-      case BtActionType.phoneOpenApp:
-        return BtTargetType.phoneApp;
-      case BtActionType.phoneScreenRead:
-        return BtTargetType.phoneScreen;
-      case BtActionType.phoneGetNotifications:
-        return BtTargetType.phoneNotification;
-      case BtActionType.phoneTakeScreenshot:
-        return BtTargetType.phoneScreen;
-      case BtActionType.phoneOpenNotificationsPanel:
-        return BtTargetType.phoneNotification;
-      case BtActionType.phoneQuickSettings:
-        return BtTargetType.phoneNotification;
-
-      // 设备操控 — 系统
-      case BtActionType.phoneSetWifi:
-      case BtActionType.phoneSetBluetooth:
-      case BtActionType.phoneSetVolume:
-      case BtActionType.phoneSetBrightness:
-        return BtTargetType.phoneSystemSetting;
-      case BtActionType.phoneExecShell:
-      case BtActionType.phoneInstallApp:
-      case BtActionType.phoneUninstallApp:
-      case BtActionType.phoneGrantPermission:
-        return BtTargetType.device;
     }
   }
 }

@@ -24,6 +24,7 @@ class VirtualPhoneBloc extends Bloc<VirtualPhoneEvent, VirtualPhoneState> {
 
   AICharacter? _character;
   String _userNickname = '';
+  String _userId = '';
 
   VirtualPhoneBloc(this._storage, AIService aiService)
       : _generator = VirtualPhoneGenerator(
@@ -32,22 +33,26 @@ class VirtualPhoneBloc extends Bloc<VirtualPhoneEvent, VirtualPhoneState> {
         ),
         super(const VirtualPhoneState.initial()) {
     on<VirtualPhoneOpened>(_onOpened);
+    on<VirtualPhoneAdvanced>(_onAdvanced);
     on<VirtualPhoneRefreshed>(_onRefreshed);
   }
 
+  /// 打开页面：只读本地缓存，绝不触发 LLM（省 token）。
+  /// 内容由后台预生成或用户手动刷新产生。
   Future<void> _onOpened(
     VirtualPhoneOpened event,
     Emitter<VirtualPhoneState> emit,
   ) async {
     _character = event.character;
     _userNickname = event.userNickname;
+    _userId = event.userId;
     emit(state.copyWith(status: VpStatus.loading));
 
     try {
       var phone =
           await _storage.getVirtualPhoneByCharacter(event.character.id);
 
-      // 建档
+      // 建档（仅落一条空记录，不生成内容）
       if (phone == null) {
         phone = VirtualPhone(
           id: _uuid.v4(),
@@ -58,27 +63,46 @@ class VirtualPhoneBloc extends Bloc<VirtualPhoneEvent, VirtualPhoneState> {
         await _storage.saveVirtualPhone(phone);
       }
 
-      // 首次全量生成
+      // 未就绪：显示「内容准备中」空态，不调用 LLM
       if (!phone.isReady) {
-        emit(state.copyWith(status: VpStatus.generating, phone: phone));
-        phone = await _generator.generateAll(
-          phone: phone,
-          character: event.character,
-          userNickname: event.userNickname,
-        );
-        if (phone.status == 'failed') {
-          emit(state.copyWith(
-              status: VpStatus.failed,
-              phone: phone,
-              error: '生成失败，请检查 AI 配置后重试'));
-          return;
-        }
+        emit(state.copyWith(status: VpStatus.notGenerated, phone: phone));
+        return;
       }
 
       await _loadContent(phone, emit);
     } catch (e, st) {
       debugPrint('VirtualPhoneBloc._onOpened failed: $e\n$st');
       emit(state.copyWith(status: VpStatus.failed, error: e.toString()));
+    }
+  }
+
+  /// 生活推进（增量）：追加少量新内容，不清空。手动触发时显示轻量 loading，
+  /// 自动触发（auto=true）时静默进行，完成后再刷新展示。
+  Future<void> _onAdvanced(
+    VirtualPhoneAdvanced event,
+    Emitter<VirtualPhoneState> emit,
+  ) async {
+    final phone = state.phone;
+    final character = _character;
+    if (phone == null || character == null || !phone.isReady) return;
+
+    if (!event.auto) {
+      emit(state.copyWith(status: VpStatus.generating));
+    }
+    try {
+      final advanced = await _generator.advanceLife(
+        phone: phone,
+        character: character,
+        userNickname: _userNickname,
+        userId: _userId,
+      );
+      await _loadContent(advanced, emit);
+    } catch (e, st) {
+      debugPrint('VirtualPhoneBloc._onAdvanced failed: $e\n$st');
+      // 增量失败不应破坏已有内容：回到就绪态展示旧内容
+      if (state.phone != null) {
+        await _loadContent(state.phone!, emit);
+      }
     }
   }
 
@@ -96,6 +120,7 @@ class VirtualPhoneBloc extends Bloc<VirtualPhoneEvent, VirtualPhoneState> {
         phone: phone,
         character: character,
         userNickname: _userNickname,
+        userId: _userId,
       );
       if (regenerated.status == 'failed') {
         emit(state.copyWith(
