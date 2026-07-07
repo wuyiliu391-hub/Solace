@@ -6,7 +6,6 @@ import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/theme/theme_bloc.dart';
 import '../../widgets/avatar_picker.dart';
 import 'about_screen.dart';
-import 'device_control_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -90,18 +89,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: '数据管理',
             subtitle: '清除本地数据',
             onTap: () {
-            },
-          ),
-          Divider(height: 1, color: colorScheme.outline.withOpacity(0.1)),
-          _SettingsItem(
-            icon: Icons.phone_android_outlined,
-            title: '设备操控',
-            subtitle: 'AI 无障碍操控手机',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DeviceControlScreen()),
-              );
             },
           ),
           Divider(height: 1, color: colorScheme.outline.withOpacity(0.1)),

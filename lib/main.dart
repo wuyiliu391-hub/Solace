@@ -12,11 +12,8 @@ import 'blocs/theme/theme_bloc.dart';
 import 'repositories/local_storage_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/terms_agreement_screen.dart';
-import 'services/custom_icon_service.dart';
 import 'services/battery_service.dart';
 import 'services/voice_clone_service.dart';
-import 'models/app_item.dart';
-import 'screens/home/data/default_apps.dart';
 import 'screens/chat/chat_list_screen.dart';
 import 'screens/chat/chat_detail_screen.dart';
 import 'screens/contacts/contacts_screen.dart';
@@ -39,12 +36,9 @@ import 'screens/tarot/tarot_screen.dart';
 import 'screens/social/forum_screen.dart';
 import 'screens/map/virtual_map_screen.dart';
 import 'screens/games/lucky_wheel_screen.dart';
-import 'screens/settings/app_icon_picker.dart';
 import 'screens/story/story_shelf_screen.dart';
-import 'screens/settings/bt_yandere_mode_screen.dart';
 
 import 'screens/usage/usage_screen.dart';
-import 'screens/autonomous/autonomous_screen.dart';
 import 'blocs/chat/chat_bloc.dart';
 import 'blocs/pure_ai/pure_ai_chat_bloc.dart';
 import 'services/permission_service.dart';
@@ -161,7 +155,6 @@ void main() async {
   Future.delayed(const Duration(seconds: 6), () async {
     try {
       await Hive.initFlutter();
-      await CustomIconService.init();
       await TTSConfig.init();
       try {
         await TTSService().clearAllAudio();
@@ -170,7 +163,7 @@ void main() async {
       }
       await VoiceCloneService().init();
     } catch (e) {
-      debugPrint('Hive/CustomIconService 初始化失败: $e');
+      debugPrint('Hive 初始化失败: $e');
     }
 
     BatteryService.init().catchError((e) {
@@ -631,10 +624,6 @@ class _MainShellState extends State<_MainShell> {
         return const ProfileScreen();
       case 4:
         return const UsageScreen();
-      case 5:
-        return const AutonomousScreen();
-      case 6:
-        return const BtYandereModeScreen();
       default:
         return const SizedBox.shrink();
     }
@@ -684,6 +673,8 @@ class _MainShellState extends State<_MainShell> {
         return const MapScreen(aiId: 'default', aiName: 'AI');
       case '/tarot':
         return TarotScreen(storage: storage);
+      case '/story':
+        return const StoryShelfScreen();
       // 已隐藏：日记模块前端入口暂不展示
       // case '/forum':
       //   return const ForumScreen();
@@ -721,7 +712,7 @@ class _MainShellState extends State<_MainShell> {
           ),
           Expanded(
             child: Stack(
-              children: List.generate(7, (i) {
+              children: List.generate(5, (i) {
                 // 懒加载：只构建访问过的页面
                 if (i == _currentIndex) {
                   _pageCache[i] ??= _buildPage(i);
@@ -786,14 +777,6 @@ class _MainShellState extends State<_MainShell> {
                 icon: Icon(Icons.donut_large_outlined),
                 activeIcon: Icon(Icons.donut_large),
                 label: '用量'),
-            const BottomNavigationBarItem(
-                icon: Icon(Icons.smart_toy_outlined),
-                activeIcon: Icon(Icons.smart_toy),
-                label: '自主'),
-            const BottomNavigationBarItem(
-                icon: Icon(Icons.security_outlined),
-                activeIcon: Icon(Icons.security),
-                label: 'BT'),
           ],
         ),
       ),
@@ -808,47 +791,130 @@ class _DiscoverPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
+    final isDark = cs.brightness == Brightness.dark;
     return Scaffold(
+      backgroundColor:
+          isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF8F9FA),
       appBar: AppBar(
-          title: const Text('发现'), backgroundColor: cs.surface, elevation: 0),
-      body: ListView(children: [
-        _tile(context, Icons.photo_library, '朋友圈', '查看 AI 的动态', '/moments', cs,
-            tt),
-        _tile(context, Icons.psychology, '记忆库', '回顾你们的回忆', '/memory', cs, tt),
-        _tile(context, Icons.mark_email_unread_outlined, '信箱', '查看 AI 写给你的来信',
-            '/mailbox', cs, tt),
-        _tile(context, Icons.casino, '幸运转盘', '试试手气', '/lucky_wheel', cs, tt),
-        _tile(context, Icons.auto_fix_high, '塔罗牌', '每日占卜', '/tarot', cs, tt),
-        _tile(context, Icons.trending_up, '成长轨迹', '查看成长记录', '/growth', cs, tt),
-        _tile(context, Icons.auto_awesome, 'AI 动态', '查看 AI 的活动', '/ai_activity',
-            cs, tt),
-        _tile(context, Icons.thermostat, '关系温度', '查看关系仪表盘', '/relationship', cs,
-            tt),
-        // P2: 世界功能暂不开放，隐藏入口
-        // _tile(context, Icons.public, '人生系统', '生命模拟 · 世界观', '/world', cs, tt),
-      ]),
+        title: const Text('发现'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: cs.onSurface,
+        elevation: 0,
+        centerTitle: true,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        children: [
+          const SizedBox(height: 8),
+          _section(context, cs, tt, '社交互动', [
+            _entry(Icons.photo_library_outlined, '朋友圈', '查看 AI 的动态',
+                '/moments', const Color(0xFF1A73E8)),
+            _entry(Icons.psychology_outlined, '记忆库', '回顾你们的回忆', '/memory',
+                const Color(0xFF9334E6)),
+            _entry(Icons.mark_email_unread_outlined, '信箱', '查看 AI 写给你的来信',
+                '/mailbox', const Color(0xFFE8710A)),
+          ]),
+          const SizedBox(height: 16),
+          _section(context, cs, tt, '成长记录', [
+            _entry(Icons.trending_up, '成长轨迹', '查看成长记录', '/growth',
+                const Color(0xFF1E8E3E)),
+            _entry(Icons.auto_awesome, 'AI 动态', '查看 AI 的活动', '/ai_activity',
+                const Color(0xFFF9AB00)),
+            _entry(Icons.thermostat, '关系温度', '查看关系仪表盘', '/relationship',
+                const Color(0xFFD93025)),
+          ]),
+          const SizedBox(height: 16),
+          _section(context, cs, tt, '休闲娱乐', [
+            _entry(Icons.auto_stories, '故事书', '与 AI 共创互动故事', '/story',
+                const Color(0xFFEA4C89)),
+            _entry(Icons.casino, '幸运转盘', '试试手气', '/lucky_wheel',
+                const Color(0xFF12B5CB)),
+            _entry(Icons.auto_fix_high, '塔罗牌', '每日占卜', '/tarot',
+                const Color(0xFF7B61FF)),
+          ]),
+          const SizedBox(height: 24),
+        ],
+      ),
     );
   }
 
-  Widget _tile(BuildContext ctx, IconData icon, String title, String subtitle,
-      String route, ColorScheme cs, TextTheme tt) {
-    return ListTile(
-      leading: Container(
-          width: 40,
-          height: 40,
+  Widget _section(BuildContext context, ColorScheme cs, TextTheme tt,
+      String title, List<_DiscoverEntry> entries) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+          child: Text(
+            title,
+            style: tt.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        Container(
           decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10)),
-          child: Icon(icon, color: cs.primary, size: 22)),
-      title: Text(title,
+            color: cs.surface,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (int i = 0; i < entries.length; i++) ...[
+                if (i > 0)
+                  Divider(
+                    height: 1,
+                    thickness: 0.5,
+                    indent: 64,
+                    color: cs.outlineVariant.withOpacity(0.5),
+                  ),
+                _tile(context, entries[i], cs, tt),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _tile(BuildContext ctx, _DiscoverEntry e, ColorScheme cs,
+      TextTheme tt) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: e.color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(e.icon, color: e.color, size: 22),
+      ),
+      title: Text(e.title,
           style: tt.bodyLarge?.copyWith(fontWeight: FontWeight.w500)),
-      subtitle: Text(subtitle,
+      subtitle: Text(e.subtitle,
           style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
       trailing: Icon(Icons.chevron_right, color: cs.onSurfaceVariant, size: 20),
-      onTap: () => onNavigate?.call(route),
+      onTap: () => onNavigate?.call(e.route),
     );
   }
 }
+
+class _DiscoverEntry {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String route;
+  final Color color;
+  const _DiscoverEntry(
+      this.icon, this.title, this.subtitle, this.route, this.color);
+}
+
+_DiscoverEntry _entry(IconData icon, String title, String subtitle,
+        String route, Color color) =>
+    _DiscoverEntry(icon, title, subtitle, route, color);
 
 class _ChatLauncher extends StatefulWidget {
   final String sessionId;
@@ -1177,7 +1243,6 @@ class SolaceApp extends StatelessWidget {
                 '/forum': (context) => const ForumScreen(),
                 '/virtual_map': (context) => const VirtualMapScreen(),
                 '/lucky_wheel': (context) => const LuckyWheelScreen(),
-                '/app_icon_picker': (context) => const AppIconPicker(),
                 '/story': (context) => const StoryShelfScreen(),
               },
               initialRoute: '/',
@@ -1187,88 +1252,6 @@ class SolaceApp extends StatelessWidget {
       ),
     );
   }
-}
-
-/// 文件夹展开面板
-class _FolderPanel extends StatelessWidget {
-  final AppItem folder;
-  final Function(AppItem) onAppTap;
-
-  const _FolderPanel({required this.folder, required this.onAppTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final children = folder.children ?? [];
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: EdgeInsets.fromLTRB(20, 20, 20, bottomPadding + 20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withOpacity(0.95),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            folder.name,
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 16),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
-            ),
-            itemCount: children.length,
-            itemBuilder: (context, index) {
-              final child = children[index];
-              return GestureDetector(
-                onTap: () {
-                  Navigator.pop(context);
-                  onAppTap(child);
-                },
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: Color(child.accentColor),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        _FolderPanelDelegate.getIcon(child.iconAsset),
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      child.name,
-                      style: const TextStyle(fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 文件夹面板图标包装
-class _FolderPanelDelegate {
-  static IconData getIcon(String name) => DefaultApps.getIcon(name);
 }
 
 /// 极简兜底组件（小占位），不依赖任何 InheritedWidget/Theme/Directionality

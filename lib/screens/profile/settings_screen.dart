@@ -10,8 +10,6 @@ import '../../config/tts_config.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../settings/ai_config_screen.dart';
 import '../settings/about_screen.dart';
-import '../settings/bt_yandere_mode_screen.dart';
-import '../settings/device_control_screen.dart';
 import '../../utils/safe_file_picker.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -102,30 +100,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: '配置 AI 接口和模型',
               onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const AIConfigScreen())),
-              colorScheme: colorScheme,
-            ),
-            _buildDivider(colorScheme),
-            _buildNavTile(
-              icon: Icons.smartphone_outlined,
-              iconBgColor: Colors.red.withOpacity(0.1),
-              title: '设备操控',
-              subtitle: 'AI 无障碍操控手机权限管理',
-              onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const DeviceControlScreen())),
-              colorScheme: colorScheme,
-            ),
-            _buildDivider(colorScheme),
-            _buildNavTile(
-              icon: Icons.security_outlined,
-              iconBgColor: Colors.purple.withOpacity(0.1),
-              title: 'BT 病娇模式',
-              subtitle: 'AI 可操控 APP 内数据的总开关与权限',
-              onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const BtYandereModeScreen())),
               colorScheme: colorScheme,
             ),
           ], colorScheme),
