@@ -2917,6 +2917,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       userAvatarUrl: userAvatarUrl,
                       aiName: currentName,
                       weatherIcon: message.isFromAI ? _weatherIcon : null,
+                      novelMode: RepositoryProvider.of<LocalStorageRepository>(
+                              context)
+                          .isChatStyleNovelModeEnabled(),
                       hasBackgroundImage:
                           _currentSession?.backgroundImage != null &&
                               _currentSession!.backgroundImage!.isNotEmpty,
@@ -3539,6 +3542,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               aiAvatarUrl: currentAvatar,
               userAvatarUrl: userAvatarUrl,
               aiName: currentName,
+              novelMode:
+                  RepositoryProvider.of<LocalStorageRepository>(context)
+                      .isChatStyleNovelModeEnabled(),
               hasBackgroundImage: _currentSession?.backgroundImage != null &&
                   _currentSession!.backgroundImage!.isNotEmpty,
               onImageTap: message.type == MessageType.image ? () {} : null,
@@ -4376,6 +4382,9 @@ class _MessageBubble extends StatelessWidget {
   final bool hasBackgroundImage;
   final IconData? weatherIcon;
 
+  /// 小说模式下，把 AI 文本里的对白（引号包裹）着蓝色，旁白保持默认色。
+  final bool novelMode;
+
   const _MessageBubble({
     required this.message,
     this.aiAvatarUrl,
@@ -4384,6 +4393,7 @@ class _MessageBubble extends StatelessWidget {
     this.onImageTap,
     this.hasBackgroundImage = false,
     this.weatherIcon,
+    this.novelMode = false,
   });
 
   // 抖音风格配色
@@ -4397,6 +4407,37 @@ class _MessageBubble extends StatelessWidget {
   static const double _avatarSize = 32.0;
   static const double _bubbleRadius = 12.0;
   static const double _hPad = 16.0;
+
+  /// 匹配对白：中文双引号「…」、直角引号「」/『』、英文双引号 "…"。
+  /// 用于小说模式把对白与旁白区分上色。
+  static final RegExp _dialogueRe =
+      RegExp(r'“[^”]*”|「[^」]*」|『[^』]*』|"[^"]*"');
+
+  /// 把一段文本按「引号内=对白（蓝色）/引号外=旁白（默认色）」拆成富文本片段。
+  /// 若文本里没有任何对白引号，返回 null（外层回退到普通 Text）。
+  static List<InlineSpan>? _buildDialogueSpans(
+      String text, TextStyle baseStyle, Color dialogueColor) {
+    final matches = _dialogueRe.allMatches(text).toList();
+    if (matches.isEmpty) return null;
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    for (final m in matches) {
+      if (m.start > cursor) {
+        spans.add(TextSpan(
+            text: text.substring(cursor, m.start), style: baseStyle));
+      }
+      spans.add(TextSpan(
+        text: text.substring(m.start, m.end),
+        style: baseStyle.copyWith(
+            color: dialogueColor, fontWeight: FontWeight.w600),
+      ));
+      cursor = m.end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
+    }
+    return spans;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4715,21 +4756,37 @@ class _MessageBubble extends StatelessWidget {
                                 message.reasoning != null &&
                                 message.reasoning!.isNotEmpty)
                               _ReasoningSection(reasoning: message.reasoning!),
-                            Text(
-                              isRecalled ? '已撤回' : displayText,
-                              style: TextStyle(
-                                color: isRecalled
-                                    ? (isAI
-                                        ? aiTextColor.withOpacity(0.5)
-                                        : userTextColor.withOpacity(0.5))
-                                    : (isAI ? aiTextColor : userTextColor),
+                            Builder(builder: (_) {
+                              final baseColor = isRecalled
+                                  ? (isAI
+                                      ? aiTextColor.withOpacity(0.5)
+                                      : userTextColor.withOpacity(0.5))
+                                  : (isAI ? aiTextColor : userTextColor);
+                              final baseStyle = TextStyle(
+                                color: baseColor,
                                 fontSize: 15,
                                 height: 1.4,
                                 fontStyle: isRecalled
                                     ? FontStyle.italic
                                     : FontStyle.normal,
-                              ),
-                            ),
+                              );
+                              // 小说模式：AI 的对白（引号内）着蓝色，旁白保持默认。
+                              if (!isRecalled && isAI && novelMode) {
+                                final dialogueColor =
+                                    brightness == Brightness.dark
+                                        ? _douyinBlueDark
+                                        : _douyinBlue;
+                                final spans = _buildDialogueSpans(
+                                    displayText, baseStyle, dialogueColor);
+                                if (spans != null) {
+                                  return Text.rich(TextSpan(children: spans));
+                                }
+                              }
+                              return Text(
+                                isRecalled ? '已撤回' : displayText,
+                                style: baseStyle,
+                              );
+                            }),
                           ],
                         ],
                       ),
