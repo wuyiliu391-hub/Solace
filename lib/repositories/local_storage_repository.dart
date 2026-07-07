@@ -34,6 +34,11 @@ import '../models/story_book.dart';
 import '../models/story_segment.dart';
 import '../models/story_scene.dart';
 import '../models/story_save.dart';
+import '../models/virtual_phone/virtual_phone.dart';
+import '../models/virtual_phone/vp_contact.dart';
+import '../models/virtual_phone/vp_chat.dart';
+import '../models/virtual_phone/vp_note.dart';
+import '../models/virtual_phone/vp_moment.dart';
 import '../models/pure_ai_message.dart';
 import '../models/bt_agent_action.dart';
 import '../services/bt_operation_lock_service.dart';
@@ -1307,7 +1312,40 @@ class LocalStorageRepository {
       // 故事书模块
       await _createStoryTables(db);
     }
+    if (oldVersion < 50) {
+      // 虚拟手机模块（每个 AI 角色的专属虚构手机，纯本地生成内容）
+      await _createVirtualPhoneTables(db);
+    }
   }
+
+  /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
+  static Future<void> _createVirtualPhoneTables(Database db) async {
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS virtual_phones ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, ownerName TEXT NOT NULL DEFAULT '', wallpaperColor INTEGER NOT NULL DEFAULT 4283871606, status TEXT NOT NULL DEFAULT 'empty', generatedAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_vphone_char ON virtual_phones(characterId) ''');
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS vp_contacts ( id TEXT PRIMARY KEY, phoneId TEXT NOT NULL, characterId TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', relation TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', accentColor INTEGER NOT NULL DEFAULT 4278223103, isUser INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0, orderIndex INTEGER NOT NULL DEFAULT 0 ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_vp_contacts_phone ON vp_contacts(phoneId) ''');
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS vp_chats ( id TEXT PRIMARY KEY, phoneId TEXT NOT NULL, characterId TEXT NOT NULL, contactId TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', lastPreview TEXT NOT NULL DEFAULT '', orderIndex INTEGER NOT NULL DEFAULT 0 ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_vp_chats_phone ON vp_chats(phoneId) ''');
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS vp_chat_messages ( id TEXT PRIMARY KEY, chatId TEXT NOT NULL, fromOwner INTEGER NOT NULL DEFAULT 0, content TEXT NOT NULL DEFAULT '', timeLabel TEXT NOT NULL DEFAULT '', orderIndex INTEGER NOT NULL DEFAULT 0 ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_vp_msgs_chat ON vp_chat_messages(chatId, orderIndex) ''');
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS vp_notes ( id TEXT PRIMARY KEY, phoneId TEXT NOT NULL, characterId TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', dateLabel TEXT NOT NULL DEFAULT '', aboutUser INTEGER NOT NULL DEFAULT 0, orderIndex INTEGER NOT NULL DEFAULT 0 ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_vp_notes_phone ON vp_notes(phoneId) ''');
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS vp_moments ( id TEXT PRIMARY KEY, phoneId TEXT NOT NULL, characterId TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', timeLabel TEXT NOT NULL DEFAULT '', likes INTEGER NOT NULL DEFAULT 0, comments TEXT NOT NULL DEFAULT '', orderIndex INTEGER NOT NULL DEFAULT 0 ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_vp_moments_phone ON vp_moments(phoneId) ''');
+  }
+
 
   /// 故事书四张表建表语句（_onCreate / 迁移 / createMissingTable 共用）
   static Future<void> _createStoryTables(Database db) async {
@@ -1372,6 +1410,7 @@ class LocalStorageRepository {
     await db.execute(
         ''' CREATE TABLE pure_ai_messages ( id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, senderId TEXT NOT NULL, senderName TEXT, content TEXT NOT NULL, type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, metadata TEXT ) ''');
     await _createStoryTables(db);
+    await _createVirtualPhoneTables(db);
   }
 
   Future<void> saveUser(User user) async {
@@ -5002,5 +5041,120 @@ class LocalStorageRepository {
     } catch (e) {
       debugPrint('btClearDiary failed: $e');
     }
+  }
+
+  // ==================== 虚拟手机 Virtual Phone ====================
+  // 每个 AI 角色一部虚构手机；内容全部由 LLM 依据人设生成、纯本地存储。
+
+  Future<void> saveVirtualPhone(VirtualPhone phone) async {
+    final db = await _ensureDb();
+    await db.insert('virtual_phones', phone.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<VirtualPhone?> getVirtualPhoneByCharacter(String characterId) async {
+    final db = await _ensureDb();
+    final maps = await db.query('virtual_phones',
+        where: 'characterId = ?', whereArgs: [characterId], limit: 1);
+    return maps.isNotEmpty ? VirtualPhone.fromMap(maps.first) : null;
+  }
+
+  Future<VirtualPhone?> getVirtualPhone(String id) async {
+    final db = await _ensureDb();
+    final maps =
+        await db.query('virtual_phones', where: 'id = ?', whereArgs: [id]);
+    return maps.isNotEmpty ? VirtualPhone.fromMap(maps.first) : null;
+  }
+
+  /// 清空某部手机的全部子内容（重新全量生成前调用）
+  Future<void> clearVirtualPhoneContent(String phoneId) async {
+    final db = await _ensureDb();
+    final chats = await db.query('vp_chats',
+        columns: ['id'], where: 'phoneId = ?', whereArgs: [phoneId]);
+    for (final c in chats) {
+      await db.delete('vp_chat_messages',
+          where: 'chatId = ?', whereArgs: [c['id']]);
+    }
+    await db.delete('vp_chats', where: 'phoneId = ?', whereArgs: [phoneId]);
+    await db.delete('vp_contacts', where: 'phoneId = ?', whereArgs: [phoneId]);
+    await db.delete('vp_notes', where: 'phoneId = ?', whereArgs: [phoneId]);
+    await db.delete('vp_moments', where: 'phoneId = ?', whereArgs: [phoneId]);
+  }
+
+  Future<void> deleteVirtualPhone(String id) async {
+    final db = await _ensureDb();
+    await clearVirtualPhoneContent(id);
+    await db.delete('virtual_phones', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ---- 联系人 ----
+  Future<void> saveVpContact(VpContact c) async {
+    final db = await _ensureDb();
+    await db.insert('vp_contacts', c.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<VpContact>> getVpContacts(String phoneId) async {
+    final db = await _ensureDb();
+    final maps = await db.query('vp_contacts',
+        where: 'phoneId = ?',
+        whereArgs: [phoneId],
+        orderBy: 'pinned DESC, orderIndex ASC');
+    return maps.map((m) => VpContact.fromMap(m)).toList();
+  }
+
+  // ---- 聊天线 + 消息 ----
+  Future<void> saveVpChat(VpChat chat) async {
+    final db = await _ensureDb();
+    await db.insert('vp_chats', chat.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<VpChat>> getVpChats(String phoneId) async {
+    final db = await _ensureDb();
+    final maps = await db.query('vp_chats',
+        where: 'phoneId = ?', whereArgs: [phoneId], orderBy: 'orderIndex ASC');
+    return maps.map((m) => VpChat.fromMap(m)).toList();
+  }
+
+  Future<void> saveVpChatMessage(VpChatMessage m) async {
+    final db = await _ensureDb();
+    await db.insert('vp_chat_messages', m.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<VpChatMessage>> getVpChatMessages(String chatId) async {
+    final db = await _ensureDb();
+    final maps = await db.query('vp_chat_messages',
+        where: 'chatId = ?', whereArgs: [chatId], orderBy: 'orderIndex ASC');
+    return maps.map((m) => VpChatMessage.fromMap(m)).toList();
+  }
+
+  // ---- 备忘录 ----
+  Future<void> saveVpNote(VpNote n) async {
+    final db = await _ensureDb();
+    await db.insert('vp_notes', n.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<VpNote>> getVpNotes(String phoneId) async {
+    final db = await _ensureDb();
+    final maps = await db.query('vp_notes',
+        where: 'phoneId = ?', whereArgs: [phoneId], orderBy: 'orderIndex ASC');
+    return maps.map((m) => VpNote.fromMap(m)).toList();
+  }
+
+  // ---- 动态 ----
+  Future<void> saveVpMoment(VpMoment m) async {
+    final db = await _ensureDb();
+    await db.insert('vp_moments', m.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<VpMoment>> getVpMoments(String phoneId) async {
+    final db = await _ensureDb();
+    final maps = await db.query('vp_moments',
+        where: 'phoneId = ?', whereArgs: [phoneId], orderBy: 'orderIndex ASC');
+    return maps.map((m) => VpMoment.fromMap(m)).toList();
   }
 }

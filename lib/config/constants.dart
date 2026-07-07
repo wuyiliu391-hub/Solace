@@ -430,7 +430,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 49;
+  static const int dbVersion = 50;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;

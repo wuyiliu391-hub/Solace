@@ -17,6 +17,7 @@ import '../../models/ai_character.dart';
 import '../../models/intimacy_event.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
+import '../virtual_phone/virtual_phone_screen.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../services/ai_status_service.dart';
 import '../../services/heartbeat_service.dart';
@@ -273,6 +274,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       centerTitle: true,
       actions: [
         IconButton(
+          tooltip: 'TA 的手机',
+          icon: Icon(
+            Icons.smartphone_rounded,
+            color: isDark ? Colors.white : Colors.black,
+            size: 22,
+          ),
+          onPressed: () => _openVirtualPhone(context),
+        ),
+        IconButton(
           icon: Icon(
             Icons.more_horiz_rounded,
             color: isDark ? Colors.white : Colors.black,
@@ -282,6 +292,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _openVirtualPhone(BuildContext context) async {
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final character =
+        await storage.getAICharacter(widget.session.aiCharacterId);
+    if (!context.mounted) return;
+    if (character == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('找不到该角色的资料')),
+      );
+      return;
+    }
+    Navigator.of(context).push(VirtualPhoneScreen.route(context, character));
   }
 
   Widget _buildAppBarAvatar(String? avatarUrl, bool isDark) {
