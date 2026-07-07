@@ -338,7 +338,6 @@ enum MessageType {
   audio,
   file,
   system,
-  narration,
   sticker,
   voice,
 }

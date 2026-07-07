@@ -51,20 +51,6 @@ class BadgeService {
     }
   }
 
-  /// 群聊未读数
-  Future<void> loadGroupChatBadges(String userId) async {
-    try {
-      final sessions = await _storage.getGroupChatSessions(userId);
-      int totalUnread = 0;
-      for (final session in sessions) {
-        totalUnread += session.unreadCount;
-      }
-      setBadge('group_chat', totalUnread);
-    } catch (e) {
-      debugPrint('BadgeService: loadGroupChatBadges failed: $e');
-    }
-  }
-
   /// 商店活跃订单数
   Future<void> loadShopBadges() async {
     try {
@@ -134,7 +120,6 @@ class BadgeService {
   Future<void> loadAll(String userId) async {
     await Future.wait([
       loadChatBadges(userId),
-      loadGroupChatBadges(userId),
       loadShopBadges(),
       loadSettingsBadges(),
       _loadManualBadges(),

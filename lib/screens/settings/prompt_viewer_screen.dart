@@ -293,11 +293,7 @@ lib/screens/profile/settings_screen.dart:
   - 设置页 "法功能" 开关，图标 Icons.auto_awesome
   - 副标题：已开启时显示"已开启 · 无限制创作模式"
   - 需年满 18 岁才能开启（_isAdult 判断）
-  - 开启时同时调用 setFaMode(true) + setFaVerified(true)
-
-lib/screens/group_chat/group_chat_settings_screen.dart:
-  - 群聊设置页也有独立的法模式开关
-  - 存储在 GroupChatSession.faModeEnabled 字段''',
+  - 开启时同时调用 setFaMode(true) + setFaVerified(true)''',
         ),
         _PromptSection(
           title: '完整调用链',

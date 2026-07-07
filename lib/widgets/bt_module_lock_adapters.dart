@@ -17,14 +17,6 @@ class BtModuleLockAdapters {
   }) =>
       _wrap(actionType, targetId, child, showHint);
 
-  static Widget groupChat({
-    required BtActionType actionType,
-    required String targetId,
-    required Widget child,
-    bool showHint = true,
-  }) =>
-      _wrap(actionType, targetId, child, showHint);
-
   static Widget contact({
     required BtActionType actionType,
     required String targetId,

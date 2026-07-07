@@ -144,13 +144,6 @@ class GlmModeParams {
   static const int pureAiThinkingBudget = 2048;
   static const int pureAiMaxTokens = 131072;
 
-  // ─── 群聊模式 ───
-  static const double groupTemperature = 0.78;
-  static const int groupTopK = 40;
-  static const double groupFrequencyPenalty = 1.0;
-  static const int groupThinkingBudget = 2048;
-  static const int groupMaxTokens = 131072;
-
   // ─── 记忆场景模式 ───
   static const double memoryTemperature = 0.80;
   static const int memoryTopK = 40;
@@ -371,9 +364,6 @@ class PrefKeys {
   static const String momentPrefix = 'moment_';
   static const String stickerPackPrefix = 'sticker_pack_';
   static const String forbiddenPhrases = 'forbidden_phrases';
-  static const String groupChatSessionPrefix = 'group_chat_session_';
-  static const String groupMemberSettingsPrefix = 'group_member_settings_';
-  static const String groupRelationshipPrefix = 'group_relationship_';
   static const String memoryRebuildCheckpoint = 'memory_rebuild_checkpoint';
 
   static const String ageDeclarationDone = 'age_declaration_done_v6';
@@ -440,7 +430,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 48;
+  static const int dbVersion = 49;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;
@@ -456,12 +446,13 @@ class DbDefaults {
     'memories',
     'moments',
     'sticker_packs',
-    'group_chat_sessions',
-    'group_member_settings',
-    'group_relationships',
     'shop_items',
     'shop_orders',
     'social_memories',
+    'story_books',
+    'story_segments',
+    'story_scenes',
+    'story_saves',
   ];
 }
 

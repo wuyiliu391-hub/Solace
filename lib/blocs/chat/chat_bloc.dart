@@ -4009,31 +4009,4 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
     }
   }
 
-  /// 故事书记忆提取：基于游标增量提取
-  Future<void> _maybeExtractStoryMemory({
-    required String groupChatId,
-    required String userId,
-    required List<AICharacter> participants,
-  }) async {
-    try {
-      const prefsKeyPrefix = 'story_memory_cursor_';
-      final prefsKey = '$prefsKeyPrefix$groupChatId';
-      final prefs = _storage.sharedPreferences;
-      if (prefs == null) return;
-      final total = await _memoryEngine.getChatMessageCount(groupChatId);
-      final lastCursor = prefs.getInt(prefsKey) ?? 0;
-      if (total - lastCursor < 2) return;
-      final recentMsgs = await _storage.getChatMessages(groupChatId, limit: 16);
-      if (recentMsgs.length < 2) return;
-      final ok = await _memoryEngine.extractStoryMemory(
-        groupChatId: groupChatId,
-        userId: userId,
-        participants: participants,
-        recentMessages: recentMsgs.reversed.toList(),
-      );
-      if (ok) await prefs.setInt(prefsKey, total);
-    } catch (e) {
-      debugPrint('_maybeExtractStoryMemory 失败: $e');
-    }
-  }
 }

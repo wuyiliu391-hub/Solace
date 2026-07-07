@@ -26,13 +26,14 @@ import '../models/moment_notification.dart';
 import '../models/moment_bookmark.dart';
 import '../models/trending_tag.dart';
 import '../models/sticker_pack.dart';
-import '../models/group_chat_session.dart';
-import '../models/group_member_settings.dart';
-import '../models/group_relationship.dart';
 import '../models/ai_wallet.dart';
 import '../models/shop_item.dart';
 import '../models/shop_order.dart';
 import '../models/pure_ai_session.dart';
+import '../models/story_book.dart';
+import '../models/story_segment.dart';
+import '../models/story_scene.dart';
+import '../models/story_save.dart';
 import '../models/pure_ai_message.dart';
 import '../models/bt_agent_action.dart';
 import '../services/bt_operation_lock_service.dart';
@@ -522,54 +523,56 @@ class LocalStorageRepository {
       'updatedAt': 'TEXT',
       'isDefault': 'INTEGER NOT NULL DEFAULT 0',
     },
-    'group_chat_sessions': {
+    'story_books': {
+      'id': 'TEXT PRIMARY KEY',
       'userId': 'TEXT NOT NULL DEFAULT ""',
-      'name': 'TEXT NOT NULL DEFAULT ""',
-      'avatarUrl': 'TEXT',
-      'scenario': 'TEXT',
-      'scenarioTemplate': 'TEXT',
-      'participantIds': 'TEXT NOT NULL DEFAULT "[]"',
-      'participantNames': 'TEXT NOT NULL DEFAULT "[]"',
-      'participantAvatars': 'TEXT',
-      'activationStrategy': 'INTEGER NOT NULL DEFAULT 0',
-      'replyMode': 'INTEGER NOT NULL DEFAULT 0',
-      'tavernMode': 'INTEGER NOT NULL DEFAULT 0',
-      'immersion': 'INTEGER NOT NULL DEFAULT 1',
-      'interactionFrequency': 'INTEGER NOT NULL DEFAULT 1',
-      'autoModeEnabled': 'INTEGER NOT NULL DEFAULT 0',
-      'allowSelfResponse': 'INTEGER NOT NULL DEFAULT 0',
-      'lastMessage': 'TEXT',
-      'lastMessageTime': 'TEXT',
-      'unreadCount': 'INTEGER NOT NULL DEFAULT 0',
-      'conversationSummary': 'TEXT',
-      'summaryMessageCount': 'INTEGER NOT NULL DEFAULT 0',
+      'title': 'TEXT NOT NULL DEFAULT ""',
+      'coverUrl': 'TEXT',
+      'synopsis': 'TEXT',
+      'worldSetting': 'TEXT',
+      'genre': 'INTEGER NOT NULL DEFAULT 3',
+      'narratorRole': 'INTEGER NOT NULL DEFAULT 0',
+      'participantCharacterIds': 'TEXT',
+      'currentSaveId': 'TEXT',
+      'isArchived': 'INTEGER NOT NULL DEFAULT 0',
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
-      'updatedAt': 'TEXT',
-      'isMuted': 'INTEGER NOT NULL DEFAULT 0',
-      'isPinned': 'INTEGER NOT NULL DEFAULT 0',
-      'isHidden': 'INTEGER NOT NULL DEFAULT 0',
-      'loverModeEnabled': 'INTEGER NOT NULL DEFAULT 0',
-      'openModeEnabled': 'INTEGER NOT NULL DEFAULT 0',
-      'faModeEnabled': 'INTEGER NOT NULL DEFAULT 0',
-      'daoModeEnabled': 'INTEGER NOT NULL DEFAULT 0',
-      'progressMetrics': 'TEXT',
-      'sceneState': 'TEXT',
+      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
+      'lastSegmentPreview': 'TEXT',
     },
-    'group_member_settings': {
-      'groupChatId': 'TEXT NOT NULL DEFAULT ""',
-      'characterId': 'TEXT NOT NULL DEFAULT ""',
-      'talkativeness': 'INTEGER NOT NULL DEFAULT 50',
-      'isMuted': 'INTEGER NOT NULL DEFAULT 0',
-      'sortOrder': 'INTEGER NOT NULL DEFAULT 0',
-      'triggerKeywords': 'TEXT',
-      'storyNickname': 'TEXT',
-      'storyPersonality': 'TEXT',
+    'story_segments': {
+      'id': 'TEXT PRIMARY KEY',
+      'storyId': 'TEXT NOT NULL DEFAULT ""',
+      'saveId': 'TEXT NOT NULL DEFAULT ""',
+      'role': 'TEXT NOT NULL DEFAULT "narration"',
+      'content': 'TEXT NOT NULL DEFAULT ""',
+      'narratorRole': 'INTEGER NOT NULL DEFAULT 0',
+      'branchOptions': 'TEXT',
+      'chosenBranch': 'TEXT',
+      'orderIndex': 'INTEGER NOT NULL DEFAULT 0',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
     },
-    'group_relationships': {
-      'groupChatId': 'TEXT NOT NULL DEFAULT ""',
-      'characterIdA': 'TEXT NOT NULL DEFAULT ""',
-      'characterIdB': 'TEXT NOT NULL DEFAULT ""',
-      'relationship': 'INTEGER NOT NULL DEFAULT 4',
+    'story_scenes': {
+      'storyId': 'TEXT NOT NULL DEFAULT ""',
+      'saveId': 'TEXT NOT NULL DEFAULT ""',
+      'affinity': 'INTEGER NOT NULL DEFAULT 50',
+      'emotionValue': 'INTEGER NOT NULL DEFAULT 50',
+      'emotionLabel': 'TEXT',
+      'bodyState': 'TEXT',
+      'psychState': 'TEXT',
+      'actionState': 'TEXT',
+      'location': 'TEXT',
+      'atmosphere': 'TEXT',
+      'presentCharacters': 'TEXT',
+      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
+    },
+    'story_saves': {
+      'id': 'TEXT PRIMARY KEY',
+      'storyId': 'TEXT NOT NULL DEFAULT ""',
+      'name': 'TEXT',
+      'segmentCount': 'INTEGER NOT NULL DEFAULT 0',
+      'narratorRole': 'INTEGER NOT NULL DEFAULT 0',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
     },
     'ai_wallets': {
       'characterId': 'TEXT PRIMARY KEY',
@@ -763,17 +766,11 @@ class LocalStorageRepository {
 
   static Future<void> createMissingTable(Database db, String table) async {
     switch (table) {
-      case 'group_chat_sessions':
-        await db.execute(
-            ''' CREATE TABLE IF NOT EXISTS group_chat_sessions ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, name TEXT NOT NULL, avatarUrl TEXT, scenario TEXT, scenarioTemplate TEXT, participantIds TEXT NOT NULL, participantNames TEXT NOT NULL, participantAvatars TEXT, activationStrategy INTEGER NOT NULL DEFAULT 0, replyMode INTEGER NOT NULL DEFAULT 0, tavernMode INTEGER NOT NULL DEFAULT 0, immersion INTEGER NOT NULL DEFAULT 1, interactionFrequency INTEGER NOT NULL DEFAULT 1, autoModeEnabled INTEGER NOT NULL DEFAULT 0, allowSelfResponse INTEGER NOT NULL DEFAULT 0, lastMessage TEXT, lastMessageTime TEXT, unreadCount INTEGER NOT NULL DEFAULT 0, conversationSummary TEXT, summaryMessageCount INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT, isMuted INTEGER NOT NULL DEFAULT 0, isPinned INTEGER NOT NULL DEFAULT 0, isHidden INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, loverModeEnabled INTEGER NOT NULL DEFAULT 0, openModeEnabled INTEGER NOT NULL DEFAULT 0, faModeEnabled INTEGER NOT NULL DEFAULT 0, daoModeEnabled INTEGER NOT NULL DEFAULT 0 ) ''');
-        break;
-      case 'group_member_settings':
-        await db.execute(
-            ''' CREATE TABLE IF NOT EXISTS group_member_settings ( id TEXT PRIMARY KEY, groupChatId TEXT NOT NULL, characterId TEXT NOT NULL, talkativeness INTEGER NOT NULL DEFAULT 50, isMuted INTEGER NOT NULL DEFAULT 0, sortOrder INTEGER NOT NULL DEFAULT 0, triggerKeywords TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, UNIQUE(groupChatId, characterId) ) ''');
-        break;
-      case 'group_relationships':
-        await db.execute(
-            ''' CREATE TABLE IF NOT EXISTS group_relationships ( id TEXT PRIMARY KEY, groupChatId TEXT NOT NULL, characterIdA TEXT NOT NULL, characterIdB TEXT NOT NULL, relationship INTEGER NOT NULL DEFAULT 4, sync_seq INTEGER NOT NULL DEFAULT 0, UNIQUE(groupChatId, characterIdA, characterIdB) ) ''');
+      case 'story_books':
+      case 'story_segments':
+      case 'story_scenes':
+      case 'story_saves':
+        await _createStoryTables(db);
         break;
       case 'shop_items':
         await db.execute(
@@ -1011,12 +1008,7 @@ class LocalStorageRepository {
       await db.execute('ALTER TABLE chat_sessions ADD COLUMN blockReason TEXT');
     }
     if (oldVersion < 19) {
-      await db.execute(
-          ''' CREATE TABLE IF NOT EXISTS group_chat_sessions ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, name TEXT NOT NULL, avatarUrl TEXT, scenario TEXT, scenarioTemplate TEXT, participantIds TEXT NOT NULL, participantNames TEXT NOT NULL, participantAvatars TEXT, activationStrategy INTEGER NOT NULL DEFAULT 0, replyMode INTEGER NOT NULL DEFAULT 0, tavernMode INTEGER NOT NULL DEFAULT 0, immersion INTEGER NOT NULL DEFAULT 1, interactionFrequency INTEGER NOT NULL DEFAULT 1, autoModeEnabled INTEGER NOT NULL DEFAULT 0, allowSelfResponse INTEGER NOT NULL DEFAULT 0, lastMessage TEXT, lastMessageTime TEXT, unreadCount INTEGER NOT NULL DEFAULT 0, conversationSummary TEXT, summaryMessageCount INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT, isMuted INTEGER NOT NULL DEFAULT 0, isPinned INTEGER NOT NULL DEFAULT 0, isHidden INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, loverModeEnabled INTEGER NOT NULL DEFAULT 0, openModeEnabled INTEGER NOT NULL DEFAULT 0, faModeEnabled INTEGER NOT NULL DEFAULT 0, daoModeEnabled INTEGER NOT NULL DEFAULT 0 ) ''');
-      await db.execute(
-          ''' CREATE TABLE IF NOT EXISTS group_member_settings ( id TEXT PRIMARY KEY, groupChatId TEXT NOT NULL, characterId TEXT NOT NULL, talkativeness INTEGER NOT NULL DEFAULT 50, isMuted INTEGER NOT NULL DEFAULT 0, sortOrder INTEGER NOT NULL DEFAULT 0, triggerKeywords TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, UNIQUE(groupChatId, characterId) ) ''');
-      await db.execute(
-          ''' CREATE TABLE IF NOT EXISTS group_relationships ( id TEXT PRIMARY KEY, groupChatId TEXT NOT NULL, characterIdA TEXT NOT NULL, characterIdB TEXT NOT NULL, relationship INTEGER NOT NULL DEFAULT 4, sync_seq INTEGER NOT NULL DEFAULT 0, UNIQUE(groupChatId, characterIdA, characterIdB) ) ''');
+      // 预留
     }
     if (oldVersion < 20) {
       await db.execute(
@@ -1297,14 +1289,10 @@ class LocalStorageRepository {
       // 索引优化预留
     }
     if (oldVersion < 44) {
-      await _addColumnIfNotExists(
-          db, 'group_member_settings', 'storyNickname', 'TEXT');
-      await _addColumnIfNotExists(
-          db, 'group_member_settings', 'storyPersonality', 'TEXT');
+      // 预留
     }
     if (oldVersion < 45) {
-      await _addColumnIfNotExists(
-          db, 'group_chat_sessions', 'progressMetrics', 'TEXT');
+      // 预留
     }
     if (oldVersion < 46) {
       // 预留
@@ -1313,9 +1301,28 @@ class LocalStorageRepository {
       // 预留
     }
     if (oldVersion < 48) {
-      await _addColumnIfNotExists(
-          db, 'group_chat_sessions', 'sceneState', 'TEXT');
+      // 预留
     }
+    if (oldVersion < 49) {
+      // 故事书模块
+      await _createStoryTables(db);
+    }
+  }
+
+  /// 故事书四张表建表语句（_onCreate / 迁移 / createMissingTable 共用）
+  static Future<void> _createStoryTables(Database db) async {
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS story_books ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', coverUrl TEXT, synopsis TEXT, worldSetting TEXT, genre INTEGER NOT NULL DEFAULT 3, narratorRole INTEGER NOT NULL DEFAULT 0, participantCharacterIds TEXT, currentSaveId TEXT, isArchived INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, lastSegmentPreview TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS story_segments ( id TEXT PRIMARY KEY, storyId TEXT NOT NULL, saveId TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT 'narration', content TEXT NOT NULL DEFAULT '', narratorRole INTEGER NOT NULL DEFAULT 0, branchOptions TEXT, chosenBranch TEXT, orderIndex INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS story_scenes ( storyId TEXT NOT NULL, saveId TEXT NOT NULL DEFAULT '', affinity INTEGER NOT NULL DEFAULT 50, emotionValue INTEGER NOT NULL DEFAULT 50, emotionLabel TEXT, bodyState TEXT, psychState TEXT, actionState TEXT, location TEXT, atmosphere TEXT, presentCharacters TEXT, updatedAt TEXT NOT NULL, PRIMARY KEY (storyId, saveId) ) ''');
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS story_saves ( id TEXT PRIMARY KEY, storyId TEXT NOT NULL, name TEXT, segmentCount INTEGER NOT NULL DEFAULT 0, narratorRole INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_story_segments_story ON story_segments(storyId, saveId, orderIndex) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_story_saves_story ON story_saves(storyId) ''');
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -1355,12 +1362,6 @@ class LocalStorageRepository {
         ''' CREATE TABLE sticker_packs ( id TEXT PRIMARY KEY, name TEXT NOT NULL, coverImagePath TEXT, stickers TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, isDefault INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await createAILettersTable(db);
     await db.execute(
-        ''' CREATE TABLE group_chat_sessions ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, name TEXT NOT NULL, avatarUrl TEXT, scenario TEXT, scenarioTemplate TEXT, participantIds TEXT NOT NULL, participantNames TEXT NOT NULL, participantAvatars TEXT, activationStrategy INTEGER NOT NULL DEFAULT 0, replyMode INTEGER NOT NULL DEFAULT 0, tavernMode INTEGER NOT NULL DEFAULT 0, immersion INTEGER NOT NULL DEFAULT 1, interactionFrequency INTEGER NOT NULL DEFAULT 1, autoModeEnabled INTEGER NOT NULL DEFAULT 0, allowSelfResponse INTEGER NOT NULL DEFAULT 0, lastMessage TEXT, lastMessageTime TEXT, unreadCount INTEGER NOT NULL DEFAULT 0, conversationSummary TEXT, summaryMessageCount INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT, isMuted INTEGER NOT NULL DEFAULT 0, isPinned INTEGER NOT NULL DEFAULT 0, isHidden INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, loverModeEnabled INTEGER NOT NULL DEFAULT 0, openModeEnabled INTEGER NOT NULL DEFAULT 0, faModeEnabled INTEGER NOT NULL DEFAULT 0, daoModeEnabled INTEGER NOT NULL DEFAULT 0 ) ''');
-    await db.execute(
-        ''' CREATE TABLE group_member_settings ( id TEXT PRIMARY KEY, groupChatId TEXT NOT NULL, characterId TEXT NOT NULL, talkativeness INTEGER NOT NULL DEFAULT 50, isMuted INTEGER NOT NULL DEFAULT 0, sortOrder INTEGER NOT NULL DEFAULT 0, triggerKeywords TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, UNIQUE(groupChatId, characterId) ) ''');
-    await db.execute(
-        ''' CREATE TABLE group_relationships ( id TEXT PRIMARY KEY, groupChatId TEXT NOT NULL, characterIdA TEXT NOT NULL, characterIdB TEXT NOT NULL, relationship INTEGER NOT NULL DEFAULT 4, sync_seq INTEGER NOT NULL DEFAULT 0, UNIQUE(groupChatId, characterIdA, characterIdB) ) ''');
-    await db.execute(
         ''' CREATE TABLE ai_wallets ( characterId TEXT PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 50, totalEarned INTEGER NOT NULL DEFAULT 50, totalSpent INTEGER NOT NULL DEFAULT 0, dailySpent INTEGER NOT NULL DEFAULT 0, dailySpentDate TEXT, spendingPersonality INTEGER NOT NULL DEFAULT 5, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
         ''' CREATE TABLE shop_items ( id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', price INTEGER NOT NULL DEFAULT 0, emoji TEXT NOT NULL DEFAULT '', description TEXT DEFAULT '', tags TEXT DEFAULT '', isActive INTEGER NOT NULL DEFAULT 1 ) ''');
@@ -1370,6 +1371,7 @@ class LocalStorageRepository {
         ''' CREATE TABLE pure_ai_sessions ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, title TEXT NOT NULL DEFAULT 'AI', lastMessage TEXT, lastMessageTime TEXT, isPinned INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT ) ''');
     await db.execute(
         ''' CREATE TABLE pure_ai_messages ( id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, senderId TEXT NOT NULL, senderName TEXT, content TEXT NOT NULL, type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, metadata TEXT ) ''');
+    await _createStoryTables(db);
   }
 
   Future<void> saveUser(User user) async {
@@ -1773,48 +1775,6 @@ class LocalStorageRepository {
       if (updateCount == 0) {
         await db.insert('ai_characters', map);
       }
-    }
-  }
-
-  Future<void> _updateGroupChatSessionAvatar(
-      String characterId, String? newAvatarUrl) async {
-    try {
-      final db = await _ensureDb();
-
-      final sessions = await db.query('group_chat_sessions');
-      for (final sessionMap in sessions) {
-        final participantIdsJson = sessionMap['participantIds'] as String?;
-        if (participantIdsJson == null) continue;
-        List<String> participantIds;
-        try {
-          participantIds = List<String>.from(jsonDecode(participantIdsJson));
-        } catch (_) {
-          continue;
-        }
-        final index = participantIds.indexOf(characterId);
-        if (index < 0) continue;
-        final avatarsJson = sessionMap['participantAvatars'] as String?;
-        List<String?> avatars = [];
-        if (avatarsJson != null) {
-          try {
-            avatars = List<String?>.from(jsonDecode(avatarsJson));
-          } catch (e) {
-            debugPrint('Error: $e');
-          }
-        }
-        while (avatars.length <= index) {
-          avatars.add(null);
-        }
-        avatars[index] = newAvatarUrl;
-        await db.update(
-          'group_chat_sessions',
-          {'participantAvatars': jsonEncode(avatars)},
-          where: 'id = ?',
-          whereArgs: [sessionMap['id']],
-        );
-      }
-    } catch (e) {
-      debugPrint(': $e');
     }
   }
 
@@ -3672,9 +3632,6 @@ class LocalStorageRepository {
         'memories',
         'moments',
         'sticker_packs',
-        'group_chat_sessions',
-        'group_member_settings',
-        'group_relationships',
         'ai_wallets',
         'shop_items',
         'shop_orders',
@@ -3703,9 +3660,6 @@ class LocalStorageRepository {
       'memories',
       'moments',
       'sticker_packs',
-      'group_chat_sessions',
-      'group_member_settings',
-      'group_relationships',
       'ai_wallets',
       'shop_items',
       'shop_orders',
@@ -3871,9 +3825,6 @@ class LocalStorageRepository {
       'memories',
       'moments',
       'sticker_packs',
-      'group_chat_sessions',
-      'group_member_settings',
-      'group_relationships',
       'ai_wallets',
       'shop_items',
       'shop_orders',
@@ -4106,105 +4057,150 @@ class LocalStorageRepository {
     }
   }
 
-  // ==================== Group Chat Sessions ====================
+  // ==================== 故事书 Story Books ====================
 
-  Future<void> saveGroupChatSession(GroupChatSession session) async {
+  Future<void> saveStoryBook(StoryBook book) async {
     final db = await _ensureDb();
-    await db.insert('group_chat_sessions', session.toMap(),
+    await db.insert('story_books', book.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<GroupChatSession?> getGroupChatSession(String id) async {
+  Future<StoryBook?> getStoryBook(String id) async {
     final db = await _ensureDb();
     final maps =
-        await db.query('group_chat_sessions', where: 'id = ?', whereArgs: [id]);
-    return maps.isNotEmpty ? GroupChatSession.fromMap(maps.first) : null;
+        await db.query('story_books', where: 'id = ?', whereArgs: [id]);
+    return maps.isNotEmpty ? StoryBook.fromMap(maps.first) : null;
   }
 
-  Future<void> updateGroupChatSession(GroupChatSession session) async {
+  Future<List<StoryBook>> getStoryBooks(String userId,
+      {bool includeArchived = false}) async {
     final db = await _ensureDb();
-    await db.update('group_chat_sessions', session.toMap(),
-        where: 'id = ?', whereArgs: [session.id]);
+    final where = includeArchived
+        ? 'userId = ?'
+        : 'userId = ? AND isArchived = 0';
+    final maps = await db.query('story_books',
+        where: where, whereArgs: [userId], orderBy: 'updatedAt DESC');
+    return maps.map((m) => StoryBook.fromMap(m)).toList();
   }
 
-  Future<void> updateGroupChatSessionById(String id,
-      {String? lastMessage,
-      DateTime? lastMessageTime,
-      String? conversationSummary,
-      int? summaryMessageCount}) async {
+  Future<void> deleteStoryBook(String id) async {
     final db = await _ensureDb();
-    final updates = <String, dynamic>{};
-    if (lastMessage != null) updates['lastMessage'] = lastMessage;
-    if (lastMessageTime != null) {
-      updates['lastMessageTime'] = lastMessageTime.toIso8601String();
-    }
-    if (conversationSummary != null) {
-      updates['conversationSummary'] = conversationSummary;
-    }
-    if (summaryMessageCount != null) {
-      updates['summaryMessageCount'] = summaryMessageCount;
-    }
-    if (updates.isNotEmpty) {
-      updates['updatedAt'] = DateTime.now().toIso8601String();
-      await db.update('group_chat_sessions', updates,
-          where: 'id = ?', whereArgs: [id]);
-    }
+    await db.delete('story_books', where: 'id = ?', whereArgs: [id]);
+    await db.delete('story_segments', where: 'storyId = ?', whereArgs: [id]);
+    await db.delete('story_scenes', where: 'storyId = ?', whereArgs: [id]);
+    await db.delete('story_saves', where: 'storyId = ?', whereArgs: [id]);
+    // 记忆按 storyId 存在 memories 表（characterId 维度）
+    await db.delete('memories', where: 'characterId = ?', whereArgs: [id]);
   }
 
-  Future<List<GroupChatSession>> getGroupChatSessions(String userId) async {
-    final db = await _ensureDb();
-    final maps = await db.query('group_chat_sessions',
-        where: 'userId = ?',
-        whereArgs: [userId],
-        orderBy: 'lastMessageTime DESC');
-    return maps.map((m) => GroupChatSession.fromMap(m)).toList();
-  }
+  // ==================== 故事书段落 Story Segments ====================
 
-  Future<void> deleteGroupChatSession(String id) async {
+  Future<void> saveStorySegment(StorySegment segment) async {
     final db = await _ensureDb();
-    await db.delete('group_chat_sessions', where: 'id = ?', whereArgs: [id]);
-  }
-
-  // ==================== Group Member Settings ====================
-
-  Future<GroupMemberSettings?> getGroupMemberSettings(
-      String groupChatId, String userId) async {
-    final db = await _ensureDb();
-    final maps = await db.query('group_member_settings',
-        where: 'groupChatId = ? AND userId = ?',
-        whereArgs: [groupChatId, userId]);
-    return maps.isNotEmpty ? GroupMemberSettings.fromMap(maps.first) : null;
-  }
-
-  Future<List<GroupMemberSettings>> getGroupMemberSettingsByGroup(
-      String groupChatId) async {
-    final db = await _ensureDb();
-    final maps = await db.query('group_member_settings',
-        where: 'groupChatId = ?',
-        whereArgs: [groupChatId],
-        orderBy: 'sortOrder ASC');
-    return maps.map((m) => GroupMemberSettings.fromMap(m)).toList();
-  }
-
-  Future<void> saveGroupMemberSettings(GroupMemberSettings settings) async {
-    final db = await _ensureDb();
-    await db.insert('group_member_settings', settings.toMap(),
+    await db.insert('story_segments', segment.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  // ==================== Group Relationships ====================
-
-  Future<List<GroupRelationship>> getGroupRelationships(String groupId) async {
+  Future<List<StorySegment>> getStorySegments(String storyId, String saveId,
+      {int? limit, int? offset}) async {
     final db = await _ensureDb();
-    final maps = await db.query('group_relationships',
-        where: 'groupChatId = ?', whereArgs: [groupId]);
-    return maps.map((m) => GroupRelationship.fromMap(m)).toList();
+    final maps = await db.query('story_segments',
+        where: 'storyId = ? AND saveId = ?',
+        whereArgs: [storyId, saveId],
+        orderBy: 'orderIndex ASC',
+        limit: limit,
+        offset: offset);
+    return maps.map((m) => StorySegment.fromMap(m)).toList();
   }
 
-  Future<void> saveGroupRelationship(GroupRelationship relationship) async {
+  Future<int> getStorySegmentCount(String storyId, String saveId) async {
     final db = await _ensureDb();
-    await db.insert('group_relationships', relationship.toMap(),
+    final result = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM story_segments WHERE storyId = ? AND saveId = ?',
+        [storyId, saveId]);
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  Future<void> deleteStorySegment(String id) async {
+    final db = await _ensureDb();
+    await db.delete('story_segments', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// 删除某存档下所有段落（读档覆盖/回退时用）
+  Future<void> deleteStorySegmentsAfter(
+      String storyId, String saveId, int orderIndex) async {
+    final db = await _ensureDb();
+    await db.delete('story_segments',
+        where: 'storyId = ? AND saveId = ? AND orderIndex >= ?',
+        whereArgs: [storyId, saveId, orderIndex]);
+  }
+
+  // ==================== 故事书场景快照 Story Scenes ====================
+
+  Future<void> saveStoryScene(StoryScene scene) async {
+    final db = await _ensureDb();
+    await db.insert('story_scenes', scene.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<StoryScene?> getStoryScene(String storyId, String saveId) async {
+    final db = await _ensureDb();
+    final maps = await db.query('story_scenes',
+        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, saveId]);
+    return maps.isNotEmpty ? StoryScene.fromMap(maps.first) : null;
+  }
+
+  // ==================== 故事书存档 Story Saves ====================
+
+  Future<void> saveStorySave(StorySave save) async {
+    final db = await _ensureDb();
+    await db.insert('story_saves', save.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<StorySave>> getStorySaves(String storyId) async {
+    final db = await _ensureDb();
+    final maps = await db.query('story_saves',
+        where: 'storyId = ?', whereArgs: [storyId], orderBy: 'updatedAt DESC');
+    return maps.map((m) => StorySave.fromMap(m)).toList();
+  }
+
+  Future<void> deleteStorySave(String id) async {
+    final db = await _ensureDb();
+    final saves =
+        await db.query('story_saves', where: 'id = ?', whereArgs: [id]);
+    if (saves.isEmpty) return;
+    final storyId = saves.first['storyId'] as String? ?? '';
+    await db.delete('story_saves', where: 'id = ?', whereArgs: [id]);
+    await db.delete('story_segments',
+        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, id]);
+    await db.delete('story_scenes',
+        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, id]);
+  }
+
+  /// 复制存档（含全部段落与场景）到新存档 id
+  Future<void> copyStorySaveContents(
+      String storyId, String fromSaveId, String toSaveId) async {
+    final db = await _ensureDb();
+    final segs = await db.query('story_segments',
+        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, fromSaveId]);
+    final batch = db.batch();
+    for (final s in segs) {
+      final m = Map<String, dynamic>.from(s);
+      m['saveId'] = toSaveId;
+      m['id'] = '${m['id']}_$toSaveId';
+      batch.insert('story_segments', m,
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    final scene = await db.query('story_scenes',
+        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, fromSaveId]);
+    if (scene.isNotEmpty) {
+      final m = Map<String, dynamic>.from(scene.first);
+      m['saveId'] = toSaveId;
+      batch.insert('story_scenes', m,
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
   }
 
   // ==================== Shop Orders ====================

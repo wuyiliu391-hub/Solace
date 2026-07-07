@@ -4,18 +4,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/chat/chat_bloc.dart';
-import '../../blocs/group_chat/group_chat_bloc.dart';
-import '../../blocs/group_chat/group_chat_event.dart';
-import '../../blocs/group_chat/group_chat_state.dart';
 import '../../models/chat_session.dart';
-import '../../models/group_chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
-import '../../services/bridge/ai_service_adapter.dart';
 import '../character/create_character_screen.dart';
 import '../character/discover_characters_screen.dart';
-import '../group_chat/group_chat_create_screen.dart';
-import '../group_chat/group_chat_detail_screen.dart';
 import 'chat_detail_screen.dart';
 
 class ChatListScreen extends StatelessWidget {
@@ -50,34 +43,27 @@ class ChatListScreen extends StatelessWidget {
       ),
       body: BlocBuilder<ChatBloc, ChatState>(
         builder: (context, chatState) {
-          return BlocBuilder<GroupChatBloc, GroupChatState>(
-            builder: (context, groupState) {
-              final chatSessions = chatState is ChatSessionsLoaded
-                  ? chatState.sessions
-                  : <ChatSession>[];
-              final groupSessions = groupState is GroupChatSessionsLoaded
-                  ? groupState.sessions
-                  : <GroupChatSession>[];
+          final chatSessions = chatState is ChatSessionsLoaded
+              ? chatState.sessions
+              : <ChatSession>[];
 
-              if (chatState is ChatLoading && groupState is GroupChatLoading) {
-                return const Center(child: CircularProgressIndicator());
-              }
+          if (chatState is ChatLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-              if (chatSessions.isEmpty && groupSessions.isEmpty) {
-                return _buildEmptyState(context);
-              }
+          if (chatSessions.isEmpty) {
+            return _buildEmptyState(context);
+          }
 
-              return Column(
-                children: [
-                  _buildSearchBar(context, isDark),
-                  if (chatSessions.isNotEmpty)
-                    _buildOnlineFriendsRow(context, chatSessions, isDark),
-                  Expanded(
-                    child: _buildChatList(context, chatSessions, groupSessions),
-                  ),
-                ],
-              );
-            },
+          return Column(
+            children: [
+              _buildSearchBar(context, isDark),
+              if (chatSessions.isNotEmpty)
+                _buildOnlineFriendsRow(context, chatSessions, isDark),
+              Expanded(
+                child: _buildChatList(context, chatSessions),
+              ),
+            ],
           );
         },
       ),
@@ -273,19 +259,16 @@ class ChatListScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildChatList(BuildContext context, List<ChatSession> chatSessions, List<GroupChatSession> groupSessions) {
-    final merged = <_MergedSession>[
-      ...chatSessions.map((s) => _MergedSession.chat(s)),
-      ...groupSessions.map((s) => _MergedSession.group(s)),
-    ];
-    merged.sort((a, b) {
+  Widget _buildChatList(BuildContext context, List<ChatSession> chatSessions) {
+    final sessions = [...chatSessions];
+    sessions.sort((a, b) {
       final aTime = a.lastMessageTime ?? DateTime(0);
       final bTime = b.lastMessageTime ?? DateTime(0);
       return bTime.compareTo(aTime);
     });
 
     return ListView.separated(
-      itemCount: merged.length,
+      itemCount: sessions.length,
       separatorBuilder: (context, index) => Divider(
         height: 0.5,
         thickness: 0.5,
@@ -295,16 +278,10 @@ class ChatListScreen extends StatelessWidget {
             : Colors.black.withOpacity(0.06),
       ),
       itemBuilder: (context, index) {
-        final item = merged[index];
-        if (item.isGroup) {
-          return _GroupChatListTile(
-            session: item.groupSession!,
-            onLongPress: () => _showGroupSessionOptions(context, item.groupSession!),
-          );
-        }
+        final session = sessions[index];
         return _ChatListTile(
-          session: item.chatSession!,
-          onLongPress: () => _showSessionOptions(context, item.chatSession!),
+          session: session,
+          onLongPress: () => _showSessionOptions(context, session),
         );
       },
     );
@@ -399,69 +376,6 @@ class ChatListScreen extends StatelessWidget {
     );
   }
 
-  void _showGroupSessionOptions(BuildContext context, GroupChatSession session) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: Theme.of(ctx).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Theme.of(ctx).colorScheme.onSurfaceVariant.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.delete, color: Color(0xFFE53935)),
-                  title: const Text('删除酒馆', style: TextStyle(color: Color(0xFFE53935))),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showDialog(
-                      context: context,
-                      builder: (ctx2) => AlertDialog(
-                        title: const Text('删除酒馆'),
-                        content: Text('确定要永久删除酒馆"${session.name}"吗？'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx2),
-                            child: const Text('取消'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pop(ctx2);
-                              context.read<GroupChatBloc>().add(GroupChatDeleteSession(session.id, session.userId));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('已删除酒馆"${session.name}"')),
-                              );
-                            },
-                            style: TextButton.styleFrom(foregroundColor: const Color(0xFFE53935)),
-                            child: const Text('删除'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   void _showCreateOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -519,28 +433,6 @@ class ChatListScreen extends StatelessWidget {
                     _navigateToDiscoverCharacters(context);
                   },
                 ),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.secondaryContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.local_bar,
-                      color: Theme.of(context).colorScheme.secondary,
-                    ),
-                  ),
-                  title: const Text('创建酒馆'),
-                  subtitle: const Text(
-                    '邀请多个角色进入同一个场景',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _navigateToCreateGroupChat(context);
-                  },
-                ),
                 const SizedBox(height: 8),
               ],
             ),
@@ -590,27 +482,6 @@ class ChatListScreen extends StatelessWidget {
     }
   }
 
-  void _navigateToCreateGroupChat(BuildContext context) async {
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    final parentGroupBloc = context.read<GroupChatBloc>();
-
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => BlocProvider(
-          create: (_) => GroupChatBloc(
-            storage: storage,
-            aiService: AIService(storage),
-          ),
-          child: const GroupChatCreateScreen(),
-        ),
-      ),
-    );
-
-    if (context.mounted && result is GroupChatSession) {
-      parentGroupBloc.add(GroupChatLoadSessions(result.userId));
-    }
-  }
 }
 
 class _ChatListTile extends StatefulWidget {
@@ -833,231 +704,6 @@ class _ChatListTileState extends State<_ChatListTile> {
             ),
           ),
       ],
-    );
-  }
-
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(time.year, time.month, time.day);
-
-    if (messageDate == today) {
-      return DateFormat('HH:mm').format(time);
-    } else if (messageDate == today.subtract(const Duration(days: 1))) {
-      return '昨天';
-    } else if (now.difference(time).inDays < 7) {
-      return DateFormat('E', 'zh_CN').format(time);
-    } else {
-      return DateFormat('MM/dd').format(time);
-    }
-  }
-}
-
-class _MergedSession {
-  final ChatSession? chatSession;
-  final GroupChatSession? groupSession;
-
-  _MergedSession.chat(this.chatSession) : groupSession = null;
-  _MergedSession.group(this.groupSession) : chatSession = null;
-
-  bool get isGroup => groupSession != null;
-
-  DateTime? get lastMessageTime {
-    if (isGroup) return groupSession!.lastMessageTime;
-    return chatSession!.lastMessageTime;
-  }
-}
-
-class _GroupChatListTile extends StatelessWidget {
-  final GroupChatSession session;
-  final VoidCallback onLongPress;
-
-  const _GroupChatListTile({required this.session, required this.onLongPress});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final timeText = session.lastMessageTime != null
-        ? _formatTime(session.lastMessageTime!)
-        : '';
-
-    return InkWell(
-      onTap: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => BlocProvider(
-              create: (context) => GroupChatBloc(
-                storage: RepositoryProvider.of<LocalStorageRepository>(context),
-                aiService: AIService(
-                  RepositoryProvider.of<LocalStorageRepository>(context),
-                ),
-              ),
-              child: GroupChatDetailScreen(session: session),
-            ),
-          ),
-        );
-        if (context.mounted) {
-          context.read<GroupChatBloc>().add(
-                GroupChatLoadSessions(session.userId),
-              );
-        }
-      },
-      onLongPress: onLongPress,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                _buildGroupAvatar(colorScheme),
-              ],
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: colorScheme.outlineVariant.withOpacity(0.3),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '${session.tavernMode.label} · ${session.immersion.label}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: colorScheme.primary,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          session.name,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: colorScheme.onSurface,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (timeText.isNotEmpty) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          timeText,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colorScheme.onSurface.withOpacity(0.25),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    session.lastMessage ?? '${session.interactionFrequency.label} · ${session.participantIds.length} 位角色在线',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: colorScheme.onSurface.withOpacity(0.55),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGroupAvatar(ColorScheme colorScheme) {
-    if (session.participantAvatars.isNotEmpty || session.participantNames.isNotEmpty) {
-      return SizedBox(
-        width: 52,
-        height: 52,
-        child: Stack(
-          children: List.generate(session.participantNames.take(4).length, (index) {
-            final avatar = index < session.participantAvatars.length
-                ? session.participantAvatars[index]
-                : null;
-            final name = session.participantNames[index];
-            final left = (index % 2) * 22.0;
-            final top = (index ~/ 2) * 22.0;
-            return Positioned(
-              left: left,
-              top: top,
-              child: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: colorScheme.tertiaryContainer,
-                  border: Border.all(color: colorScheme.surface, width: 2),
-                ),
-                child: ClipOval(
-                  child: avatar != null && avatar.isNotEmpty
-                      ? (avatar.startsWith('/') || avatar.contains('\\')
-                          ? Image.file(
-                              File(avatar),
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _avatarInitial(name, colorScheme),
-                            )
-                          : Image.network(
-                              avatar,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _avatarInitial(name, colorScheme),
-                            ))
-                      : _avatarInitial(name, colorScheme),
-                ),
-              ),
-            );
-          }),
-        ),
-      );
-    }
-
-    return Container(
-      width: 52,
-      height: 52,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            colorScheme.tertiary,
-            colorScheme.tertiary.withOpacity(0.7),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: const Icon(
-        Icons.local_bar,
-        color: Colors.white,
-        size: 28,
-      ),
-    );
-  }
-
-  Widget _avatarInitial(String name, ColorScheme colorScheme) {
-    return Center(
-      child: Text(
-        name.isNotEmpty ? name.characters.first : '?',
-        style: TextStyle(
-          color: colorScheme.onTertiaryContainer,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
     );
   }
 

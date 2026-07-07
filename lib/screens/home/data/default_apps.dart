@@ -64,20 +64,19 @@ class DefaultApps {
       route: '/create_character',
       accentColor: 0xFFC084FC, // 淡紫
     ),
-    // 已禁用：群聊功能暂不开放
-    // const AppItem(
-    //   id: 'group_chat',
-    //   name: '群聊',
-    //   iconAsset: 'groups',
-    //   route: '/group_chat',
-    //   accentColor: 0xFFFB7185, // 珊瑚粉
-    // ),
     const AppItem(
       id: 'tarot',
       name: '塔罗牌',
       iconAsset: 'tarot',
       route: '/tarot',
       accentColor: 0xFF8B5CF6, // 紫色
+    ),
+    const AppItem(
+      id: 'story',
+      name: '故事书',
+      iconAsset: 'story',
+      route: '/story',
+      accentColor: 0xFFE879A6, // 书香粉
     ),
     // 已隐藏：日记模块前端入口暂不展示（后端代码保留）
     // const AppItem(
@@ -165,6 +164,7 @@ class DefaultApps {
     'notifications': Icons.notifications_rounded,
     'search': Icons.search_rounded,
     'tarot': Icons.auto_fix_high_rounded,
+    'story': Icons.auto_stories_rounded,
   };
 
   /// Remix Icon 专业图标映射（Fill 实心填充风格）
@@ -187,6 +187,7 @@ class DefaultApps {
     'notifications': FlutterRemix.notification_3_fill,
     'search': FlutterRemix.search_eye_fill,
     'tarot': FlutterRemix.magic_fill,
+    'story': FlutterRemix.book_open_fill,
   };
 
   /// 获取图标：优先 Remix，fallback Material

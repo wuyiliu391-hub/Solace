@@ -31,7 +31,6 @@ import 'screens/discover/ai_activity_feed_screen.dart';
 import 'screens/discover/relationship_dashboard.dart';
 import 'screens/discover/ai_mailbox_screen.dart';
 import 'screens/map/map_screen.dart';
-import 'screens/group_chat/group_chat_create_screen.dart';
 import 'screens/character/create_character_screen.dart';
 import 'screens/character/create_character_screen.dart';
 import 'screens/settings/ai_config_screen.dart';
@@ -41,13 +40,12 @@ import 'screens/social/forum_screen.dart';
 import 'screens/map/virtual_map_screen.dart';
 import 'screens/games/lucky_wheel_screen.dart';
 import 'screens/settings/app_icon_picker.dart';
+import 'screens/story/story_shelf_screen.dart';
 import 'screens/settings/bt_yandere_mode_screen.dart';
 
 import 'screens/usage/usage_screen.dart';
 import 'screens/autonomous/autonomous_screen.dart';
 import 'blocs/chat/chat_bloc.dart';
-import 'blocs/group_chat/group_chat_bloc.dart';
-import 'blocs/group_chat/group_chat_event.dart';
 import 'blocs/pure_ai/pure_ai_chat_bloc.dart';
 import 'services/permission_service.dart';
 import 'services/notification_service.dart';
@@ -624,10 +622,6 @@ class _MainShellState extends State<_MainShell> {
           BlocProvider(
               create: (_) => ChatBloc(storage, aiService, aiAdapter: aiAdapter)
                 ..add(ChatLoadSessions(userId))),
-          BlocProvider(
-              create: (_) =>
-                  GroupChatBloc(storage: storage, aiService: aiService)
-                    ..add(GroupChatLoadSessions(userId))),
         ], child: const ChatListScreen());
       case 1:
         return ContactsScreen(key: ValueKey('contacts_$_contactsKeyCounter'));
@@ -688,11 +682,6 @@ class _MainShellState extends State<_MainShell> {
         return const RelationshipDashboard();
       case '/map':
         return const MapScreen(aiId: 'default', aiName: 'AI');
-      case '/group_chat':
-        return BlocProvider(
-            create: (_) =>
-                GroupChatBloc(storage: storage, aiService: aiService),
-            child: const GroupChatCreateScreen());
       case '/tarot':
         return TarotScreen(storage: storage);
       // 已隐藏：日记模块前端入口暂不展示
@@ -1189,6 +1178,7 @@ class SolaceApp extends StatelessWidget {
                 '/virtual_map': (context) => const VirtualMapScreen(),
                 '/lucky_wheel': (context) => const LuckyWheelScreen(),
                 '/app_icon_picker': (context) => const AppIconPicker(),
+                '/story': (context) => const StoryShelfScreen(),
               },
               initialRoute: '/',
             );
