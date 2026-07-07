@@ -20,7 +20,6 @@ import '../../services/ai_service.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../services/ai_status_service.dart';
 import '../../services/heartbeat_service.dart';
-import '../../services/permission_service.dart';
 import '../../services/builtin_sticker_service.dart';
 import '../../services/sticker_pack_service.dart';
 import '../../models/sticker_pack.dart';
@@ -70,7 +69,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _hasSettingsChanged = false;
   bool _isBlockedByAI = false;
   bool _isBlockedByUser = false;
-  List<String> _selectedImages = [];
   bool _userScrolledUp = false;
   bool _isNearBottom = true;
   List<StickerPack> _stickerPacks = [];
@@ -103,7 +101,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final Map<String, GlobalKey> _messageKeys = {};
   ChatMessage? _pendingJumpTarget;
   bool _hasPendingReply = false;
-  final ValueNotifier<bool> _showNewMessageBannerNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _showNewMessageBannerNotifier =
+      ValueNotifier<bool>(false);
   bool get _showNewMessageBanner => _showNewMessageBannerNotifier.value;
   int _lastMessageCount = 0;
   List<ChatMessage> _cachedMessages = [];
@@ -124,7 +123,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final ValueNotifier<bool> _canSendNotifier = ValueNotifier<bool>(false);
   bool get _canSend => _canSendNotifier.value;
   bool _webSearchEnabled = false;
-  bool _imageGenEnabled = false;
 
   List<IntimacyEvent> _intimacyEvents = [];
   bool _isIntimacyExpanded = true;
@@ -395,7 +393,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           setState(() => _isBlockedByAI = false);
         }
         if (state is ChatAIObserving && state.chatId == widget.session.id) {
-        // setState 已移除，ChatAIObserving 由 BlocConsumer.buildWhen 处理重建
+          // setState 已移除，ChatAIObserving 由 BlocConsumer.buildWhen 处理重建
         }
       },
       builder: (context, state) {
@@ -650,13 +648,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   // 仅当消息真正变化时才重建列表，避免每轮状态跳跃都触发全量刷新
                   if (current is ChatAIStreaming) return true;
                   if (current is ChatTransferStatusUpdated) return true;
-                  if (current is ChatMessagesLoaded && previous is ChatMessagesLoaded) {
+                  if (current is ChatMessagesLoaded &&
+                      previous is ChatMessagesLoaded) {
                     // P3: 消息数量或内容变化均需重建（支持编辑/删除后的 UI 刷新）
-                    if (current.messages.length != previous.messages.length) return true;
+                    if (current.messages.length != previous.messages.length)
+                      return true;
                     for (var i = 0; i < current.messages.length; i++) {
                       if (i >= previous.messages.length) return true;
-                      if (current.messages[i].content != previous.messages[i].content ||
-                          current.messages[i].isBookmark != previous.messages[i].isBookmark) {
+                      if (current.messages[i].content !=
+                              previous.messages[i].content ||
+                          current.messages[i].isBookmark !=
+                              previous.messages[i].isBookmark) {
                         return true;
                       }
                     }
@@ -702,10 +704,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     }
                   }
                   if (state is ChatMessagesLoaded || state is ChatError) {
-                    if (_isAiTypingNotifier.value) _isAiTypingNotifier.value = false;
+                    if (_isAiTypingNotifier.value)
+                      _isAiTypingNotifier.value = false;
                   }
                   if (state is ChatAIObserving) {
-                    if (_isAiTypingNotifier.value) _isAiTypingNotifier.value = false;
+                    if (_isAiTypingNotifier.value)
+                      _isAiTypingNotifier.value = false;
                   }
                   if (state is ChatPersonaEvolved &&
                       state.chatId == widget.session.id) {
@@ -715,7 +719,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       state.chatId == widget.session.id) {
                     setState(() {
                       _currentSession = (_currentSession ?? widget.session)
-                  .copyWith(intimacyLevel: state.newLevel);
+                          .copyWith(intimacyLevel: state.newLevel);
                     });
                     _loadIntimacyEvents();
                   }
@@ -834,15 +838,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     }
                   }
 
-                  // 优先级：AI正在生成图片 - 显示已有消息 + 生成中指示器
-                  if (state is ChatImageGenerating) {
-                    final baseMessages = state.messages.isNotEmpty
-                        ? state.messages
-                        : _cachedMessages;
-                    return _buildMessageListWithImageGenerating(
-                        context, baseMessages, state.characterName);
-                  }
-
                   // 优先级：AI流式输出 - 显示已有消息 + 流式气泡
                   if (state is ChatAIStreaming) {
                     final baseMessages = state.messages.isNotEmpty
@@ -891,37 +886,37 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 builder: (context, showBanner, _) {
                   if (!showBanner) return const SizedBox.shrink();
                   return Positioned(
-                  top: 8,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: GestureDetector(
-                      onTap: () => _scrollToBottom(force: true),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
+                    top: 8,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: GestureDetector(
+                        onTap: () => _scrollToBottom(force: true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            '新的消息',
+                            style: TextStyle(
+                              color: colorScheme.onPrimaryContainer,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
                             ),
-                          ],
-                        ),
-                        child: Text(
-                          '新的消息',
-                          style: TextStyle(
-                            color: colorScheme.onPrimaryContainer,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
                     ),
-                  ),
                   );
                 },
               ),
@@ -1683,16 +1678,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Row(
               children: [
                 _MoreActionItem(
-                  icon: Icons.photo_outlined,
-                  label: '图片',
-                  color: Colors.green,
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _pickImage();
-                  },
-                ),
-                const SizedBox(width: 16),
-                _MoreActionItem(
                   icon: Icons.card_giftcard,
                   label: '转账',
                   color: Colors.orange,
@@ -1836,12 +1821,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           .notifyUserInteraction();
     } catch (_) {}
 
-    // ── AI绘图模式拦截 ──
-    if (_imageGenEnabled && content.isNotEmpty) {
-      _handleImageGeneration(content, user);
-      return;
-    }
-
     Map<String, dynamic>? replyMetadata;
     if (_replyToMessage != null) {
       replyMetadata = {
@@ -1855,21 +1834,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       setState(() => _replyToMessage = null);
     }
 
-    if (_selectedImages.isNotEmpty) {
-      final paths = List<String>.from(_selectedImages);
-      setState(() {
-        _selectedImages.clear();
-      });
-      _canSendNotifier.value = false;
-      _messageController.clear();
-      _chatBloc.add(ChatSendImage(
-        chatId: widget.session.id,
-        userId: user.id,
-        imagePaths: paths,
-        message: content.isNotEmpty ? content : null,
-        metadata: replyMetadata,
-      ));
-    } else if (content.isNotEmpty) {
+    if (content.isNotEmpty) {
       _chatBloc.add(ChatSendMessage(
         chatId: widget.session.id,
         userId: user.id,
@@ -1885,27 +1850,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _userScrolledUp = false;
     _scrollToBottom(force: true);
     _resetSilenceTimer();
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // AI 绘图（角色一致性生图）
-  // ═══════════════════════════════════════════════════════════
-
-  /// AI绘图模式：清空输入框 → 发送用户气泡 → 显示生成中指示器 → 生成图片
-  void _handleImageGeneration(String userMessage, dynamic user) {
-    // 1. 立即清空输入框
-    _messageController.clear();
-    _canSendNotifier.value = false;
-
-    // 2. 派发生图事件（bloc 内部保存用户消息 + 显示生成中 + 执行生图）
-    _chatBloc.add(ChatGenerateImage(
-      chatId: widget.session.id,
-      userId: user.id,
-      userInstruction: userMessage,
-    ));
-
-    // 3. 滚动到底部
-    _scrollToBottom(force: true);
   }
 
   /// 策略：先显示文本，再异步逐句生成语音作为单独的语音消息发送
@@ -3056,117 +3000,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ],
             ),
           ),
-        if (_selectedImages.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            height: 100,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      '待发送 ${_selectedImages.length} 张图片',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                    ),
-                    const Spacer(),
-                    if (_selectedImages.length > 1)
-                      TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _selectedImages.clear();
-                          });
-                        },
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: const Size(0, 24),
-                        ),
-                        child: Text(
-                          '清空',
-                          style:
-                              TextStyle(fontSize: 12, color: Colors.red[400]),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Expanded(
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _selectedImages.length,
-                    itemBuilder: (context, index) {
-                      final imagePath = _selectedImages[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Stack(
-                          children: [
-                            Container(
-                              width: 64,
-                              height: 64,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: colorScheme.primary.withOpacity(0.3),
-                                  width: 1,
-                                ),
-                                image: DecorationImage(
-                                  image: FileImage(File(imagePath)),
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              top: 2,
-                              right: 2,
-                              child: GestureDetector(
-                                onTap: () => _removeImage(index),
-                                child: Container(
-                                  width: 20,
-                                  height: 20,
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.7),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.close,
-                                    color: Colors.white,
-                                    size: 14,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              bottom: 2,
-                              left: 2,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 4, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.6),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  '${index + 1}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
         Container(
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF000000) : const Color(0xFFF5F5F5),
@@ -3196,8 +3029,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   child: Row(
                     children: [
                       _buildWebSearchToggle(colorScheme, isDark),
-                      const SizedBox(width: 8),
-                      _buildImageGenToggle(colorScheme, isDark),
                     ],
                   ),
                 ),
@@ -3252,9 +3083,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                     controller: _messageController,
                                     focusNode: _messageFocusNode,
                                     decoration: InputDecoration(
-                                      hintText: _selectedImages.isNotEmpty
-                                          ? '添加文字说明...'
-                                          : '发消息...',
+                                      hintText: '发消息...',
                                       hintStyle: TextStyle(
                                         color: isDark
                                             ? Colors.white.withOpacity(0.35)
@@ -3277,8 +3106,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                     onSubmitted: (_) => _sendMessage(),
                                     maxLines: null,
                                     onChanged: (v) {
-                                      final canSend = v.trim().isNotEmpty ||
-                                          _selectedImages.isNotEmpty;
+                                      final canSend = v.trim().isNotEmpty;
                                       if (canSend != _canSend) {
                                         _canSendNotifier.value = canSend;
                                       }
@@ -3359,7 +3187,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                   height: 40,
                                   alignment: Alignment.center,
                                   child: Icon(
-                                    Icons.image_outlined,
+                                    Icons.add_circle_outline,
                                     color: isDark
                                         ? Colors.white.withOpacity(0.6)
                                         : Colors.black.withOpacity(0.5),
@@ -3424,61 +3252,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             const SizedBox(width: 6),
             Text(
               '联网搜索',
-              style: TextStyle(
-                color: fgColor,
-                fontSize: 13,
-                fontWeight: enabled ? FontWeight.w600 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildImageGenToggle(ColorScheme colorScheme, bool isDark) {
-    final enabled = _imageGenEnabled;
-    final bgColor = enabled
-        ? colorScheme.tertiary
-        : (isDark ? const Color(0xFF1F1F1F) : Colors.white);
-    final fgColor = enabled
-        ? Colors.white
-        : (isDark
-            ? Colors.white.withOpacity(0.72)
-            : Colors.black.withOpacity(0.62));
-    final borderColor = enabled
-        ? colorScheme.tertiary
-        : (isDark
-            ? Colors.white.withOpacity(0.12)
-            : Colors.black.withOpacity(0.10));
-
-    return GestureDetector(
-      onTap: () => setState(() => _imageGenEnabled = !_imageGenEnabled),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: borderColor),
-          boxShadow: enabled
-              ? [
-                  BoxShadow(
-                    color: colorScheme.tertiary.withOpacity(0.24),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  )
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.image_rounded, size: 15, color: fgColor),
-            const SizedBox(width: 6),
-            Text(
-              '图片生成',
               style: TextStyle(
                 color: fgColor,
                 fontSize: 13,
@@ -3642,94 +3415,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               reasoning: reasoning,
               avatarUrl: currentAvatar,
               name: currentName,
-            );
-          }
-
-          // 消息列表
-          final msgIndex = index - 1;
-          final reversedIndex = messages.length - 1 - msgIndex;
-          if (reversedIndex < 0 || reversedIndex >= messages.length)
-            return const SizedBox();
-          final message = messages[reversedIndex];
-          final isHighlighted = message.id == _highlightedMessageId;
-
-          return Container(
-            key: ValueKey(message.id),
-            decoration: isHighlighted
-                ? BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primaryContainer
-                        .withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(10),
-                  )
-                : null,
-            padding:
-                isHighlighted ? const EdgeInsets.symmetric(vertical: 4) : null,
-            child: _MessageBubble(
-              message: message,
-              aiAvatarUrl: currentAvatar,
-              userAvatarUrl: userAvatarUrl,
-              aiName: currentName,
-              hasBackgroundImage: _currentSession?.backgroundImage != null &&
-                  _currentSession!.backgroundImage!.isNotEmpty,
-              onImageTap: message.type == MessageType.image ? () {} : null,
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  /// 带图片生成中指示器的消息列表（类似豆包 App 的生成中效果）
-  Widget _buildMessageListWithImageGenerating(
-      BuildContext context, List<ChatMessage> messages, String characterName) {
-    final authState = context.read<AuthBloc>().state;
-    final userAvatarUrl =
-        authState is AuthAuthenticated ? authState.user.avatarUrl : null;
-    final currentAvatar =
-        _currentSession?.aiCharacterAvatar ?? widget.session.aiCharacterAvatar;
-    final currentName =
-        _currentSession?.aiCharacterName ?? widget.session.aiCharacterName;
-
-    // 生成中指示器占一个item（index 0），消息列表占剩余items
-    final totalItems = messages.length + 1 + (_hasMoreMessages ? 1 : 0);
-
-    return Container(
-      color: Colors.transparent,
-      child: ListView.builder(
-        controller: _scrollController,
-        physics: const BouncingScrollPhysics(
-            parent: AlwaysScrollableScrollPhysics()),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        reverse: true,
-        itemCount: totalItems,
-        itemBuilder: (context, index) {
-          if (_hasMoreMessages && index == totalItems - 1) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Center(
-                child: _isLoadingMore
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : Text('上滑加载更多历史消息',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withOpacity(0.4))),
-              ),
-            );
-          }
-
-          // index 0 = 图片生成中指示器（显示在最底部）
-          if (index == 0) {
-            return _ImageGeneratingIndicator(
-              avatarUrl: currentAvatar,
-              name: currentName ?? characterName,
             );
           }
 
@@ -4197,46 +3882,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  Future<void> _pickImage() async {
-    tapHaptic();
-    if (!await PermissionService.requestStoragePermission()) return;
-    try {
-      final picked = await ImagePicker().pickMultiImage();
-      if (picked.isNotEmpty) {
-        for (final xfile in picked) {
-          final localPath = await _copyToCache(xfile.path);
-          if (localPath != null && mounted) {
-            setState(() => _selectedImages.add(localPath));
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('选择图片失败: $e');
-    }
-  }
-
-  Future<String?> _copyToCache(String sourcePath) async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final cacheDir = Directory('${dir.path}/image_cache');
-      if (!await cacheDir.exists()) {
-        await cacheDir.create(recursive: true);
-      }
-      final ext = sourcePath.contains('.') ? sourcePath.split('.').last : 'jpg';
-      final dest =
-          '${cacheDir.path}/img_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4().substring(0, 8)}.$ext';
-      await File(sourcePath).copy(dest);
-      return dest;
-    } catch (e) {
-      debugPrint('复制图片到缓存失败: $e');
-      return sourcePath;
-    }
-  }
-
-  void _removeImage(int index) {
-    setState(() => _selectedImages.removeAt(index));
-  }
-
   void _showFullScreenImage(String imagePath) {
     Navigator.push(
         context,
@@ -4402,8 +4047,7 @@ class _FullScreenImageState extends State<_FullScreenImage>
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
-      final fileName =
-          'solace_${DateTime.now().millisecondsSinceEpoch}.png';
+      final fileName = 'solace_${DateTime.now().millisecondsSinceEpoch}.png';
       final destPath = '${dir.path}/$fileName';
       await file.copy(destPath);
 
@@ -4442,10 +4086,8 @@ class _FullScreenImageState extends State<_FullScreenImage>
               child: Image.file(
                 File(widget.imagePath),
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Icon(
-                    Icons.broken_image,
-                    size: 64,
-                    color: Colors.white54),
+                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image,
+                    size: 64, color: Colors.white54),
               ),
             ),
           ),
@@ -4473,8 +4115,7 @@ class _FullScreenImageState extends State<_FullScreenImage>
                 child: Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.close,
-                          color: Colors.white),
+                      icon: const Icon(Icons.close, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
                     const Spacer(),
@@ -4564,8 +4205,7 @@ class _FullScreenImageState extends State<_FullScreenImage>
               top: MediaQuery.of(context).padding.top + 56,
               right: 12,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.black54,
                   borderRadius: BorderRadius.circular(12),
@@ -4783,8 +4423,7 @@ class _MessageBubble extends StatelessWidget {
                             color: colorScheme.surfaceContainerHighest,
                             child: Center(
                               child: Icon(Icons.broken_image,
-                                  size: 48,
-                                  color: colorScheme.outline),
+                                  size: 48, color: colorScheme.outline),
                             ),
                           ),
                         ),
@@ -4823,211 +4462,216 @@ class _MessageBubble extends StatelessWidget {
             ),
           )
         else ...[
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: _hPad),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisAlignment:
-                isAI ? MainAxisAlignment.start : MainAxisAlignment.end,
-            children: [
-              if (isAI) ...[
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildAvatar(isAI: true),
-                    if (weatherIcon != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Icon(weatherIcon, size: 12,
-                            color: colorScheme.onSurfaceVariant.withOpacity(0.5)),
-                      ),
-                  ],
-                ),
-                const SizedBox(width: 8),
-              ],
-              if (!isAI && message.status == MessageStatus.failed) ...[
-                Icon(Icons.error_outline, size: 16, color: Colors.red[400]),
-                const SizedBox(width: 4),
-              ],
-              if (isTransfer) ...[
-                TransferCard(
-                  amount: double.tryParse(message.content) ?? 0.0,
-                  message: message.metadata?['message'] as String?,
-                  isFromUser: !isAI,
-                  transferStatus:
-                      message.metadata?['transferStatus'] as String? ??
-                          'pending',
-                  direction: message.metadata?['direction'] as String?,
-                ),
-              ] else if (isShopOrder) ...[
-                OrderCard(
-                  order: ShopOrder.fromMetadata(message.metadata!),
-                  isFromUser: !isAI,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => BlocProvider.value(
-                          value: context.read<ShopBloc>(),
-                          child: const OrderTrackingScreen(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: _hPad),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisAlignment:
+                  isAI ? MainAxisAlignment.start : MainAxisAlignment.end,
+              children: [
+                if (isAI) ...[
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildAvatar(isAI: true),
+                      if (weatherIcon != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Icon(weatherIcon,
+                              size: 12,
+                              color: colorScheme.onSurfaceVariant
+                                  .withOpacity(0.5)),
                         ),
-                      ),
-                    );
-                  },
-                ),
-              ] else if (message.type == MessageType.voice)
-                Flexible(
-                  child: _VoiceMessageWithTranscript(
-                    audioPath: message.content,
-                    isFromAI: isAI,
-                    transcript: message.metadata?['text'] as String?,
+                    ],
                   ),
-                )
-              else
-                Flexible(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: isRecalled
-                          ? (brightness == Brightness.dark
-                              ? _bubbleDark
-                              : const Color(0xFFF0F0F0))
-                          : (isAI ? aiBubbleColor : userBubbleColor),
-                      borderRadius: BorderRadius.circular(_bubbleRadius),
+                  const SizedBox(width: 8),
+                ],
+                if (!isAI && message.status == MessageStatus.failed) ...[
+                  Icon(Icons.error_outline, size: 16, color: Colors.red[400]),
+                  const SizedBox(width: 4),
+                ],
+                if (isTransfer) ...[
+                  TransferCard(
+                    amount: double.tryParse(message.content) ?? 0.0,
+                    message: message.metadata?['message'] as String?,
+                    isFromUser: !isAI,
+                    transferStatus:
+                        message.metadata?['transferStatus'] as String? ??
+                            'pending',
+                    direction: message.metadata?['direction'] as String?,
+                  ),
+                ] else if (isShopOrder) ...[
+                  OrderCard(
+                    order: ShopOrder.fromMetadata(message.metadata!),
+                    isFromUser: !isAI,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => BlocProvider.value(
+                            value: context.read<ShopBloc>(),
+                            child: const OrderTrackingScreen(),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ] else if (message.type == MessageType.voice)
+                  Flexible(
+                    child: _VoiceMessageWithTranscript(
+                      audioPath: message.content,
+                      isFromAI: isAI,
+                      transcript: message.metadata?['text'] as String?,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (message.metadata?['replyTo'] != null)
-                          _buildReplyPreview(
-                              context,
-                              colorScheme,
-                              message.metadata!['replyTo']
-                                  as Map<String, dynamic>),
-                        if (message.type == MessageType.sticker)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: message.metadata?['isBuiltinSticker'] == true
-                                ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: Image.asset(
-                                      BuiltinStickerService.getStickerAssetPath(
-                                        message.metadata?['stickerFile']
-                                                as String? ??
-                                            BuiltinStickerService
-                                                    .findStickerById(
-                                                        message.content)
-                                                ?.file ??
-                                            '',
-                                      ),
-                                      width: 120,
-                                      height: 120,
-                                      fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (context, error, stackTrace) =>
-                                              Container(
+                  )
+                else
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isRecalled
+                            ? (brightness == Brightness.dark
+                                ? _bubbleDark
+                                : const Color(0xFFF0F0F0))
+                            : (isAI ? aiBubbleColor : userBubbleColor),
+                        borderRadius: BorderRadius.circular(_bubbleRadius),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (message.metadata?['replyTo'] != null)
+                            _buildReplyPreview(
+                                context,
+                                colorScheme,
+                                message.metadata!['replyTo']
+                                    as Map<String, dynamic>),
+                          if (message.type == MessageType.sticker)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: message.metadata?['isBuiltinSticker'] ==
+                                      true
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.asset(
+                                        BuiltinStickerService
+                                            .getStickerAssetPath(
+                                          message.metadata?['stickerFile']
+                                                  as String? ??
+                                              BuiltinStickerService
+                                                      .findStickerById(
+                                                          message.content)
+                                                  ?.file ??
+                                              '',
+                                        ),
                                         width: 120,
                                         height: 120,
-                                        color:
-                                            colorScheme.surfaceContainerHighest,
-                                        child: Center(
-                                          child: Icon(Icons.broken_image,
-                                              size: 32,
-                                              color: colorScheme.outline),
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                : message.metadata?['isImageSticker'] == true
-                                    ? ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: Image.file(
-                                          File(message.content),
+                                        fit: BoxFit.cover,
+                                        errorBuilder:
+                                            (context, error, stackTrace) =>
+                                                Container(
                                           width: 120,
                                           height: 120,
-                                          fit: BoxFit.cover,
-                                          errorBuilder:
-                                              (context, error, stackTrace) =>
-                                                  Container(
-                                            width: 120,
-                                            height: 120,
-                                            color: colorScheme
-                                                .surfaceContainerHighest,
-                                            child: Center(
-                                              child: Icon(Icons.broken_image,
-                                                  size: 32,
-                                                  color: colorScheme.outline),
-                                            ),
+                                          color: colorScheme
+                                              .surfaceContainerHighest,
+                                          child: Center(
+                                            child: Icon(Icons.broken_image,
+                                                size: 32,
+                                                color: colorScheme.outline),
                                           ),
                                         ),
-                                      )
-                                    : Text(
-                                        message.content,
-                                        style: const TextStyle(fontSize: 32),
                                       ),
-                          )
-                        else ...[
-                          if (isAI && webSearchTrace is Map<String, dynamic>)
-                            _WebSearchSection(trace: webSearchTrace),
-                          if (isAI &&
-                              !isRecalled &&
-                              message.reasoning != null &&
-                              message.reasoning!.isNotEmpty)
-                            _ReasoningSection(reasoning: message.reasoning!),
-                          Text(
-                            isRecalled ? '已撤回' : displayText,
-                            style: TextStyle(
-                              color: isRecalled
-                                  ? (isAI
-                                      ? aiTextColor.withOpacity(0.5)
-                                      : userTextColor.withOpacity(0.5))
-                                  : (isAI ? aiTextColor : userTextColor),
-                              fontSize: 15,
-                              height: 1.4,
-                              fontStyle: isRecalled
-                                  ? FontStyle.italic
-                                  : FontStyle.normal,
+                                    )
+                                  : message.metadata?['isImageSticker'] == true
+                                      ? ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: Image.file(
+                                            File(message.content),
+                                            width: 120,
+                                            height: 120,
+                                            fit: BoxFit.cover,
+                                            errorBuilder:
+                                                (context, error, stackTrace) =>
+                                                    Container(
+                                              width: 120,
+                                              height: 120,
+                                              color: colorScheme
+                                                  .surfaceContainerHighest,
+                                              child: Center(
+                                                child: Icon(Icons.broken_image,
+                                                    size: 32,
+                                                    color: colorScheme.outline),
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                      : Text(
+                                          message.content,
+                                          style: const TextStyle(fontSize: 32),
+                                        ),
+                            )
+                          else ...[
+                            if (isAI && webSearchTrace is Map<String, dynamic>)
+                              _WebSearchSection(trace: webSearchTrace),
+                            if (isAI &&
+                                !isRecalled &&
+                                message.reasoning != null &&
+                                message.reasoning!.isNotEmpty)
+                              _ReasoningSection(reasoning: message.reasoning!),
+                            Text(
+                              isRecalled ? '已撤回' : displayText,
+                              style: TextStyle(
+                                color: isRecalled
+                                    ? (isAI
+                                        ? aiTextColor.withOpacity(0.5)
+                                        : userTextColor.withOpacity(0.5))
+                                    : (isAI ? aiTextColor : userTextColor),
+                                fontSize: 15,
+                                height: 1.4,
+                                fontStyle: isRecalled
+                                    ? FontStyle.italic
+                                    : FontStyle.normal,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              if (!isAI) ...[
-                const SizedBox(width: 8),
-                _buildAvatar(isAI: false),
+                if (!isAI) ...[
+                  const SizedBox(width: 8),
+                  _buildAvatar(isAI: false),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
-        Padding(
-          padding: EdgeInsets.only(
-            left: isAI ? _hPad + _avatarSize + 8.0 : 0,
-            right: isAI ? 0 : _hPad + _avatarSize + 8.0,
-            top: 2,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                DateFormat('HH:mm').format(message.createdAt),
-                style: TextStyle(
-                  fontSize: 11,
-                  color: isRecalled
-                      ? colorScheme.onSurfaceVariant.withOpacity(0.5)
-                      : colorScheme.onSurface.withOpacity(0.4),
+          Padding(
+            padding: EdgeInsets.only(
+              left: isAI ? _hPad + _avatarSize + 8.0 : 0,
+              right: isAI ? 0 : _hPad + _avatarSize + 8.0,
+              top: 2,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  DateFormat('HH:mm').format(message.createdAt),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isRecalled
+                        ? colorScheme.onSurfaceVariant.withOpacity(0.5)
+                        : colorScheme.onSurface.withOpacity(0.4),
+                  ),
                 ),
-              ),
-              if (!isAI) ...[
-                const SizedBox(width: 4),
-                _buildStatusIcon(message.status, colorScheme),
+                if (!isAI) ...[
+                  const SizedBox(width: 4),
+                  _buildStatusIcon(message.status, colorScheme),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
         ], // else end
       ],
     );
@@ -5637,111 +5281,6 @@ class _StreamingBubble extends StatelessWidget {
   }
 }
 
-/// 图片生成中指示器 - 类似豆包 App，显示 AI 头像 + 动画 + "正在为你生成画面..."
-class _ImageGeneratingIndicator extends StatefulWidget {
-  final String? avatarUrl;
-  final String name;
-
-  const _ImageGeneratingIndicator({
-    this.avatarUrl,
-    this.name = 'AI',
-  });
-
-  @override
-  State<_ImageGeneratingIndicator> createState() =>
-      _ImageGeneratingIndicatorState();
-}
-
-class _ImageGeneratingIndicatorState extends State<_ImageGeneratingIndicator>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _dotAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat();
-    _dotAnimation = Tween<double>(begin: 0, end: 3).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: colorScheme.primary.withOpacity(0.1),
-            backgroundImage: widget.avatarUrl != null &&
-                    widget.avatarUrl!.isNotEmpty
-                ? (widget.avatarUrl!.startsWith('/')
-                    ? FileImage(File(widget.avatarUrl!))
-                    : NetworkImage(widget.avatarUrl!)) as ImageProvider
-                : null,
-            child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
-                ? Icon(Icons.auto_awesome,
-                    size: 18, color: colorScheme.primary)
-                : null,
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: colorScheme.primary.withOpacity(0.7),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  AnimatedBuilder(
-                    animation: _dotAnimation,
-                    builder: (context, child) {
-                      final dots =
-                          '.' * (_dotAnimation.value.floor() % 4).clamp(0, 3);
-                      return Text(
-                        '正在为你生成画面$dots',
-                        style: TextStyle(
-                          color: colorScheme.onSurface.withOpacity(0.6),
-                          fontSize: 14,
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// 推理/思考内容折叠区域
 class _ReasoningSection extends StatefulWidget {
   final String reasoning;
@@ -5981,9 +5520,3 @@ class _VoiceMessageWithTranscriptState
     );
   }
 }
-
-
-
-
-
-

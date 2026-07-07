@@ -1,15 +1,11 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../models/ai_character.dart';
 import '../../models/chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ex_persona_analyzer.dart';
-import '../../services/permission_service.dart';
 
 class ExCharacterCreator extends StatefulWidget {
   const ExCharacterCreator({super.key});
@@ -26,7 +22,6 @@ class _ExCharacterCreatorState extends State<ExCharacterCreator> {
   String _gender = 'female';
   bool _isLoading = false;
   bool _analyzed = false;
-  List<String> _photoPaths = [];
   AICharacter? _result;
 
   @override
@@ -41,50 +36,7 @@ class _ExCharacterCreatorState extends State<ExCharacterCreator> {
   bool get _canAnalyze =>
       _nameController.text.trim().isNotEmpty &&
       (_descriptionController.text.trim().isNotEmpty ||
-          _chatHistoryController.text.trim().isNotEmpty ||
-          _photoPaths.isNotEmpty);
-
-  Future<void> _pickPhotos() async {
-    tapHaptic();
-    if (!await PermissionService.requestStoragePermission()) return;
-    try {
-      final picked = await ImagePicker().pickMultiImage();
-      if (picked.isNotEmpty) {
-        final paths = <String>[];
-        for (final xfile in picked) {
-          final localPath = await _copyToCache(xfile.path);
-          if (localPath != null) {
-            paths.add(localPath);
-          }
-        }
-        if (mounted) {
-          setState(() => _photoPaths = paths);
-        }
-      }
-    } catch (e) {
-      debugPrint('选择图片失败: $e');
-    }
-  }
-
-  Future<String?> _copyToCache(String sourcePath) async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final cacheDir = Directory('${dir.path}/ex_cache');
-      if (!await cacheDir.exists()) {
-        await cacheDir.create(recursive: true);
-      }
-      final ext = sourcePath.contains('.')
-          ? sourcePath.split('.').last
-          : 'jpg';
-      final dest =
-          '${cacheDir.path}/ex_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4().substring(0, 8)}.$ext';
-      await File(sourcePath).copy(dest);
-      return dest;
-    } catch (e) {
-      debugPrint('缓存图片失败: $e');
-      return null;
-    }
-  }
+          _chatHistoryController.text.trim().isNotEmpty);
 
   void tapHaptic() {
     // placeholder for haptic feedback
@@ -93,7 +45,7 @@ class _ExCharacterCreatorState extends State<ExCharacterCreator> {
   Future<void> _startAnalysis() async {
     if (!_canAnalyze) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请至少填写名字，并提供描述、聊天记录或照片')),
+        const SnackBar(content: Text('请至少填写名字，并提供描述或聊天记录')),
       );
       return;
     }
@@ -113,7 +65,6 @@ class _ExCharacterCreatorState extends State<ExCharacterCreator> {
         relationshipContext: _relationshipController.text.trim(),
         userDescription: _descriptionController.text.trim(),
         chatHistory: _chatHistoryController.text.trim(),
-        photoPaths: _photoPaths.isNotEmpty ? _photoPaths : null,
       );
 
       if (mounted) {
@@ -253,8 +204,6 @@ class _ExCharacterCreatorState extends State<ExCharacterCreator> {
       const SizedBox(height: 24),
       _buildSectionHeader('上传材料', colorScheme),
       const SizedBox(height: 12),
-      _buildPhotoSection(colorScheme),
-      const SizedBox(height: 12),
       TextField(
         controller: _chatHistoryController,
         maxLines: 8,
@@ -304,79 +253,6 @@ class _ExCharacterCreatorState extends State<ExCharacterCreator> {
       ),
       const SizedBox(height: 32),
     ];
-  }
-
-  Widget _buildPhotoSection(ColorScheme colorScheme) {
-    return InkWell(
-      onTap: _pickPhotos,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          border: Border.all(color: colorScheme.outline.withOpacity(0.3)),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: _photoPaths.isEmpty
-            ? Row(
-                children: [
-                  Icon(Icons.add_photo_alternate,
-                      color: colorScheme.primary),
-                  const SizedBox(width: 12),
-                  Text(
-                    '上传照片（可选）',
-                    style: TextStyle(color: colorScheme.onSurface.withOpacity(0.6)),
-                  ),
-                ],
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.check_circle,
-                          color: colorScheme.primary, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        '已选择 ${_photoPaths.length} 张照片',
-                        style: TextStyle(color: colorScheme.primary),
-                      ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: _pickPhotos,
-                        child: const Text('重新选择'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 80,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _photoPaths.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (_, i) {
-                        return ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.file(
-                            File(_photoPaths[i]),
-                            width: 80,
-                            height: 80,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              width: 80,
-                              height: 80,
-                              color: Colors.grey[200],
-                              child: const Icon(Icons.broken_image, size: 32),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-      ),
-    );
   }
 
   List<Widget> _buildResultView(ColorScheme colorScheme) {

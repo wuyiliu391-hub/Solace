@@ -65,6 +65,7 @@ deploy/
 
 # Secrets and credentials
 .env
+.env.local
 *.env
 **/secrets/
 **/keys/
@@ -94,6 +95,8 @@ android/local.properties
 # APK 文件
 *.apk
 *.apk.gz
+*.apk.sha1
+*.sha1
 
 # 数据库文件
 *.db

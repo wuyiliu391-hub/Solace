@@ -11,31 +11,26 @@ function versionCompare(v1, v2) {
 }
 
 const VERSION_DATA = {
-  latestVersion: '16.2.0',
-  buildNumber: 275,
+  latestVersion: '16.3.0',
+  buildNumber: 276,
   minSdk: 23,
-  releaseDate: '2026-07-06',
-  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=16.2.0',
+  releaseDate: '2026-07-07',
+  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=16.3.0',
   changelog: [
-    '全面对接 HF Space chatgpt2api 服务',
-    '图片生成和多模态 API 统一接入 HF Space',
-    'API Key 默认硬编码 chatgpt2api，用户零配置',
-    '故事书场景状态系统上线',
-    '消息乱码检测增强（多脚本混杂拦截）',
-    '数据库迁移 v48，10+ 新字段',
-    'FA 模式安全分类器规避全面优化',
-    '联系人点击响应修复',
+    '修复备份文件导入失败问题',
+    '理论修复动态输出思考内容问题',
+    '整体代码结构优化与清理',
   ],
   forceUpdate: false,
 };
 
 const ANNOUNCEMENTS = [
   {
-    id: 'ann_1620',
-    title: '🚀 Solace 16.2.0 — HF Space 全面对接 & 服务统一',
-    content: `Solace 16.2.0+275 版本更新公告\n\n━━━━━━━━━ 更新内容 ━━━━━━━━━\n\n🌐 HF Space 全面对接\n图片生成和多模态 API 统一接入 qwen2apiloliu-chatgpt2api-v2.hf.space。API Key 默认 chatgpt2api，用户无需任何配置。\n\n📖 故事书场景状态系统\nStorySceneState 支持情感/位置/氛围追踪，角色沉浸感大幅提升。故事书进度量化指标。\n\n🧹 乱码拦截增强\n新增 isLikelyUnreadableGibberish 多脚本混杂检测器，18+ 调用点覆盖，修复各种混合乱码。\n\n📦 数据库迁移 v48\nchat_sessions 新增 intimacyMode/streakDays/isInFriction/frictionDaysLeft；group_member_settings 新增 storyNickname/storyPersonality；group_chat_sessions 新增 progressMetrics/sceneState。\n\n🔒 FA 模式优化\n安全分类器规避全面优化。\n\n🐛 联系人点击修复\nsubscribe 移到 add 之前，不再丢事件。`,
-    date: '2026-07-06',
-    type: 'feature',
+    id: 'ann_1630_bugfix',
+    title: 'Solace 16.3.0 更新公告',
+    content: `Solace 16.3.0+276 更新公告\n\n━━━━━━━━━ 本次更新 ━━━━━━━━━\n\nBug 修复\n• 修复备份文件导入失败问题，数据恢复功能恢复正常\n• 理论修复动态输出思考内容问题，AI 回复时不再泄露思考过程\n\n代码优化\n• 移除所有图片生成与多模态相关代码（HF Space 到期暂时下线）\n• 清理冗余的模型管理、TFLite、图片分析等遗留代码\n• 整体代码结构优化，提升稳定性`,
+    date: '2026-07-07',
+    type: 'fix',
   },
   {
     id: 'ann_1603',
@@ -54,7 +49,7 @@ const ANNOUNCEMENTS = [
   {
     id: 'ann_1600',
     title: '🎉 Solace 16.0.0 — 大版本更新',
-    content: `Solace 16.0.0+261 大版本更新公告\n\n━━━━━━━━━ 更新内容 ━━━━━━━━━\n\n🤖 GPT-5.5 多模态理解上线，支持图片识别和图文对话。\n🎨 GPT Image 2.0 文生图、图生图全面开放。\n\n✨ 人生系统\n🏛️ 全新人生系统，数字生命拥有完整生命周期。\n📜 人生线时间线，记录角色每一个关键时刻。\n🧠 人格五因子动态演化，实时对比基线变化。\n📊 马斯洛需求层次可视化，洞察角色内心世界。\n🔮 身份认同、三观标签、情绪八维全面展示。\n⏳ 生命阶段自动推进，从婴儿到暮年全程陪伴。\n🌟 数字永生机制，角色可超越肉体永存于世。\n\n⚔️ 宫斗战 & AI 自主\n👑 宫斗战系统震撼登场，角色间明争暗斗。\n🤖 AI 自主系统全面升级，角色拥有独立社交能力。\n💬 角色间可互读聊天记录和记忆库。\n🤝 社交网络支持好友申请与关系建立。\n❤️ 朋友圈打通，角色间可互相点赞评论。\n💓 自主控制面板支持心跳监控与手动触发。\n\n🔧 系统优化\n👁 观察功能支持多角色自由切换。\n🌐 关系图谱修复空白，数据全面打通。\n🎂 角色年龄支持手动编辑。\n🐛 聊天页面修复 30 余处中文乱码。\n⚡ 清理冗余数据库代码，性能更优。\n\n⚠️ GPT 功能每日 9 点至次日凌晨可用。\n⚠️ 人生系统和宫斗战会消耗额外 Token。\n⚠️ 谨慎开启宫斗战，剧情不可预测。`,
+    content: `Solace 16.0.0+261 大版本更新公告\n\n━━━━━━━━━ 更新内容 ━━━━━━━━━\n\n⚠️ 历史公告说明\n本历史公告中涉及的视觉相关能力已在 16.2.0 暂时下线，请以最新公告为准。\n\n✨ 人生系统\n🏛️ 全新人生系统，数字生命拥有完整生命周期。\n📜 人生线时间线，记录角色每一个关键时刻。\n🧠 人格五因子动态演化，实时对比基线变化。\n📊 马斯洛需求层次可视化，洞察角色内心世界。\n🔮 身份认同、三观标签、情绪八维全面展示。\n⏳ 生命阶段自动推进，从婴儿到暮年全程陪伴。\n🌟 数字永生机制，角色可超越肉体永存于世。\n\n⚔️ 宫斗战 & AI 自主\n👑 宫斗战系统震撼登场，角色间明争暗斗。\n🤖 AI 自主系统全面升级，角色拥有独立社交能力。\n💬 角色间可互读聊天记录和记忆库。\n🤝 社交网络支持好友申请与关系建立。\n❤️ 朋友圈打通，角色间可互相点赞评论。\n💓 自主控制面板支持心跳监控与手动触发。\n\n🔧 系统优化\n👁 观察功能支持多角色自由切换。\n🌐 关系图谱修复空白，数据全面打通。\n🎂 角色年龄支持手动编辑。\n🐛 聊天页面修复 30 余处中文乱码。\n⚡ 清理冗余数据库代码，性能更优。\n\n⚠️ GPT 功能每日 9 点至次日凌晨可用。\n⚠️ 人生系统和宫斗战会消耗额外 Token。\n⚠️ 谨慎开启宫斗战，剧情不可预测。`,
     date: '2026-06-17',
     type: 'feature',
   },

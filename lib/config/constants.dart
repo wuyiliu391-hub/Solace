@@ -4,8 +4,6 @@ class AppDurations {
   // ─── Network Timeouts ───
   static const aiRequest = Duration(seconds: 90);
   static const personaAnalysis = Duration(seconds: 120);
-  static const visionApi = Duration(seconds: 90);
-  static const visionBatch = Duration(seconds: 120);
   static const updateCheck = Duration(seconds: 10);
   static const announcementFetch = Duration(seconds: 8);
 
@@ -29,16 +27,6 @@ class AppDurations {
 class ApiDefaults {
   ApiDefaults._();
 
-  // ─── Multimodal ───
-  static const String siliconflowBaseUrl = 'https://api.siliconflow.cn/v1';
-  static const List<String> visionModelFallbacks = [
-    'Qwen/Qwen3.5-4B',
-  ];
-  static const String siliconeflowApiKeyPref = 'siliconflow_api_key';
-  static const int imageMaxBytes = 4 * 1024 * 1024;
-  static const int imageMaxDimension = 1600;
-  static const int imageJpegQuality = 80;
-
   // ─── API URLs ───
   static const String chatCompletionsPath = '/chat/completions';
 
@@ -58,8 +46,6 @@ class ApiDefaults {
   static const int momentMaxTokens = 150;
   static const double momentCommentTemp = 0.85;
   static const int momentCommentMaxTokens = 80;
-  static const double visionTemp = 0.1;
-  static const int visionMaxTokens = 2000;
   static const double backgroundTemp = 0.9;
   static const int backgroundMaxTokens = 80;
   static const double moodDiaryTemp = 0.9;
@@ -71,7 +57,8 @@ class BuiltInAIProviders {
 
   static const String nvidiaStep37FlashId = 'builtin_nvidia_step37_flash';
   static const String nvidiaStep37FlashProvider = '内置最新 Step 模型';
-  static const String nvidiaStep37FlashBaseUrl = 'https://integrate.api.nvidia.com/v1';
+  static const String nvidiaStep37FlashBaseUrl =
+      'https://integrate.api.nvidia.com/v1';
   static const String nvidiaStep37FlashApiKey = ''; // 开源版本：请自行配置
   static const String nvidiaStep37FlashApiKeyBackup = ''; // 开源版本：请自行配置
   static const String nvidiaStep37FlashModel = 'stepfun-ai/step-3.7-flash';
@@ -79,10 +66,12 @@ class BuiltInAIProviders {
 
   static const String siliconflowGlmZ19BId = 'builtin_siliconflow_glm_z1_9b';
   static const String siliconflowGlmZ19BProvider = '内置硅基 GLM-Z1-9B';
-  static const String siliconflowGlmZ19BBaseUrl = 'https://api.siliconflow.cn/v1';
+  static const String siliconflowGlmZ19BBaseUrl =
+      'https://api.siliconflow.cn/v1';
   static const String siliconflowGlmZ19BApiKey = ''; // 开源版本：请自行配置
   static const String siliconflowGlmZ19BModel = 'THUDM/GLM-Z1-9B-0414';
-  static const String siliconflowGlmZ19BRemark = '硅基流动社区模型，9B 推理模型，适合作为第二内置备用模型';
+  static const String siliconflowGlmZ19BRemark =
+      '硅基流动社区模型，9B 推理模型，适合作为第二内置备用模型';
 
   /// 判断当前配置是否为内置 GLM-Z1-9B
   static bool isGlmZ19B(String configId, String modelName) {
@@ -246,7 +235,7 @@ class PrefKeys {
   static const String globalMemoryMode = 'global_memory_mode';
   static const String btModeNoticeV1310Shown = 'bt_mode_notice_v1310_shown';
   static const String forceModeConfirmV14 = 'force_mode_confirm_v14';
-  static const String versionFeatureAck260 = 'version_feature_ack_v260';
+  static const String versionFeatureAck275 = 'version_feature_ack_v275';
   static const String btYandereMasterEnabled = 'bt_yandere_master_enabled';
   static const String btPermissionContactRemark =
       'bt_permission_contact_remark';
@@ -283,17 +272,27 @@ class PrefKeys {
   static const String btPermissionDeviceMaster = 'bt_permission_device_master';
   static const String btPermissionDeviceTap = 'bt_permission_device_tap';
   static const String btPermissionDeviceSwipe = 'bt_permission_device_swipe';
-  static const String btPermissionDeviceLongPress = 'bt_permission_device_long_press';
-  static const String btPermissionDeviceNavigate = 'bt_permission_device_navigate';
-  static const String btPermissionDeviceTypeText = 'bt_permission_device_type_text';
-  static const String btPermissionDeviceClickText = 'bt_permission_device_click_text';
-  static const String btPermissionDeviceOpenApp = 'bt_permission_device_open_app';
-  static const String btPermissionDeviceScreenRead = 'bt_permission_device_screen_read';
-  static const String btPermissionDeviceNotifications = 'bt_permission_device_notifications';
-  static const String btPermissionDeviceScreenshot = 'bt_permission_device_screenshot';
-  static const String btPermissionDeviceSystemSettings = 'bt_permission_device_system_settings';
+  static const String btPermissionDeviceLongPress =
+      'bt_permission_device_long_press';
+  static const String btPermissionDeviceNavigate =
+      'bt_permission_device_navigate';
+  static const String btPermissionDeviceTypeText =
+      'bt_permission_device_type_text';
+  static const String btPermissionDeviceClickText =
+      'bt_permission_device_click_text';
+  static const String btPermissionDeviceOpenApp =
+      'bt_permission_device_open_app';
+  static const String btPermissionDeviceScreenRead =
+      'bt_permission_device_screen_read';
+  static const String btPermissionDeviceNotifications =
+      'bt_permission_device_notifications';
+  static const String btPermissionDeviceScreenshot =
+      'bt_permission_device_screenshot';
+  static const String btPermissionDeviceSystemSettings =
+      'bt_permission_device_system_settings';
   static const String btPermissionDeviceShell = 'bt_permission_device_shell';
-  static const String btPermissionDeviceAppManagement = 'bt_permission_device_app_management';
+  static const String btPermissionDeviceAppManagement =
+      'bt_permission_device_app_management';
 
   static const List<String> btAllPermissionKeys = [
     btPermissionContactRemark,
@@ -338,12 +337,16 @@ class PrefKeys {
 
   // ─── Core Hub 中层 ───
   static const String coreHubNewWorldEnabled = 'core_hub_new_world_enabled';
-  static const String coreHubNewWorldActivatedAt = 'core_hub_new_world_activated_at';
-  static const String coreHubNewWorldTokenConsumed = 'core_hub_new_world_token_consumed';
-  static const String coreHubNewWorldTokenResetAt = 'core_hub_new_world_token_reset_at';
+  static const String coreHubNewWorldActivatedAt =
+      'core_hub_new_world_activated_at';
+  static const String coreHubNewWorldTokenConsumed =
+      'core_hub_new_world_token_consumed';
+  static const String coreHubNewWorldTokenResetAt =
+      'core_hub_new_world_token_reset_at';
   static const String coreHubPersonaRules = 'core_hub_persona_rules';
   static const String coreHubTaskQueuePending = 'core_hub_task_queue_pending';
-  static const String coreHubTaskQueueCompleted = 'core_hub_task_queue_completed';
+  static const String coreHubTaskQueueCompleted =
+      'core_hub_task_queue_completed';
 
   static const String siliconeApiKey = 'siliconflow_api_key';
   static const String ttsApiKey = 'tts_api_key';
@@ -472,8 +475,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-  static const String version = '16.2.0';
-  static const int build = 275;
+  static const String version = '16.3.0';
+  static const int build = 276;
 }
 
 class NotificationChannels {

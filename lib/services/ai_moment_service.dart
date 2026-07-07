@@ -13,7 +13,6 @@ import '../repositories/local_storage_repository.dart';
 import '../config/constants.dart';
 import '../config/business_rules.dart';
 import '../utils/response_decoder.dart';
-import 'image_understanding_service.dart';
 import 'proactive_scheduler.dart';
 import 'ai_service.dart';
 import 'persona_evolution_service.dart';
@@ -396,7 +395,8 @@ class AIMomentService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
-      return extractFinalMomentContent(ResponseDecoder.extractContent(data));
+      return extractFinalMomentContent(
+          ResponseDecoder.extractVisibleContent(data));
     }
 
     return '';
@@ -431,7 +431,9 @@ class AIMomentService {
 
     // 3. 移除其他思考/推理标签
     cleaned = cleaned.replaceAll(
-      RegExp(r'<\s*(?:think|thinking|reasoning|analysis|reflection)\s*>[\s\S]*?<\s*/\s*(?:think|thinking|reasoning|analysis|reflection)\s*>', caseSensitive: false),
+      RegExp(
+          r'<\s*(?:think|thinking|reasoning|analysis|reflection)\s*>[\s\S]*?<\s*/\s*(?:think|thinking|reasoning|analysis|reflection)\s*>',
+          caseSensitive: false),
       '',
     );
 
@@ -460,22 +462,79 @@ class AIMomentService {
 
     // 4. 按句子过滤思考/元分析内容，而不是整行丢弃
     final thinkingPrefixes = [
-      '我来分析', '首先分析', '根据设定', '作为AI', '作为ai', '以下是',
-      '我得先', '用户让我', '我要根据', '嗯，用户', '想了想', '我思考一下',
-      '让我想想', '让我思考一下',
+      '我来分析',
+      '首先分析',
+      '根据设定',
+      '作为AI',
+      '作为ai',
+      '以下是',
+      '我得先',
+      '用户让我',
+      '我需要',
+      '我应该',
+      '先分析',
+      '我要根据',
+      '嗯，用户',
+      '想了想',
+      '我思考一下',
+      '让我想想',
+      '让我思考一下',
     ];
     final thinkingKeywords = [
-      '用户需要', '身份设定', '风格要求', '输出规则', '根据要求',
-      '作为AI', '作为一个', '让我想想', '让我思考', '让我来',
-      '分析一下', '思考过程', '以下是我', '以下是你', '这是我的',
+      '用户需要',
+      '分析用户',
+      '先分析',
+      '需要先分析',
+      '身份设定',
+      '角色人设',
+      '风格要求',
+      '输出规则',
+      '根据要求',
+      '作为AI',
+      '作为一个',
+      '让我想想',
+      '让我思考',
+      '让我来',
+      '分析一下',
+      '思考过程',
+      '以下是我',
+      '以下是你',
+      '这是我的',
     ];
     final metaAnalysisKeywords = [
-      '亲密度', '调整语气', '刚认识', '太生疏', '太亲密', '显得太刻意',
-      '我得先', '是个什么样的人', '表面上', '实际上', '界限很清',
-      '以某角色', '发一条朋友圈', '角色分析', '场景设定', '状态推测',
-      '内部思考', '用户让我', '符合人设', '人设分析', '生成思路',
-      '用户要求', '动态正文', '发点关于', '既真实又', '显得太',
-      '扮演的是', '沉浸在', '只输出', '绝对禁止', '直接输出',
+      '亲密度',
+      '调整语气',
+      '刚认识',
+      '太生疏',
+      '太亲密',
+      '显得太刻意',
+      '我得先',
+      '是个什么样的人',
+      '表面上',
+      '实际上',
+      '界限很清',
+      '以某角色',
+      '发一条朋友圈',
+      '角色分析',
+      '场景设定',
+      '状态推测',
+      '内部思考',
+      '用户让我',
+      '符合人设',
+      '人设分析',
+      '生成思路',
+      '生成一条',
+      '生成评论',
+      '用户要求',
+      '动态正文',
+      '发点关于',
+      '既真实又',
+      '显得太',
+      '扮演的是',
+      '沉浸在',
+      '只输出',
+      '绝对禁止',
+      '直接输出',
     ];
 
     final sentenceDelimiter = RegExp(r'(?<=[。！？．.!?;；\n])\s*');
@@ -602,25 +661,7 @@ class AIMomentService {
     final nickname = character.userNickname ?? '你';
     final intimacyTone = _getIntimacyTone(intimacyLevel);
 
-    String imageDescription = '';
-    if (moment.images.isNotEmpty) {
-      try {
-        final descriptions = <String>[];
-        for (final imagePath in moment.images) {
-          final desc =
-              await ImageUnderstandingService().describeImage(imagePath);
-          if (desc.isNotEmpty) {
-            descriptions.add(desc);
-          }
-        }
-        if (descriptions.isNotEmpty) {
-          imageDescription =
-              '\n【${nickname}发的图片内容】\n${descriptions.join('\n')}\n';
-        }
-      } catch (e) {
-        debugPrint('分析图片失败: $e');
-      }
-    }
+    const imageDescription = '';
 
     final prompt = '''
 你是${character.name}，正在看${nickname}发的朋友圈。
@@ -696,7 +737,7 @@ $imageDescription
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
-      return _cleanContent(ResponseDecoder.extractContent(data));
+      return _cleanContent(ResponseDecoder.extractVisibleContent(data));
     }
 
     return '';
@@ -1088,6 +1129,6 @@ $imageDescription
 
     if (response.statusCode != 200) return '';
     final data = jsonDecode(utf8.decode(response.bodyBytes));
-    return ResponseDecoder.extractContent(data);
+    return ResponseDecoder.extractVisibleContent(data);
   }
 }

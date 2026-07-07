@@ -110,7 +110,7 @@ Future<String> _callAiApi(
       response.bodyBytes,
     );
     final data = jsonDecode(rawBody);
-    final text = ResponseDecoder.extractContent(data);
+    final text = ResponseDecoder.extractVisibleContent(data);
     final normalized = _normalizeBackgroundAiText(text);
     if (normalized.isNotEmpty) return normalized;
   }

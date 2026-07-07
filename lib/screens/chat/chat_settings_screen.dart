@@ -1725,8 +1725,12 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
             _buildCollapsibleEditableSection(context, '禁忌话题',
                 Icons.block_outlined, _tabooTopicsController, '描述TA不会讨论的话题',
                 sectionIndex: 6),
-            _buildCollapsibleEditableSection(context, '外貌设定',
-                Icons.face_outlined, _characterTagController, '描述TA的外貌特征：发色、瞳色、脸型、体型、服饰等',
+            _buildCollapsibleEditableSection(
+                context,
+                '外貌设定',
+                Icons.face_outlined,
+                _characterTagController,
+                '描述TA的外貌特征：发色、瞳色、脸型、体型、服饰等',
                 sectionIndex: 7),
             const SizedBox(height: 12),
             SwitchListTile.adaptive(
@@ -1798,7 +1802,7 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
               Icons.face_outlined,
               (_character.characterTag?.isNotEmpty == true)
                   ? _character.characterTag!
-                  : '尚未设置外貌特征\n\n点击右上角「编辑」→ 展开「外貌设定」→ 填写发色、瞳色等外貌信息，AI 生图将基于此生成角色形象。',
+                  : '尚未设置外貌特征\n\n点击右上角「编辑」→ 展开「外貌设定」→ 填写发色、瞳色等外貌信息。',
               initiallyExpanded: _character.characterTag?.isNotEmpty != true,
             ),
             const SizedBox(height: 12),
@@ -2444,7 +2448,7 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
             ),
             const SizedBox(height: 4),
             Text(
-              '详细描述TA的外貌特征，AI 生图将基于此生成唯一角色形象',
+              '详细描述TA的外貌特征',
               style: TextStyle(
                 fontSize: 13,
                 color: colorScheme.onSurface.withOpacity(0.6),
@@ -2460,7 +2464,8 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
               decoration: InputDecoration(
                 labelText: '外貌特征',
                 hintText: '如：银色长发、紫色瞳孔、瓜子脸、身材高挑、穿白色连衣裙、戴银色耳环',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
             const SizedBox(height: 16),

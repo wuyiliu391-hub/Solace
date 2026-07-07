@@ -6,7 +6,6 @@ import '../models/ai_character.dart';
 import '../models/ai_config.dart';
 import '../repositories/local_storage_repository.dart';
 import '../utils/response_decoder.dart';
-import 'image_understanding_service.dart';
 
 class ExPersonaAnalyzer {
   final LocalStorageRepository _storage;
@@ -19,43 +18,32 @@ class ExPersonaAnalyzer {
     required String relationshipContext,
     required String userDescription,
     String? chatHistory,
-    List<String>? photoPaths,
   }) async {
     final config = await _storage.getActiveAIConfig();
     if (config == null) {
       throw Exception('请先在「设置」中配置 AI 服务');
     }
 
-    String photoDescriptions = '';
-    if (photoPaths != null && photoPaths.isNotEmpty) {
-      photoDescriptions = await _analyzePhotos(photoPaths);
-    }
-
     final rawResult = await _callAnalysisAPI(
-      config, name, gender, relationshipContext,
-      userDescription, chatHistory, photoDescriptions,
+      config,
+      name,
+      gender,
+      relationshipContext,
+      userDescription,
+      chatHistory,
     );
 
     final character = _parseToCharacter(rawResult, name, gender);
     return character;
   }
 
-  Future<String> _analyzePhotos(List<String> paths) async {
-    try {
-      final result = await ImageUnderstandingService().describeMultipleImages(paths);
-      if (result.isNotEmpty) {
-        return '\n【照片分析结果】\n$result\n';
-      }
-    } catch (e) {
-      debugPrint('照片分析失败（非致命）: $e');
-    }
-    return '';
-  }
-
   Future<String> _callAnalysisAPI(
     AIConfig config,
-    String name, String gender, String relationshipContext,
-    String userDescription, String? chatHistory, String photoDescriptions,
+    String name,
+    String gender,
+    String relationshipContext,
+    String userDescription,
+    String? chatHistory,
   ) async {
     const systemPrompt = '''
 你是一个无情的"逆向画像"专家。用户正在还原一个真实存在过的人——包括 TA 的每一面，尤其是坏的。
@@ -88,8 +76,11 @@ class ExPersonaAnalyzer {
 ''';
 
     final userMessage = _buildUserMessage(
-      name, gender, relationshipContext,
-      userDescription, chatHistory, photoDescriptions,
+      name,
+      gender,
+      relationshipContext,
+      userDescription,
+      chatHistory,
     );
 
     final baseUrl = config.baseUrl.endsWith('/')
@@ -99,22 +90,24 @@ class ExPersonaAnalyzer {
     const maxRetries = 2;
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        final response = await http.post(
-          Uri.parse('$baseUrl/chat/completions'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${config.apiKey}',
-          },
-          body: jsonEncode({
-            'model': config.modelName,
-            'messages': [
-              {'role': 'system', 'content': systemPrompt},
-              {'role': 'user', 'content': userMessage},
-            ],
-            'temperature': 0.7,
-            'max_tokens': 4096,
-          }),
-        ).timeout(const Duration(seconds: 120));
+        final response = await http
+            .post(
+              Uri.parse('$baseUrl/chat/completions'),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ${config.apiKey}',
+              },
+              body: jsonEncode({
+                'model': config.modelName,
+                'messages': [
+                  {'role': 'system', 'content': systemPrompt},
+                  {'role': 'user', 'content': userMessage},
+                ],
+                'temperature': 0.7,
+                'max_tokens': 4096,
+              }),
+            )
+            .timeout(const Duration(seconds: 120));
 
         if (response.statusCode == 200) {
           final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -152,8 +145,11 @@ class ExPersonaAnalyzer {
   }
 
   String _buildUserMessage(
-    String name, String gender, String relationshipContext,
-    String userDescription, String? chatHistory, String photoDescriptions,
+    String name,
+    String gender,
+    String relationshipContext,
+    String userDescription,
+    String? chatHistory,
   ) {
     final buffer = StringBuffer();
     buffer.writeln('【基本信息】');
@@ -170,11 +166,6 @@ class ExPersonaAnalyzer {
       buffer.writeln();
     }
 
-    if (photoDescriptions.isNotEmpty) {
-      buffer.writeln(photoDescriptions);
-      buffer.writeln();
-    }
-
     if (chatHistory != null && chatHistory.isNotEmpty) {
       final truncated = chatHistory.length > 3000
           ? '${chatHistory.substring(0, 3000)}\n...(以下省略)'
@@ -185,7 +176,8 @@ class ExPersonaAnalyzer {
 
     buffer.writeln();
     buffer.writeln('【重要提醒】');
-    buffer.writeln('请特别注意用户描述中提到的负面特质。如果用户说TA是渣女/渣男/PUA/冷暴力/出轨等，你必须如实反映在personality和backgroundStory中。不要美化，不要洗白，不要给benefit of doubt。用户要的是真实，不是安慰。');
+    buffer.writeln(
+        '请特别注意用户描述中提到的负面特质。如果用户说TA是渣女/渣男/PUA/冷暴力/出轨等，你必须如实反映在personality和backgroundStory中。不要美化，不要洗白，不要给benefit of doubt。用户要的是真实，不是安慰。');
     buffer.writeln('');
     buffer.writeln('如果用户描述中存在以下关键词，你必须在personality中直接使用对应标签：');
     buffer.writeln('- "渣" → personality必须包含"渣"或"不负责任"');
@@ -219,9 +211,8 @@ class ExPersonaAnalyzer {
         coreDesire: '待完善',
         moralBoundary: '待完善',
         createdAt: DateTime.now(),
-        backgroundStory: rawJson.length > 500
-            ? rawJson.substring(0, 500)
-            : rawJson,
+        backgroundStory:
+            rawJson.length > 500 ? rawJson.substring(0, 500) : rawJson,
         languageStyle: '待完善',
         interactionConfig: const AIInteractionConfig(
           replyMode: ReplyMode.normal,

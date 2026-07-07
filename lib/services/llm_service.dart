@@ -43,6 +43,7 @@ class LlmService {
     bool stream = false,
     int? maxTokensOverride,
     bool omitMaxTokens = false,
+    bool includeReasoningFallback = true,
   }) async {
     // 上下文管理（对标 KouriChat _manage_context）
     _manageContext(userId, message, role);
@@ -90,7 +91,10 @@ class LlmService {
     );
 
     // 发送请求（对标 KouriChat requests.post）
-    return await _sendRequest(request);
+    return await _sendRequest(
+      request,
+      includeReasoningFallback: includeReasoningFallback,
+    );
   }
 
   /// 带工具调用的 LLM 请求（Agent function calling）
@@ -156,7 +160,10 @@ class LlmService {
   }
 
   /// 发送 LLM 请求（对标 KouriChat OpenAI 兼容 API 调用）
-  Future<LlmResponse> _sendRequest(LlmRequest request) async {
+  Future<LlmResponse> _sendRequest(
+    LlmRequest request, {
+    bool includeReasoningFallback = true,
+  }) async {
     var baseUrl = settings.baseUrl.trim();
     while (baseUrl.endsWith('/')) {
       baseUrl = baseUrl.substring(0, baseUrl.length - 1);
@@ -190,7 +197,10 @@ class LlmService {
 
       if (response.statusCode == 200) {
         final json = jsonDecode(decodedBody) as Map<String, dynamic>;
-        final parsed = LlmResponse.fromJson(json);
+        final parsed = LlmResponse.fromJson(
+          json,
+          includeReasoningFallback: includeReasoningFallback,
+        );
         return LlmResponse(
           content: ResponseDecoder.repairText(parsed.content),
           success: parsed.success,
@@ -212,7 +222,10 @@ class LlmService {
               temperature: request.temperature,
               stream: request.stream,
             );
-            return await _sendRequest(retryRequest);
+            return await _sendRequest(
+              retryRequest,
+              includeReasoningFallback: includeReasoningFallback,
+            );
           }
         }
 

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../models/prompt_entry.dart';
+import '../../utils/safe_file_picker.dart';
 
 /// Prompt 管理界面（对标 SillyTavern PromptManager 弹窗）
 /// 功能：排序、编辑、启用/禁用、导入/导出 Prompt 模板
@@ -79,7 +80,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
     const PromptEntry(
       name: 'Enhance Definitions',
       role: 'system',
-      prompt: 'If you have more knowledge of {{char}}, add it to the system prompt.',
+      prompt:
+          'If you have more knowledge of {{char}}, add it to the system prompt.',
       enabled: false,
       system: true,
     ),
@@ -287,7 +289,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.note_add, size: 48, color: colorScheme.onSurface.withOpacity(0.2)),
+            Icon(Icons.note_add,
+                size: 48, color: colorScheme.onSurface.withOpacity(0.2)),
             const SizedBox(height: 12),
             Text(
               '暂无 Prompt 条目',
@@ -310,7 +313,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
   }
 
   /// 单个 Prompt 卡片
-  Widget _buildPromptCard(PromptEntry prompt, int index, ColorScheme colorScheme) {
+  Widget _buildPromptCard(
+      PromptEntry prompt, int index, ColorScheme colorScheme) {
     final isDisabled = !prompt.enabled;
     final textColor = isDisabled
         ? colorScheme.onSurface.withOpacity(0.35)
@@ -384,7 +388,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
               ),
 
               // Trailing: 角色图标 + 操作按钮
-              ..._buildTrailingWidgets(prompt, index, colorScheme, textColor, secondaryColor),
+              ..._buildTrailingWidgets(
+                  prompt, index, colorScheme, textColor, secondaryColor),
             ],
           ),
         ),
@@ -521,10 +526,12 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
           const Spacer(),
           // 重置默认
           TextButton.icon(
-            icon: Icon(Icons.restore, size: 16, color: colorScheme.onSurface.withOpacity(0.5)),
+            icon: Icon(Icons.restore,
+                size: 16, color: colorScheme.onSurface.withOpacity(0.5)),
             label: Text(
               '重置默认',
-              style: TextStyle(fontSize: 13, color: colorScheme.onSurface.withOpacity(0.5)),
+              style: TextStyle(
+                  fontSize: 13, color: colorScheme.onSurface.withOpacity(0.5)),
             ),
             onPressed: _resetToDefaults,
           ),
@@ -672,7 +679,7 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
   /// 导入 Prompt 列表（.json 文件）
   Future<void> _importPrompts() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await SafeFilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
       );
@@ -733,8 +740,10 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
     // 表单控制器
     final nameCtrl = TextEditingController(text: prompt.name);
     final promptCtrl = TextEditingController(text: prompt.prompt);
-    final depthCtrl = TextEditingController(text: prompt.injectionDepth.toString());
-    final orderCtrl = TextEditingController(text: prompt.injectionOrder.toString());
+    final depthCtrl =
+        TextEditingController(text: prompt.injectionDepth.toString());
+    final orderCtrl =
+        TextEditingController(text: prompt.injectionOrder.toString());
 
     // 可变状态
     String role = prompt.role;
@@ -779,7 +788,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
 
                     // 标题栏
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
                       child: Row(
                         children: [
                           Text(
@@ -792,9 +802,11 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
                           ),
                           const Spacer(),
                           if (_editingIndex != null &&
-                              !(_editingIndex != null && _prompts[_editingIndex!].system))
+                              !(_editingIndex != null &&
+                                  _prompts[_editingIndex!].system))
                             IconButton(
-                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.red),
                               tooltip: '删除',
                               onPressed: () {
                                 Navigator.pop(ctx);
@@ -811,15 +823,18 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
                     Expanded(
                       child: ListView(
                         controller: scrollCtrl,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
                         children: [
                           // --- 名称 ---
                           _sectionLabel('名称', colorScheme),
                           const SizedBox(height: 4),
                           TextField(
                             controller: nameCtrl,
-                            style: TextStyle(fontSize: 14, color: colorScheme.onSurface),
-                            decoration: _inputDecoration('Prompt 名称', colorScheme),
+                            style: TextStyle(
+                                fontSize: 14, color: colorScheme.onSurface),
+                            decoration:
+                                _inputDecoration('Prompt 名称', colorScheme),
                           ),
                           const SizedBox(height: 16),
 
@@ -916,7 +931,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       _sectionLabel('注入深度', colorScheme),
                                       const SizedBox(height: 4),
@@ -927,7 +943,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
                                           fontSize: 14,
                                           color: colorScheme.onSurface,
                                         ),
-                                        decoration: _inputDecoration('0-9999', colorScheme),
+                                        decoration: _inputDecoration(
+                                            '0-9999', colorScheme),
                                       ),
                                     ],
                                   ),
@@ -935,7 +952,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
                                 const SizedBox(width: 16),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       _sectionLabel('注入顺序', colorScheme),
                                       const SizedBox(height: 4),
@@ -946,7 +964,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
                                           fontSize: 14,
                                           color: colorScheme.onSurface,
                                         ),
-                                        decoration: _inputDecoration('0-9999', colorScheme),
+                                        decoration: _inputDecoration(
+                                            '0-9999', colorScheme),
                                       ),
                                     ],
                                   ),
@@ -1008,7 +1027,8 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
                     // 底部按钮
                     const Divider(height: 1),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
                       child: Row(
                         children: [
                           Expanded(
@@ -1022,9 +1042,11 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10),
                                 ),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                               ),
-                              child: const Text('取消', style: TextStyle(fontSize: 14)),
+                              child: const Text('取消',
+                                  style: TextStyle(fontSize: 14)),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1050,9 +1072,11 @@ class _PromptManagerScreenState extends State<PromptManagerScreen> {
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10),
                                 ),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                               ),
-                              child: const Text('保存', style: TextStyle(fontSize: 14)),
+                              child: const Text('保存',
+                                  style: TextStyle(fontSize: 14)),
                             ),
                           ),
                         ],

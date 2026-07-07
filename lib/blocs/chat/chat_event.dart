@@ -67,22 +67,6 @@ class ChatSendMessage extends ChatEvent {
       [chatId, userId, content, metadata, enableWebSearch];
 }
 
-/// AI 生图事件：用户发送场景描述，AI 生成角色图片
-class ChatGenerateImage extends ChatEvent {
-  final String chatId;
-  final String userId;
-  final String userInstruction;
-
-  const ChatGenerateImage({
-    required this.chatId,
-    required this.userId,
-    required this.userInstruction,
-  });
-
-  @override
-  List<Object?> get props => [chatId, userId, userInstruction];
-}
-
 class ChatCreateSession extends ChatEvent {
   final String userId;
   final AICharacter character;
@@ -146,25 +130,6 @@ class ChatSendSticker extends ChatEvent {
 
   @override
   List<Object?> get props => [chatId, userId, sticker, isImageSticker];
-}
-
-class ChatSendImage extends ChatEvent {
-  final String chatId;
-  final String userId;
-  final List<String> imagePaths;
-  final String? message;
-  final Map<String, dynamic>? metadata;
-
-  const ChatSendImage({
-    required this.chatId,
-    required this.userId,
-    required this.imagePaths,
-    this.message,
-    this.metadata,
-  });
-
-  @override
-  List<Object?> get props => [chatId, userId, imagePaths, message, metadata];
 }
 
 class ChatProactiveReply extends ChatEvent {

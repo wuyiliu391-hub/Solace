@@ -46,10 +46,12 @@ class ChatAIStreaming extends ChatState {
   final String characterName;
   final String reasoning;
 
-  const ChatAIStreaming(this.messages, this.streamingText, this.characterName, {this.reasoning = ''});
+  const ChatAIStreaming(this.messages, this.streamingText, this.characterName,
+      {this.reasoning = ''});
 
   @override
-  List<Object?> get props => [messages, streamingText, characterName, reasoning];
+  List<Object?> get props =>
+      [messages, streamingText, characterName, reasoning];
 }
 
 class ChatSessionCreated extends ChatState {
@@ -131,16 +133,6 @@ class ChatAICoinsSent extends ChatState {
 }
 
 /// AI 正在生成图片（显示在消息列表中，类似 TypingIndicator）
-class ChatImageGenerating extends ChatState {
-  final List<ChatMessage> messages;
-  final String characterName;
-
-  const ChatImageGenerating(this.messages, this.characterName);
-
-  @override
-  List<Object?> get props => [messages, characterName];
-}
-
 class ChatBlockedByAI extends ChatState {
   final String chatId;
   final String reason;
@@ -189,7 +181,15 @@ class ChatAIObserving extends ChatState {
   });
 
   @override
-  List<Object?> get props => [chatId, statusText, emotionLabel, emotionEmoji, emotionIntensity, pendingCount, messages];
+  List<Object?> get props => [
+        chatId,
+        statusText,
+        emotionLabel,
+        emotionEmoji,
+        emotionIntensity,
+        pendingCount,
+        messages
+      ];
 }
 
 class ChatPersonaEvolved extends ChatState {

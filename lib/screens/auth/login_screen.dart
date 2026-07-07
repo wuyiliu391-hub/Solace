@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../repositories/local_storage_repository.dart';
+import '../../utils/safe_file_picker.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -50,22 +51,31 @@ class _LoginScreenState extends State<LoginScreen>
                 children: [
                   Icon(Icons.favorite_rounded, size: 72, color: cs.primary),
                   const SizedBox(height: 12),
-                  Text('Solace', style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold, color: cs.primary)),
+                  Text('Solace',
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineMedium
+                          ?.copyWith(
+                              fontWeight: FontWeight.bold, color: cs.primary)),
                   const SizedBox(height: 4),
                   Text('输入 QQ 号，创建你的云端账号',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.5))),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: cs.onSurface.withOpacity(0.5))),
                   const SizedBox(height: 12),
                   GestureDetector(
                     onTap: _importBackup,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.file_download_outlined, size: 16, color: cs.primary.withOpacity(0.7)),
+                        Icon(Icons.file_download_outlined,
+                            size: 16, color: cs.primary.withOpacity(0.7)),
                         const SizedBox(width: 4),
                         Text('从备份文件恢复账号',
-                          style: TextStyle(fontSize: 13, color: cs.primary.withOpacity(0.7))),
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: cs.primary.withOpacity(0.7))),
                       ],
                     ),
                   ),
@@ -83,7 +93,6 @@ class _LoginScreenState extends State<LoginScreen>
                       ],
                     ),
                   ),
-
                   SizedBox(
                     height: 340,
                     child: TabBarView(
@@ -103,11 +112,9 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-
-
   Future<void> _importBackup() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await SafeFilePicker.pickFiles(
         type: FileType.any,
         allowMultiple: false,
       );
@@ -126,8 +133,9 @@ class _LoginScreenState extends State<LoginScreen>
       final bytes = await file.readAsBytes();
 
       // 验证文件格式
-      final validationResult = await RepositoryProvider.of<LocalStorageRepository>(context)
-          .importFromBytes(bytes, validateOnly: true);
+      final validationResult =
+          await RepositoryProvider.of<LocalStorageRepository>(context)
+              .importFromBytes(bytes, validateOnly: true);
 
       if (!mounted) return;
 
@@ -216,12 +224,14 @@ class _LoginScreenState extends State<LoginScreen>
           Navigator.pop(context); // 关闭加载提示
 
           // 导入成功后自动登录
-          final currentUserId = RepositoryProvider.of<LocalStorageRepository>(context)
-              .getString('current_user_id');
+          final currentUserId =
+              RepositoryProvider.of<LocalStorageRepository>(context)
+                  .getString('current_user_id');
 
           if (currentUserId != null) {
-            final user = await RepositoryProvider.of<LocalStorageRepository>(context)
-                .getUser(currentUserId);
+            final user =
+                await RepositoryProvider.of<LocalStorageRepository>(context)
+                    .getUser(currentUserId);
             if (user != null) {
               context.read<AuthBloc>().add(AuthCheckRequested());
 
@@ -264,7 +274,10 @@ class _LoginScreenState extends State<LoginScreen>
             width: 70,
             child: Text(
               label,
-              style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.w500),
+              style: const TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
@@ -319,15 +332,16 @@ class _LoginTabState extends State<_LoginTab> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _loading = true);
     context.read<AuthBloc>().add(AuthLoginRequested(
-      qqNumber: _qqCtrl.text.trim(),
-      password: _pwCtrl.text,
-    ));
+          qqNumber: _qqCtrl.text.trim(),
+          password: _pwCtrl.text,
+        ));
   }
 
   void _forgotPassword() async {
     final qq = _qqCtrl.text.trim();
     if (qq.isEmpty || qq.length < 5) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先输入QQ号')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先输入QQ号')));
       return;
     }
     final pwCtrl = TextEditingController();
@@ -350,9 +364,13 @@ class _LoginTabState extends State<_LoginTab> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+                  const Icon(Icons.warning_amber_rounded,
+                      color: Colors.orange, size: 20),
                   const SizedBox(width: 8),
-                  Expanded(child: Text('重置密码后需重新登录，本地数据不受影响。', style: TextStyle(fontSize: 13, color: Colors.orange[900]))),
+                  Expanded(
+                      child: Text('重置密码后需重新登录，本地数据不受影响。',
+                          style: TextStyle(
+                              fontSize: 13, color: Colors.orange[900]))),
                 ],
               ),
             ),
@@ -369,7 +387,8 @@ class _LoginTabState extends State<_LoginTab> {
                   isDense: true,
                   suffix: GestureDetector(
                     onTap: () => obscure.value = !obscure.value,
-                    child: Icon(o ? Icons.visibility_off : Icons.visibility, size: 20),
+                    child: Icon(o ? Icons.visibility_off : Icons.visibility,
+                        size: 20),
                   ),
                 ),
               ),
@@ -386,7 +405,8 @@ class _LoginTabState extends State<_LoginTab> {
                   isDense: true,
                   suffix: GestureDetector(
                     onTap: () => obscure2.value = !obscure2.value,
-                    child: Icon(o ? Icons.visibility_off : Icons.visibility, size: 20),
+                    child: Icon(o ? Icons.visibility_off : Icons.visibility,
+                        size: 20),
                   ),
                 ),
               ),
@@ -394,18 +414,24 @@ class _LoginTabState extends State<_LoginTab> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          ElevatedButton(onPressed: () {
-            if (pwCtrl.text.length < 6) {
-              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('密码至少6位')));
-              return;
-            }
-            if (pwCtrl.text != confirmCtrl.text) {
-              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('两次密码不一致')));
-              return;
-            }
-            Navigator.pop(ctx, true);
-          }, child: const Text('确认重置')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          ElevatedButton(
+              onPressed: () {
+                if (pwCtrl.text.length < 6) {
+                  ScaffoldMessenger.of(ctx)
+                      .showSnackBar(const SnackBar(content: Text('密码至少6位')));
+                  return;
+                }
+                if (pwCtrl.text != confirmCtrl.text) {
+                  ScaffoldMessenger.of(ctx)
+                      .showSnackBar(const SnackBar(content: Text('两次密码不一致')));
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              child: const Text('确认重置')),
         ],
       ),
     );
@@ -413,9 +439,9 @@ class _LoginTabState extends State<_LoginTab> {
     if (confirm == true && context.mounted) {
       setState(() => _loading = true);
       context.read<AuthBloc>().add(AuthPasswordResetRequested(
-        qqNumber: qq,
-        newPassword: pwCtrl.text,
-      ));
+            qqNumber: qq,
+            newPassword: pwCtrl.text,
+          ));
     }
   }
 
@@ -429,7 +455,8 @@ class _LoginTabState extends State<_LoginTab> {
         } else if (state is AuthError) {
           setState(() => _loading = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(state.message), backgroundColor: Colors.red[700]),
+            SnackBar(
+                content: Text(state.message), backgroundColor: Colors.red[700]),
           );
         }
       },
@@ -445,7 +472,8 @@ class _LoginTabState extends State<_LoginTab> {
                   child: ClipOval(
                     child: Image.network(
                       'https://q1.qlogo.cn/g?b=qq&nk=$_qqPreview&s=640',
-                      width: 48, height: 48,
+                      width: 48,
+                      height: 48,
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     ),
                   ),
@@ -467,31 +495,44 @@ class _LoginTabState extends State<_LoginTab> {
                 obscureText: _obscure,
                 textInputAction: TextInputAction.done,
                 onFieldSubmitted: (_) => _submit(),
-                decoration: _inputDeco(cs, '密码', const Icon(Icons.lock_outline), suffix: GestureDetector(
-                  onTap: () => setState(() => _obscure = !_obscure),
-                  child: Icon(_obscure ? Icons.visibility_off : Icons.visibility, size: 20),
-                )),
+                decoration: _inputDeco(cs, '密码', const Icon(Icons.lock_outline),
+                    suffix: GestureDetector(
+                      onTap: () => setState(() => _obscure = !_obscure),
+                      child: Icon(
+                          _obscure ? Icons.visibility_off : Icons.visibility,
+                          size: 20),
+                    )),
                 validator: _valPw,
               ),
               const SizedBox(height: 20),
               SizedBox(
-                width: double.infinity, height: 48,
+                width: double.infinity,
+                height: 48,
                 child: ElevatedButton(
                   onPressed: _loading ? null : _submit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: cs.primary,
                     foregroundColor: cs.onPrimary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
                   ),
                   child: _loading
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('登录', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('登录',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
               ),
               const SizedBox(height: 12),
               GestureDetector(
                 onTap: _forgotPassword,
-                child: Text('忘记密码？', style: TextStyle(fontSize: 13, color: cs.primary.withOpacity(0.7))),
+                child: Text('忘记密码？',
+                    style: TextStyle(
+                        fontSize: 13, color: cs.primary.withOpacity(0.7))),
               ),
             ],
           ),
@@ -549,9 +590,9 @@ class _RegisterTabState extends State<_RegisterTab> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _loading = true);
     context.read<AuthBloc>().add(AuthRegisterRequested(
-      qqNumber: _qqCtrl.text.trim(),
-      password: _pwCtrl.text,
-    ));
+          qqNumber: _qqCtrl.text.trim(),
+          password: _pwCtrl.text,
+        ));
   }
 
   @override
@@ -564,7 +605,8 @@ class _RegisterTabState extends State<_RegisterTab> {
         } else if (state is AuthError) {
           setState(() => _loading = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(state.message), backgroundColor: Colors.red[700]),
+            SnackBar(
+                content: Text(state.message), backgroundColor: Colors.red[700]),
           );
         }
       },
@@ -580,7 +622,8 @@ class _RegisterTabState extends State<_RegisterTab> {
                   child: ClipOval(
                     child: Image.network(
                       'https://q1.qlogo.cn/g?b=qq&nk=$_qqPreview&s=640',
-                      width: 48, height: 48,
+                      width: 48,
+                      height: 48,
                       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     ),
                   ),
@@ -601,10 +644,14 @@ class _RegisterTabState extends State<_RegisterTab> {
                 enabled: !_loading,
                 obscureText: _obscure,
                 textInputAction: TextInputAction.next,
-                decoration: _inputDeco(cs, '设置密码', const Icon(Icons.lock_outline), suffix: GestureDetector(
-                  onTap: () => setState(() => _obscure = !_obscure),
-                  child: Icon(_obscure ? Icons.visibility_off : Icons.visibility, size: 20),
-                )),
+                decoration: _inputDeco(
+                    cs, '设置密码', const Icon(Icons.lock_outline),
+                    suffix: GestureDetector(
+                      onTap: () => setState(() => _obscure = !_obscure),
+                      child: Icon(
+                          _obscure ? Icons.visibility_off : Icons.visibility,
+                          size: 20),
+                    )),
                 validator: _valPw,
               ),
               const SizedBox(height: 12),
@@ -614,25 +661,36 @@ class _RegisterTabState extends State<_RegisterTab> {
                 obscureText: _obscure2,
                 textInputAction: TextInputAction.done,
                 onFieldSubmitted: (_) => _submit(),
-                decoration: _inputDeco(cs, '确认密码', const Icon(Icons.lock), suffix: GestureDetector(
-                  onTap: () => setState(() => _obscure2 = !_obscure2),
-                  child: Icon(_obscure2 ? Icons.visibility_off : Icons.visibility, size: 20),
-                )),
+                decoration: _inputDeco(cs, '确认密码', const Icon(Icons.lock),
+                    suffix: GestureDetector(
+                      onTap: () => setState(() => _obscure2 = !_obscure2),
+                      child: Icon(
+                          _obscure2 ? Icons.visibility_off : Icons.visibility,
+                          size: 20),
+                    )),
                 validator: _valConfirm,
               ),
               const SizedBox(height: 20),
               SizedBox(
-                width: double.infinity, height: 48,
+                width: double.infinity,
+                height: 48,
                 child: ElevatedButton(
                   onPressed: _loading ? null : _submit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: cs.primary,
                     foregroundColor: cs.onPrimary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
                   ),
                   child: _loading
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('注册', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('注册',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
               ),
             ],
@@ -643,7 +701,8 @@ class _RegisterTabState extends State<_RegisterTab> {
   }
 }
 
-InputDecoration _inputDeco(ColorScheme cs, String label, Widget icon, {Widget? suffix}) {
+InputDecoration _inputDeco(ColorScheme cs, String label, Widget icon,
+    {Widget? suffix}) {
   return InputDecoration(
     labelText: label,
     prefixIcon: icon,

@@ -172,9 +172,7 @@ class _CharacterSocialProfileScreenState
             targetName: moment.userName,
             targetContent: moment.content,
             momentId: moment.id,
-            time: moment.likes
-                .firstWhere((l) => l.userId == charId)
-                .createdAt,
+            time: moment.likes.firstWhere((l) => l.userId == charId).createdAt,
           ));
         }
 
@@ -221,9 +219,8 @@ class _CharacterSocialProfileScreenState
           content: row['content'] as String? ?? '',
           emotionTag: row['emotionTag'] as String? ?? '',
           importance: row['importance'] as String? ?? 'normal',
-          timestamp:
-              DateTime.tryParse(row['timestamp'] as String? ?? '') ??
-                  DateTime.now(),
+          timestamp: DateTime.tryParse(row['timestamp'] as String? ?? '') ??
+              DateTime.now(),
           weight: (row['weight'] as num?)?.toDouble() ?? 1.0,
         );
       }).toList();
@@ -238,7 +235,8 @@ class _CharacterSocialProfileScreenState
       LocalStorageRepository storage, String charId) async {
     try {
       // 人格进化数据
-      final evoService = PersonaEvolutionService(storage, MemoryEngine(storage));
+      final evoService =
+          PersonaEvolutionService(storage, MemoryEngine(storage));
       _evolutionLogs = evoService.getChangelog(charId);
       _evolutionCount = evoService.getEvolutionCount(charId);
 
@@ -251,8 +249,7 @@ class _CharacterSocialProfileScreenState
         _personalityState =
             PersonalityState.fromJson(_lifeProfile!.personalityState);
         _worldview = Worldview.fromJson(_lifeProfile!.worldviewState);
-        _identityNarrative =
-            IdentityNarrative.fromJson(_lifeProfile!.identity);
+        _identityNarrative = IdentityNarrative.fromJson(_lifeProfile!.identity);
         _maslowState = (_lifeProfile!.maslowState['layers'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
                 .toList() ??
@@ -261,8 +258,7 @@ class _CharacterSocialProfileScreenState
         // 如果没有 LifeProfile，尝试单独加载各组件
         final psJson = storage.getString('personality_state_$charId');
         if (psJson != null) {
-          _personalityState =
-              PersonalityState.fromJson(jsonDecode(psJson));
+          _personalityState = PersonalityState.fromJson(jsonDecode(psJson));
         }
         final wvJson = storage.getString('worldview_$charId');
         if (wvJson != null) {
@@ -270,8 +266,7 @@ class _CharacterSocialProfileScreenState
         }
         final idJson = storage.getString('identity_narrative_$charId');
         if (idJson != null) {
-          _identityNarrative =
-              IdentityNarrative.fromJson(jsonDecode(idJson));
+          _identityNarrative = IdentityNarrative.fromJson(jsonDecode(idJson));
         }
         final geneJson = storage.getString('gene_profile_$charId');
         if (geneJson != null) {
@@ -402,7 +397,7 @@ class _CharacterSocialProfileScreenState
             ),
             const SizedBox(height: 4),
             Text(
-              'AI 生图将基于此生成唯一的角色形象',
+              '用于记录角色的外貌特征',
               style: TextStyle(
                 fontSize: 13,
                 color: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.6),
@@ -423,18 +418,15 @@ class _CharacterSocialProfileScreenState
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Theme.of(ctx)
-                    .colorScheme
-                    .primaryContainer
-                    .withOpacity(0.3),
+                color:
+                    Theme.of(ctx).colorScheme.primaryContainer.withOpacity(0.3),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
                 '填写建议：银色长发、紫色瞳孔、瓜子脸、身材纤细、白色连衣裙、银制耳环',
                 style: TextStyle(
                   fontSize: 12,
-                  color:
-                      Theme.of(ctx).colorScheme.onSurface.withOpacity(0.5),
+                  color: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.5),
                 ),
               ),
             ),
@@ -449,8 +441,8 @@ class _CharacterSocialProfileScreenState
                     clearCharacterTag: text.isEmpty,
                     updatedAt: DateTime.now(),
                   );
-                  final storage = RepositoryProvider.of<
-                      LocalStorageRepository>(context,
+                  final storage = RepositoryProvider.of<LocalStorageRepository>(
+                      context,
                       listen: false);
                   await storage.saveAICharacter(updated);
                   Navigator.pop(ctx);
@@ -525,8 +517,7 @@ class _CharacterSocialProfileScreenState
                   children: [
                     CircleAvatar(
                       radius: 26,
-                      backgroundColor:
-                          colorScheme.primary.withOpacity(0.12),
+                      backgroundColor: colorScheme.primary.withOpacity(0.12),
                       child: Text(
                         otherChar?.name.isNotEmpty == true
                             ? otherChar!.name[0]
@@ -572,11 +563,10 @@ class _CharacterSocialProfileScreenState
                 const SizedBox(height: 14),
 
                 // ── 三维进度条：亲密度 / 信任度 / 熟悉度 ──
-                _metricBar('亲密度', rel.affinity,
-                    _relColor(rel.relationshipType), colorScheme),
+                _metricBar('亲密度', rel.affinity, _relColor(rel.relationshipType),
+                    colorScheme),
                 const SizedBox(height: 8),
-                _metricBar(
-                    '信任度', trust, Colors.blue.shade300, colorScheme),
+                _metricBar('信任度', trust, Colors.blue.shade300, colorScheme),
                 const SizedBox(height: 8),
                 _metricBar(
                     '熟悉度', familiarity, Colors.amber.shade600, colorScheme),
@@ -588,18 +578,14 @@ class _CharacterSocialProfileScreenState
                     children: [
                       Icon(Icons.warning_amber_rounded,
                           size: 14,
-                          color: tension > 0.6
-                              ? Colors.red
-                              : Colors.orange),
+                          color: tension > 0.6 ? Colors.red : Colors.orange),
                       const SizedBox(width: 4),
                       Text(
                         '紧张度 ${(tension * 100).toInt()}%',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
-                          color: tension > 0.6
-                              ? Colors.red
-                              : Colors.orange,
+                          color: tension > 0.6 ? Colors.red : Colors.orange,
                         ),
                       ),
                     ],
@@ -619,8 +605,7 @@ class _CharacterSocialProfileScreenState
                 ],
 
                 // ── 关系描述 / 最近互动摘要 ──
-                if (rel.description != null &&
-                    rel.description!.isNotEmpty) ...[
+                if (rel.description != null && rel.description!.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,
@@ -721,13 +706,11 @@ class _CharacterSocialProfileScreenState
     );
   }
 
-  Widget _socialMemoryCard(
-      _SocialMemoryEntry mem, ColorScheme colorScheme) {
+  Widget _socialMemoryCard(_SocialMemoryEntry mem, ColorScheme colorScheme) {
     final iconData = _interactionTypeIcon(mem.interactionType);
     final iconColor = _interactionTypeColor(mem.interactionType);
-    final targetChar = _allCharacters
-        .where((c) => c.id == mem.targetCharacterId)
-        .firstOrNull;
+    final targetChar =
+        _allCharacters.where((c) => c.id == mem.targetCharacterId).firstOrNull;
     final time = _formatTime(mem.timestamp);
 
     // 情感权重色块
@@ -906,8 +889,7 @@ class _CharacterSocialProfileScreenState
                     message: like.userName,
                     child: CircleAvatar(
                       radius: 14,
-                      backgroundColor:
-                          colorScheme.primary.withOpacity(0.1),
+                      backgroundColor: colorScheme.primary.withOpacity(0.1),
                       child: Text(
                         like.userName.isNotEmpty ? like.userName[0] : '?',
                         style: TextStyle(
@@ -1025,8 +1007,7 @@ class _CharacterSocialProfileScreenState
     );
   }
 
-  Widget _interactionCard(
-      _InteractionRecord record, ColorScheme colorScheme) {
+  Widget _interactionCard(_InteractionRecord record, ColorScheme colorScheme) {
     final isLike = record.type == InteractionType.like;
     final time = _formatTime(record.time);
 
@@ -1061,8 +1042,8 @@ class _CharacterSocialProfileScreenState
                 Expanded(
                   child: RichText(
                     text: TextSpan(
-                      style: TextStyle(
-                          fontSize: 13, color: colorScheme.onSurface),
+                      style:
+                          TextStyle(fontSize: 13, color: colorScheme.onSurface),
                       children: [
                         TextSpan(
                           text: isLike ? '点赞了 ' : '评论了 ',
@@ -1076,8 +1057,7 @@ class _CharacterSocialProfileScreenState
                         ),
                         TextSpan(
                           text: ' 的动态',
-                          style: TextStyle(
-                              color: colorScheme.onSurfaceVariant),
+                          style: TextStyle(color: colorScheme.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -1097,8 +1077,7 @@ class _CharacterSocialProfileScreenState
             // 目标动态内容预览
             Container(
               width: double.infinity,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: colorScheme.surfaceContainerHigh.withOpacity(0.4),
                 borderRadius: BorderRadius.circular(8),
@@ -1183,8 +1162,7 @@ class _CharacterSocialProfileScreenState
         const SizedBox(height: 20),
 
         // ── 人格进化历史 ──
-        _sectionTitle(
-            '进化记录 (${_evolutionCount}次)', Icons.history, colorScheme),
+        _sectionTitle('进化记录 (${_evolutionCount}次)', Icons.history, colorScheme),
         const SizedBox(height: 10),
         _evolutionHistoryCard(colorScheme),
         const SizedBox(height: 20),
@@ -1204,8 +1182,11 @@ class _CharacterSocialProfileScreenState
   Widget _bigFiveComparisonCard(ColorScheme colorScheme) {
     final factors = [
       ('开放性', _personalityState?.openness, _geneProfile?.openness),
-      ('尽责性', _personalityState?.conscientiousness,
-          _geneProfile?.conscientiousness),
+      (
+        '尽责性',
+        _personalityState?.conscientiousness,
+        _geneProfile?.conscientiousness
+      ),
       ('外向性', _personalityState?.extraversion, _geneProfile?.extraversion),
       ('宜人性', _personalityState?.agreeableness, _geneProfile?.agreeableness),
       ('神经质', _personalityState?.neuroticism, _geneProfile?.neuroticism),
@@ -1298,8 +1279,7 @@ class _CharacterSocialProfileScreenState
                         '基因基线: ${(baseline * 100).toInt()}%',
                         style: TextStyle(
                           fontSize: 9,
-                          color:
-                              colorScheme.onSurfaceVariant.withOpacity(0.5),
+                          color: colorScheme.onSurfaceVariant.withOpacity(0.5),
                         ),
                       ),
                     ),
@@ -1353,8 +1333,7 @@ class _CharacterSocialProfileScreenState
                       value: t.$2,
                       backgroundColor: colorScheme.surfaceContainerHigh,
                       minHeight: 6,
-                      valueColor:
-                          AlwaysStoppedAnimation(colorScheme.primary),
+                      valueColor: AlwaysStoppedAnimation(colorScheme.primary),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -1382,10 +1361,8 @@ class _CharacterSocialProfileScreenState
     }
 
     final dimensions = [
-      ('个人主义 ↔ 集体主义', wv.individualismVsCollectivism,
-          '个人自由', '集体归属'),
-      ('理想主义 ↔ 实用主义', wv.idealismVsPragmatism,
-          '理想', '务实'),
+      ('个人主义 ↔ 集体主义', wv.individualismVsCollectivism, '个人自由', '集体归属'),
+      ('理想主义 ↔ 实用主义', wv.idealismVsPragmatism, '理想', '务实'),
       ('信任 ↔ 怀疑', wv.trustVsSuspicion, '信任', '怀疑'),
       ('享乐 ↔ 禁欲', wv.hedonismVsAsceticism, '享乐', '禁欲'),
       ('虚无 ↔ 意义', wv.nihilismVsMeaning, '虚无', '意义'),
@@ -1473,8 +1450,7 @@ class _CharacterSocialProfileScreenState
               children: [
                 Text('三观固化度',
                     style: TextStyle(
-                        fontSize: 11,
-                        color: colorScheme.onSurfaceVariant)),
+                        fontSize: 11, color: colorScheme.onSurfaceVariant)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: ClipRRect(
@@ -1564,8 +1540,7 @@ class _CharacterSocialProfileScreenState
                     child: Row(
                       children: [
                         Icon(Icons.swap_horiz,
-                            size: 12,
-                            color: Colors.orange.withOpacity(0.7)),
+                            size: 12, color: Colors.orange.withOpacity(0.7)),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
@@ -1586,8 +1561,7 @@ class _CharacterSocialProfileScreenState
     );
   }
 
-  Widget _identityRow(
-      String label, String value, ColorScheme colorScheme) {
+  Widget _identityRow(String label, String value, ColorScheme colorScheme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1639,8 +1613,7 @@ class _CharacterSocialProfileScreenState
             final data = i < _maslowState.length ? _maslowState[i] : null;
             final satisfaction =
                 (data?['satisfaction'] as num?)?.toDouble() ?? 0.5;
-            final urgency =
-                (data?['urgency'] as num?)?.toDouble() ?? 0.3;
+            final urgency = (data?['urgency'] as num?)?.toDouble() ?? 0.3;
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
@@ -1742,8 +1715,7 @@ class _CharacterSocialProfileScreenState
           const SizedBox(width: 8),
           Text(
             '${(value * 100).toInt()}%',
-            style:
-                TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant),
+            style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -1795,8 +1767,8 @@ class _CharacterSocialProfileScreenState
                           _formatTime(log.timestamp),
                           style: TextStyle(
                             fontSize: 10,
-                            color: colorScheme.onSurfaceVariant
-                                .withOpacity(0.6),
+                            color:
+                                colorScheme.onSurfaceVariant.withOpacity(0.6),
                           ),
                         ),
                       ],
@@ -1849,8 +1821,7 @@ class _CharacterSocialProfileScreenState
               children: [
                 Text('情绪基调',
                     style: TextStyle(
-                        fontSize: 11,
-                        color: colorScheme.onSurfaceVariant)),
+                        fontSize: 11, color: colorScheme.onSurfaceVariant)),
                 const SizedBox(width: 8),
                 Icon(
                   ps.emotionalBaseline > 0.1
@@ -1958,8 +1929,7 @@ class _CharacterSocialProfileScreenState
             if (genes.talents.isEmpty)
               Text('暂无天赋数据',
                   style: TextStyle(
-                      fontSize: 12,
-                      color: colorScheme.onSurfaceVariant))
+                      fontSize: 12, color: colorScheme.onSurfaceVariant))
             else
               Wrap(
                 spacing: 8,
@@ -1972,8 +1942,7 @@ class _CharacterSocialProfileScreenState
                       '${e.key} ${(e.value * 100).toInt()}%',
                       style: const TextStyle(fontSize: 11),
                     ),
-                    materialTapTargetSize:
-                        MaterialTapTargetSize.shrinkWrap,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     visualDensity: VisualDensity.compact,
                   );
                 }).toList(),
@@ -1991,8 +1960,7 @@ class _CharacterSocialProfileScreenState
             const SizedBox(height: 6),
             _metricBar('韧性', genes.resilience, Colors.blue, colorScheme),
             const SizedBox(height: 6),
-            _metricBar(
-                '敏感度', genes.sensitivity, Colors.purple, colorScheme),
+            _metricBar('敏感度', genes.sensitivity, Colors.purple, colorScheme),
           ],
         ),
       ),
@@ -2027,8 +1995,7 @@ class _CharacterSocialProfileScreenState
             const SizedBox(height: 6),
             _metricBar('家庭温暖', family.warmth, Colors.orange, colorScheme),
             const SizedBox(height: 6),
-            _metricBar(
-                '管教严格', family.strictness, Colors.blueGrey, colorScheme),
+            _metricBar('管教严格', family.strictness, Colors.blueGrey, colorScheme),
             // 家庭事件
             if (family.familyEvents.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -2053,8 +2020,7 @@ class _CharacterSocialProfileScreenState
                             e,
                             style: TextStyle(
                                 fontSize: 12,
-                                color:
-                                    colorScheme.onSurface.withOpacity(0.8)),
+                                color: colorScheme.onSurface.withOpacity(0.8)),
                           ),
                         ),
                       ],
@@ -2114,8 +2080,8 @@ class _CharacterSocialProfileScreenState
                           _formatTime(e['timestamp']),
                           style: TextStyle(
                             fontSize: 10,
-                            color: colorScheme.onSurfaceVariant
-                                .withOpacity(0.6),
+                            color:
+                                colorScheme.onSurfaceVariant.withOpacity(0.6),
                           ),
                         ),
                       ],
@@ -2198,8 +2164,8 @@ class _CharacterSocialProfileScreenState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: TextStyle(
-                fontSize: 10, color: colorScheme.onSurfaceVariant)),
+            style:
+                TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant)),
         const SizedBox(height: 2),
         Text(value,
             style: TextStyle(
@@ -2230,7 +2196,9 @@ class _CharacterSocialProfileScreenState
                   Icon(
                     cap.$2 ? Icons.check_circle : Icons.lock,
                     size: 18,
-                    color: cap.$2 ? Colors.green : colorScheme.onSurfaceVariant.withOpacity(0.3),
+                    color: cap.$2
+                        ? Colors.green
+                        : colorScheme.onSurfaceVariant.withOpacity(0.3),
                   ),
                   const SizedBox(width: 10),
                   Text(
@@ -2252,8 +2220,8 @@ class _CharacterSocialProfileScreenState
                     Text('未解锁',
                         style: TextStyle(
                             fontSize: 11,
-                            color: colorScheme.onSurfaceVariant
-                                .withOpacity(0.4))),
+                            color:
+                                colorScheme.onSurfaceVariant.withOpacity(0.4))),
                 ],
               ),
             );

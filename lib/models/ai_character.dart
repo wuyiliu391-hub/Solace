@@ -201,12 +201,15 @@ class AICharacter extends Equatable {
   final String? currentAnchor;
 
   // ─── 角色视觉锚定字段（v39） ───
-  /// 参考图本地路径（用于图生图锚定五官/轮廓/发型）
+  /// 参考图本地路径（用于记录角色外貌参考）
   final String? referenceImg;
+
   /// 固定随机种子（-1 表示随机，其他值锁定种子）
   final int fixedSeed;
+
   /// 固化外貌标签（发色、瞳色、脸型、标志性配饰、体型、基础穿搭）
   final String? characterTag;
+
   /// 画风锁定：anime / realistic
   final String styleLock;
 
@@ -335,7 +338,8 @@ class AICharacter extends Equatable {
       currentAnchor: currentAnchor ?? this.currentAnchor,
       referenceImg: referenceImg ?? this.referenceImg,
       fixedSeed: fixedSeed ?? this.fixedSeed,
-      characterTag: clearCharacterTag ? null : (characterTag ?? this.characterTag),
+      characterTag:
+          clearCharacterTag ? null : (characterTag ?? this.characterTag),
       styleLock: styleLock ?? this.styleLock,
       age: age ?? this.age,
     );

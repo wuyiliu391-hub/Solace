@@ -50,6 +50,44 @@ Map<String, dynamic> _parseJsonString(String jsonStr) {
   return jsonDecode(jsonStr) as Map<String, dynamic>;
 }
 
+Map<String, dynamic> _normalizeBackupData(Map<String, dynamic> raw) {
+  final nested = raw['data'];
+  if (nested is Map) {
+    return {
+      ...nested.map((key, value) => MapEntry(key.toString(), value)),
+      for (final key in [
+        'magic',
+        'version',
+        'dbVersion',
+        'exportTime',
+        'exportedAt',
+        'timestamp',
+        'preferences',
+        'files',
+      ])
+        if (raw.containsKey(key)) key: raw[key],
+    };
+  }
+  return raw;
+}
+
+int? _parseBackupVersion(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) {
+    return int.tryParse(value) ?? int.tryParse(value.split('.').first);
+  }
+  return null;
+}
+
+Map<String, dynamic>? _asStringDynamicMap(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) {
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return null;
+}
+
 /// 在后台 isolate 中执行：收集本地文件 → JSON 编码 → gzip 压缩
 List<int> _compressExportData(Map<String, dynamic> payload) {
   final data = payload['data'] as Map<String, dynamic>;
@@ -126,6 +164,7 @@ class LocalStorageRepository {
 
   /// 公开数据库引用（供 LifeEndEngine 等外部引擎使用）
   Database? get database => _database;
+
   /// 公开 SharedPreferences 引用（供 ChatBloc 等外部组件使用）
   SharedPreferences? get sharedPreferences => _prefs;
   SharedPreferences? _prefs;
@@ -672,19 +711,6 @@ class LocalStorageRepository {
       'sessionId': 'TEXT NOT NULL DEFAULT ""',
       'chatType': 'TEXT NOT NULL DEFAULT "single"',
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
-    },
-    'character_image_gallery': {
-      'characterId': 'TEXT NOT NULL DEFAULT ""',
-      'userId': 'TEXT NOT NULL DEFAULT ""',
-      'localPath': 'TEXT NOT NULL DEFAULT ""',
-      'promptUsed': 'TEXT',
-      'sceneDescription': 'TEXT',
-      'referenceImagePath': 'TEXT',
-      'generationSeed': 'INTEGER NOT NULL DEFAULT -1',
-      'resolution': 'TEXT NOT NULL DEFAULT "1024x1792"',
-      'styleLock': 'TEXT NOT NULL DEFAULT "anime"',
-      'createdAt': 'TEXT NOT NULL DEFAULT ""',
-      'isFavorite': 'INTEGER NOT NULL DEFAULT 0',
     },
   };
 
@@ -1247,38 +1273,38 @@ class LocalStorageRepository {
     }
     if (oldVersion < 39) {
       // 角色视觉锚定字段
-      await _addColumnIfNotExists(
-          db, 'ai_characters', 'referenceImg', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'referenceImg', 'TEXT');
       await _addColumnIfNotExists(
           db, 'ai_characters', 'fixedSeed', 'INTEGER NOT NULL DEFAULT -1');
-      await _addColumnIfNotExists(
-          db, 'ai_characters', 'characterTag', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'characterTag', 'TEXT');
       await _addColumnIfNotExists(
           db, 'ai_characters', 'styleLock', 'TEXT NOT NULL DEFAULT "anime"');
-    }
-    if (oldVersion < 40) {
-      await db.execute(
-        ''' CREATE TABLE IF NOT EXISTS character_image_gallery ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, userId TEXT NOT NULL, localPath TEXT NOT NULL, promptUsed TEXT, sceneDescription TEXT, referenceImagePath TEXT, generationSeed INTEGER NOT NULL DEFAULT -1, resolution TEXT NOT NULL DEFAULT '1024x1792', styleLock TEXT NOT NULL DEFAULT 'anime', createdAt TEXT NOT NULL, isFavorite INTEGER NOT NULL DEFAULT 0 ) ''');
-      await db.execute(''' CREATE INDEX IF NOT EXISTS idx_gallery_characterId ON character_image_gallery(characterId) ''');
     }
     if (oldVersion < 41) {
       await _addColumnIfNotExists(db, 'ai_characters', 'age', 'INTEGER');
     }
     if (oldVersion < 42) {
-      await _addColumnIfNotExists(db, 'chat_sessions', 'intimacyMode', 'TEXT DEFAULT "quick"');
-      await _addColumnIfNotExists(db, 'chat_sessions', 'streakDays', 'INTEGER NOT NULL DEFAULT 0');
-      await _addColumnIfNotExists(db, 'chat_sessions', 'isInFriction', 'INTEGER NOT NULL DEFAULT 0');
-      await _addColumnIfNotExists(db, 'chat_sessions', 'frictionDaysLeft', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'intimacyMode', 'TEXT DEFAULT "quick"');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'streakDays', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'isInFriction', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'chat_sessions', 'frictionDaysLeft',
+          'INTEGER NOT NULL DEFAULT 0');
     }
     if (oldVersion < 43) {
       // 索引优化预留
     }
     if (oldVersion < 44) {
-      await _addColumnIfNotExists(db, 'group_member_settings', 'storyNickname', 'TEXT');
-      await _addColumnIfNotExists(db, 'group_member_settings', 'storyPersonality', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'group_member_settings', 'storyNickname', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'group_member_settings', 'storyPersonality', 'TEXT');
     }
     if (oldVersion < 45) {
-      await _addColumnIfNotExists(db, 'group_chat_sessions', 'progressMetrics', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'group_chat_sessions', 'progressMetrics', 'TEXT');
     }
     if (oldVersion < 46) {
       // 预留
@@ -1287,7 +1313,8 @@ class LocalStorageRepository {
       // 预留
     }
     if (oldVersion < 48) {
-      await _addColumnIfNotExists(db, 'group_chat_sessions', 'sceneState', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'group_chat_sessions', 'sceneState', 'TEXT');
     }
   }
 
@@ -1322,9 +1349,6 @@ class LocalStorageRepository {
         ''' CREATE TABLE IF NOT EXISTS moments ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, userName TEXT NOT NULL, userAvatar TEXT, content TEXT NOT NULL, images TEXT DEFAULT '', type INTEGER NOT NULL DEFAULT 0, likes TEXT DEFAULT '[]', comments TEXT DEFAULT '[]', createdAt TEXT NOT NULL, updatedAt TEXT, isFromAI INTEGER NOT NULL DEFAULT 0, visibility INTEGER NOT NULL DEFAULT 0, source INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, replyToCommentId TEXT, replyToContent TEXT, aiLiked INTEGER NOT NULL DEFAULT 0, parentKey TEXT, retweetKey TEXT, quoteKey TEXT, retweetCount INTEGER NOT NULL DEFAULT 0, replyCount INTEGER NOT NULL DEFAULT 0, bookmarkCount INTEGER NOT NULL DEFAULT 0, viewCount INTEGER NOT NULL DEFAULT 0, tags TEXT DEFAULT '[]', userHandle TEXT, userGender TEXT, userVerified INTEGER NOT NULL DEFAULT 0, customLikeCount INTEGER NOT NULL DEFAULT 0 ) ''');
     await db
         .execute(''' CREATE INDEX idx_moments_userId ON moments(userId) ''');
-    await db.execute(
-        ''' CREATE TABLE IF NOT EXISTS character_image_gallery ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, userId TEXT NOT NULL, localPath TEXT NOT NULL, promptUsed TEXT, sceneDescription TEXT, referenceImagePath TEXT, generationSeed INTEGER NOT NULL DEFAULT -1, resolution TEXT NOT NULL DEFAULT '1024x1792', styleLock TEXT NOT NULL DEFAULT 'anime', createdAt TEXT NOT NULL, isFavorite INTEGER NOT NULL DEFAULT 0 ) ''');
-    await db.execute(''' CREATE INDEX IF NOT EXISTS idx_gallery_characterId ON character_image_gallery(characterId) ''');
     await db.execute(
         ''' CREATE INDEX idx_moments_createdAt ON moments(createdAt DESC) ''');
     await db.execute(
@@ -3769,12 +3793,14 @@ class LocalStorageRepository {
       }
     }
     await Future.delayed(Duration.zero);
+    data = _normalizeBackupData(data);
 
     onProgress?.call(0.15, '正在验证备份...');
 
     // 验证格式
     final hasMagic = data['magic'] == 'SOLACE_BACKUP_V1';
-    final exportVersion = data['version'] as int?;
+    final exportVersion = _parseBackupVersion(data['dbVersion']) ??
+        _parseBackupVersion(data['version']);
     if (!hasMagic && exportVersion == null) {
       throw Exception('无效的备份文件：不是 Solace 数据备份');
     }
@@ -3790,15 +3816,14 @@ class LocalStorageRepository {
       'chat_sessions',
       'chat_messages'
     ];
-    for (final table in requiredTables) {
-      if (data[table] == null) {
-        throw Exception('备份文件不完整：缺少 $table');
-      }
+    final hasKnownTable = requiredTables.any((table) => data[table] is List);
+    if (!hasKnownTable) {
+      throw Exception('备份文件不完整：缺少核心数据表');
     }
 
     // 提取账号信息
     String? accountInfo;
-    final prefs = data['preferences'] as Map<String, dynamic>?;
+    final prefs = _asStringDynamicMap(data['preferences']);
     if (prefs != null) {
       final currentUserId = prefs['current_user_id'] as String?;
       if (currentUserId != null) {
@@ -3809,16 +3834,17 @@ class LocalStorageRepository {
     if (validateOnly) {
       return {
         'valid': true,
-        'version': exportVersion,
+        'version': exportVersion ?? 1,
         'accountInfo': accountInfo,
-        'exportTime': data['exportTime'],
+        'exportTime':
+            data['exportTime'] ?? data['exportedAt'] ?? data['timestamp'],
       };
     }
 
     onProgress?.call(0.2, '正在恢复文件...');
     // 恢复本地文件
     Map<String, String> pathMap = {};
-    final filesData = data['files'] as Map<String, dynamic>?;
+    final filesData = _asStringDynamicMap(data['files']);
     if (filesData != null && filesData.isNotEmpty) {
       final stringFiles = <String, String>{};
       for (final entry in filesData.entries) {
@@ -3883,8 +3909,10 @@ class LocalStorageRepository {
           }
           if (existingColumns.isEmpty) continue;
           for (final row in rows) {
+            if (row is! Map) continue;
             final filteredRow = <String, dynamic>{};
-            final rowMap = row as Map<String, dynamic>;
+            final rowMap =
+                row.map((key, value) => MapEntry(key.toString(), value));
             for (final entry in rowMap.entries) {
               if (existingColumns.contains(entry.key)) {
                 var value = entry.value;
@@ -3954,9 +3982,10 @@ class LocalStorageRepository {
 
     return {
       'valid': true,
-      'version': exportVersion,
+      'version': exportVersion ?? 1,
       'accountInfo': accountInfo,
-      'exportTime': data['exportTime'],
+      'exportTime':
+          data['exportTime'] ?? data['exportedAt'] ?? data['timestamp'],
     };
   }
 
@@ -4977,46 +5006,5 @@ class LocalStorageRepository {
     } catch (e) {
       debugPrint('btClearDiary failed: $e');
     }
-  }
-
-  /// 角色图片画廊操作
-
-  Future<void> insertCharacterImage(Map<String, dynamic> image) async {
-    final db = await _ensureDb();
-    await db.insert('character_image_gallery', image,
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<List<Map<String, dynamic>>> getCharacterImages(String characterId, {int limit = 50}) async {
-    final db = await _ensureDb();
-    return await db.query(
-      'character_image_gallery',
-      where: 'characterId = ?',
-      whereArgs: [characterId],
-      orderBy: 'createdAt DESC',
-      limit: limit,
-    );
-  }
-
-  Future<Map<String, dynamic>?> getLatestCharacterImage(String characterId) async {
-    final db = await _ensureDb();
-    final results = await db.query(
-      'character_image_gallery',
-      where: 'characterId = ?',
-      whereArgs: [characterId],
-      orderBy: 'createdAt DESC',
-      limit: 1,
-    );
-    return results.isNotEmpty ? results.first : null;
-  }
-
-  Future<void> toggleImageFavorite(String imageId, bool isFavorite) async {
-    final db = await _ensureDb();
-    await db.update(
-      'character_image_gallery',
-      {'isFavorite': isFavorite ? 1 : 0},
-      where: 'id = ?',
-      whereArgs: [imageId],
-    );
   }
 }

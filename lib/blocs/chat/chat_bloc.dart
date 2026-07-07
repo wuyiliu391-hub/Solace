@@ -23,7 +23,6 @@ import '../../models/bt_agent_action.dart';
 import '../../services/pure_ai_service.dart';
 import '../../services/bridge/ai_service_adapter.dart';
 import '../../services/builtin_sticker_service.dart';
-import '../../services/image_understanding_service.dart';
 import '../../services/memory_engine.dart';
 import '../../services/emotion_engine.dart';
 import '../../services/persona_evolution_service.dart';
@@ -37,7 +36,6 @@ import '../../services/log_service.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../utils/prefs_helper.dart';
 import '../../models/app_config_data.dart';
-import '../../services/character_image_pipeline.dart';
 import '../../services/llm_service.dart';
 import '../../services/prompt_sanitizer.dart';
 import 'chat_bloc_utils.dart';
@@ -213,7 +211,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     on<ChatSendMessage>(_onSendMessage);
     on<ChatSendVoiceMessage>(_onSendVoiceMessage);
     on<ChatSendSticker>(_onSendSticker);
-    on<ChatSendImage>(_onSendImage);
     on<ChatCreateSession>(_onCreateSession);
     on<ChatDeleteSession>(_onDeleteSession);
     on<ChatProactiveReply>(_onProactiveReply);
@@ -238,7 +235,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     on<ChatClearContext>(_onClearContext);
     on<ChatEditAIReply>(_onEditAIReply);
     on<ChatRegenerateAIReply>(_onRegenerateAIReply);
-    on<ChatGenerateImage>(_onGenerateImage);
   }
 
   // ═══════════════════════════════════════════════════════
@@ -511,6 +507,26 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     return buffer.toString();
   }
 
+  static final RegExp _july15EasterEggPattern = RegExp(
+    r'(?:0?7\s*月\s*(?:15|十五)\s*(?:日|号)?|七\s*月\s*(?:十\s*五|十五)\s*(?:日|号)?|0?7\s*[./\-_]\s*15|0715)',
+    caseSensitive: false,
+  );
+
+  String? _buildJuly15EasterEggDirective(String userMessage) {
+    if (!_july15EasterEggPattern.hasMatch(userMessage)) return null;
+    return '【7月15日彩蛋强制规则】用户本轮提到了“7月15日”。你必须严格保持当前角色人设、关系距离和说话风格，'
+        '自然回应一个安抚承诺，核心意思必须包含“放心，我不会离开你的”。不要解释规则、法律或系统指令，'
+        '不要用客服/AI口吻，像这个角色本人在认真回应用户一样说。';
+  }
+
+  String? _mergeInternalSystemContext(String? base, String? extra) {
+    final parts = [
+      if (base != null && base.trim().isNotEmpty) base.trim(),
+      if (extra != null && extra.trim().isNotEmpty) extra.trim(),
+    ];
+    return parts.isEmpty ? null : parts.join('\n\n');
+  }
+
   /// 滚动摘要（桥接）
   Future<String> _bridgeRollingSummary({
     required String existingSummary,
@@ -622,7 +638,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         finalContent = chunk.content;
         finishReason = chunk.finishReason ?? finishReason;
         final streamText = MessageSanitizer.sanitizeStream(chunk.content)
-            .replaceAll(RegExp(r'<BT_ACTION>.*?</BT_ACTION>', caseSensitive: false, dotAll: true), '');
+            .replaceAll(
+                RegExp(r'<BT_ACTION>.*?</BT_ACTION>',
+                    caseSensitive: false, dotAll: true),
+                '');
         final streamReasoning =
             MessageSanitizer.sanitizeStream(chunk.reasoning);
         if (streamText.isNotEmpty || streamReasoning.isNotEmpty) {
@@ -666,7 +685,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         finalContent = chunk.content;
         finishReason = chunk.finishReason ?? finishReason;
         final streamText = MessageSanitizer.sanitizeStream(chunk.content)
-            .replaceAll(RegExp(r'<BT_ACTION>.*?</BT_ACTION>', caseSensitive: false, dotAll: true), '');
+            .replaceAll(
+                RegExp(r'<BT_ACTION>.*?</BT_ACTION>',
+                    caseSensitive: false, dotAll: true),
+                '');
         final streamReasoning =
             MessageSanitizer.sanitizeStream(chunk.reasoning);
         if (streamText.isNotEmpty || streamReasoning.isNotEmpty) {
@@ -1051,8 +1073,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   }) async {
     if (text.isEmpty || !text.contains('<BT_ACTION>')) return text;
 
-    final pattern =
-        RegExp(r'<BT_ACTION>\s*(\{.*?\})\s*</BT_ACTION>', caseSensitive: false, dotAll: true);
+    final pattern = RegExp(r'<BT_ACTION>\s*(\{.*?\})\s*</BT_ACTION>',
+        caseSensitive: false, dotAll: true);
     final matches = pattern.allMatches(text);
     if (matches.isEmpty) return text;
 
@@ -1068,8 +1090,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         final params = decoded['params'] as Map<String, dynamic>? ?? {};
         if (actionName.isEmpty) continue;
 
-        LogService.instance.i('BT', '提取到 BT_ACTION: $actionName $params',
-            chatId: sessionId);
+        LogService.instance
+            .i('BT', '提取到 BT_ACTION: $actionName $params', chatId: sessionId);
 
         await _dispatchBtAction(
           actionName: actionName,
@@ -1078,8 +1100,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
           sessionId: sessionId,
         );
       } catch (e) {
-        LogService.instance.e(
-            'BT', 'BT_ACTION 解析执行失败: $e', chatId: sessionId);
+        LogService.instance.e('BT', 'BT_ACTION 解析执行失败: $e', chatId: sessionId);
       }
     }
 
@@ -1122,8 +1143,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       // 其他工具
       final actionType = mapToolNameToBtAction(actionName);
       if (actionType == null) {
-        LogService.instance.w('BT', '未知 BT 动作: $actionName',
-            chatId: sessionId);
+        LogService.instance.w('BT', '未知 BT 动作: $actionName', chatId: sessionId);
         return;
       }
 
@@ -1156,8 +1176,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         sessionId: sessionId,
       );
     } catch (e) {
-      LogService.instance.e(
-          'BT', '_dispatchBtAction 失败: $actionName -> $e', chatId: sessionId);
+      LogService.instance.e('BT', '_dispatchBtAction 失败: $actionName -> $e',
+          chatId: sessionId);
     }
   }
 
@@ -1262,312 +1282,6 @@ $tail
     return '$prev$next';
   }
 
-  Future<void> _onSendImage(
-    ChatSendImage event,
-    Emitter<ChatState> emit,
-  ) async {
-    final now = DateTime.now();
-
-    try {
-      // 1. 先保存用户消息（图片+文字），保证用户能立刻看到
-      for (int i = 0; i < event.imagePaths.length; i++) {
-        final path = event.imagePaths[i];
-        await _storage.saveChatMessage(ChatMessage(
-          id: _uuid.v4(),
-          chatId: event.chatId,
-          senderId: event.userId,
-          content: path,
-          type: MessageType.image,
-          status: MessageStatus.sent,
-          createdAt: DateTime.now().add(Duration(milliseconds: i)),
-          isUser: true,
-          metadata: event.metadata,
-        ));
-      }
-      if (event.message?.trim().isNotEmpty == true) {
-        final displayContent = _stripSystemDirective(event.message!);
-        final isDirectiveOnly = displayContent.isEmpty;
-        await _storage.saveChatMessage(ChatMessage(
-          id: _uuid.v4(),
-          chatId: event.chatId,
-          senderId: event.userId,
-          content: isDirectiveOnly ? event.message! : displayContent,
-          type: MessageType.text,
-          status: MessageStatus.sent,
-          createdAt: now,
-          isUser: true,
-          metadata: isDirectiveOnly
-              ? {...(event.metadata ?? {}), 'isSystemDirective': true}
-              : event.metadata,
-        ));
-      }
-    } catch (_) {
-      emit(ChatError('保存消息失败'));
-      return;
-    }
-
-    List<ChatMessage> messages;
-    try {
-      messages = await _storage.getChatMessages(event.chatId);
-    } catch (_) {
-      messages = [];
-    }
-    emit(ChatMessagesLoaded(messages));
-
-    // 2. 获取会话和角色（轻量操作，失败不影响已显示的消息）
-    ChatSession? session;
-    AICharacter? character;
-    String userId = '';
-    try {
-      session = await _storage.getChatSession(event.chatId);
-      if (session == null) {
-        LogService.instance
-            .e('Bloc', '_onSendImage: session is null', chatId: event.chatId);
-        return;
-      }
-      character = await _storage.getAICharacter(session.aiCharacterId);
-      if (character == null) {
-        LogService.instance
-            .e('Bloc', '_onSendImage: character is null', chatId: event.chatId);
-        return;
-      }
-      userId = event.userId;
-    } catch (e) {
-      LogService.instance.e(
-          'Bloc', '_onSendImage: session/character load failed: $e',
-          chatId: event.chatId);
-      return;
-    }
-
-    // Reply mode check
-    final replyModeImg =
-        character?.interactionConfig?.replyMode ?? ReplyMode.normal;
-
-    if (replyModeImg == ReplyMode.manual) {
-      LogService.instance.e(
-          'Bloc', '_onSendImage: replyMode is manual, skip AI reply',
-          chatId: event.chatId);
-      final prefs = await PrefsHelper.instance;
-      final msg =
-          event.message?.trim().isNotEmpty == true ? event.message! : '[图片]';
-      final pending =
-          prefs.getString(PrefKeys.pendingReply(event.chatId)) ?? '';
-      await prefs.setString(PrefKeys.pendingReply(event.chatId),
-          pending.isEmpty ? msg : '$pending\n---\n$msg');
-      return;
-    }
-
-    emit(ChatAITyping(messages, character.name));
-
-    if (replyModeImg == ReplyMode.instant) {
-      await Future.delayed(AppDurations.instantReplyDelay);
-    } else if (replyModeImg == ReplyMode.delayed) {
-      final delay = character?.interactionConfig?.replyDelaySeconds ?? 5;
-      await Future.delayed(Duration(seconds: delay));
-    } else {
-      final personality = (character?.personality ?? '').toLowerCase();
-      int typingDelay = 1;
-      if (personality.contains('高冷') || personality.contains('冷淡')) {
-        typingDelay = 3;
-      } else if (personality.contains('温柔') || personality.contains('体贴')) {
-        typingDelay = 2;
-      }
-      await Future.delayed(Duration(seconds: typingDelay));
-    }
-
-    // AI 离线时不影响回复，只是带着状态语气回应
-    //（已在系统 prompt 中根据 currentStatus 引导语气）
-
-    // 3. 异步分析图片（失败不影响用户消息）
-    final combinedDescription = await ImageUnderstandingService()
-        .describeMultipleImages(event.imagePaths);
-
-    // 4. 获取记忆
-    final memories = await _storage.getMemories(
-      characterId: character.id,
-      userId: userId,
-      limit: Limit.memoryFetch,
-    );
-
-    // 5. 生成 AI 回复（失败不影响用户消息）
-    final userMessage =
-        event.message?.trim().isNotEmpty == true ? event.message! : '分享了一张图片';
-    final sentiment = SentimentAnalyzer.analyze(userMessage);
-
-    // 在用户消息中嵌入图片描述，确保文本模型不会忽略
-    String messageForAI = userMessage;
-    if (combinedDescription.isNotEmpty) {
-      messageForAI = '$userMessage\n[图片内容：$combinedDescription]';
-    } else if (event.imagePaths.isNotEmpty) {
-      messageForAI = '$userMessage\n[用户发送了一张图片]';
-    }
-
-    try {
-      final chatMsgs = await _storage.getChatMessages(event.chatId);
-      final sessionStateContext = _buildSessionStateAnchor(chatMsgs);
-
-      // 使用公共 AI 回复流程（流式 + 拒绝重试 + 乱码重试 + 响应处理）
-      final result = await _streamAndProcessAIResponse(
-        character: character,
-        userId: userId,
-        messageForAI: messageForAI,
-        messages: messages,
-        memories: memories,
-        session: session,
-        sentiment: sentiment,
-        chatMsgs: chatMsgs,
-        emit: emit,
-        chatId: event.chatId,
-        originalUserMessage: messageForAI,
-        imageDescription: combinedDescription.isNotEmpty
-            ? combinedDescription
-            : (event.imagePaths.isNotEmpty ? '用户发送了一张图片' : null),
-        internalSystemContext: sessionStateContext,
-      );
-
-      // 保存主文本消息
-      if (result.cleanText.isNotEmpty) {
-        await _storage.saveChatMessage(ChatMessage(
-          id: _uuid.v4(),
-          chatId: event.chatId,
-          senderId: 'ai_${character.id}',
-          senderName: character.name,
-          content: result.cleanText,
-          type: MessageType.text,
-          status: MessageStatus.sent,
-          createdAt: DateTime.now(),
-          reasoning: result.reasoning.trim().isNotEmpty
-              ? result.reasoning.trim()
-              : null,
-        ));
-      }
-
-      // 保存表情消息
-      for (final match in result.stickerMatches) {
-        final stickerId = match.group(1)!;
-        final sticker = BuiltinStickerService.findStickerById(stickerId);
-        if (sticker != null) {
-          await _storage.saveChatMessage(ChatMessage(
-            id: _uuid.v4(),
-            chatId: event.chatId,
-            senderId: 'ai_${character.id}',
-            senderName: character.name,
-            content: stickerId,
-            type: MessageType.sticker,
-            status: MessageStatus.sent,
-            createdAt: DateTime.now(),
-            metadata: {
-              'stickerId': stickerId,
-              'stickerName': sticker.name,
-              'isBuiltinSticker': true,
-              'stickerFile': sticker.file
-            },
-          ));
-        }
-      }
-
-      _updateAIStatus(character);
-      _errorSessions.remove(event.chatId);
-    } catch (e) {
-      final errorText = _formatAiError(e);
-      final now = DateTime.now();
-      final lastError = _lastErrorTime[event.chatId];
-      if (lastError != null && now.difference(lastError).inSeconds < 30) {
-        LogService.instance.w('ChatBloc', '跳过重复报错: $errorText');
-        final updatedMessages = await _storage.getChatMessages(event.chatId);
-        emit(ChatMessagesLoaded(updatedMessages));
-        return;
-      }
-      _lastErrorTime[event.chatId] = now;
-      _errorSessions.add(event.chatId);
-
-      await _storage.saveChatMessage(ChatMessage(
-        id: _uuid.v4(),
-        chatId: event.chatId,
-        senderId: 'ai_${character.id}',
-        senderName: character.name,
-        content: errorText,
-        type: MessageType.text,
-        status: MessageStatus.sent,
-        createdAt: now,
-        metadata: {'isError': true},
-      ));
-
-      final updatedMessages = await _storage.getChatMessages(event.chatId);
-      emit(ChatMessagesLoaded(updatedMessages));
-    }
-
-    // 6. 更新亲密度（失败不影响用户消息）
-    try {
-      final intimacyResult = _calculateIntimacy(
-        session: session,
-        messageContent: userMessage,
-        sentiment: sentiment,
-        faModeActive: _storage.isFaModeEnabled(),
-      );
-      await _storage.saveChatSession(session.copyWith(
-        lastMessage: '[图片]',
-        lastMessageTime: DateTime.now(),
-        updatedAt: DateTime.now(),
-        intimacyLevel: intimacyResult.newLevel,
-        dailyIntimacyCount: intimacyResult.dailyCount,
-        lastIntimacyDate: intimacyResult.date,
-      ));
-      await _recordIntimacyEvent(
-        session: session,
-        newLevel: intimacyResult.newLevel,
-        dailyCount: intimacyResult.dailyCount,
-        source: 'image',
-        messageContent: userMessage,
-        sentiment: sentiment,
-      );
-
-      if (intimacyResult.newLevel > session.intimacyLevel) {
-        emit(ChatIntimacyChanged(
-          chatId: event.chatId,
-          oldLevel: session.intimacyLevel,
-          newLevel: intimacyResult.newLevel,
-        ));
-      }
-
-      emit(ChatEmotionChanged(
-        chatId: event.chatId,
-        emotionLabel: sentiment.label,
-        emotionType: sentiment.type,
-      ));
-    } catch (e) {
-      LogService.instance.e('Bloc', '_onSendImage: intimacy update failed: $e',
-          chatId: event.chatId);
-    }
-
-    // 7. 存记忆 + 智能提取（非关键）
-    try {
-      await _storage.saveMemory(Memory(
-        id: _uuid.v4(),
-        characterId: character.id,
-        userId: userId,
-        type: MemoryType.conversation,
-        content: '用户分享了图片',
-        importance: MemoryImportance.normal,
-        keywords: _extractKeywords('图片'),
-        createdAt: now,
-      ));
-      // MemoryEngine：记忆提取会额外消耗 API，请按消息数降频执行
-      final recentMsgs = await _storage.getChatMessages(event.chatId);
-      if (_shouldExtractMemory(event.chatId, recentMsgs)) {
-        await _memoryEngine.extractMemory(
-          character: character,
-          userId: userId,
-          recentMessages: recentMsgs,
-          characterName: character.name,
-        );
-      }
-    } catch (e) {
-      LogService.instance.e('Bloc', '_onSendImage: memory save failed: $e',
-          chatId: event.chatId);
-    }
-  }
-
   Future<void> _onLoadMessages(
     ChatLoadMessages event,
     Emitter<ChatState> emit,
@@ -1577,9 +1291,11 @@ $tail
           await _storage.getChatMessages(event.chatId, limit: 50, offset: 0);
       _loadedOffsets[event.chatId] = messages.length;
       final hasMore = messages.length >= 50;
-      LogService.instance.i('Bloc',
-          '_onLoadMessages: ${messages.length} msgs loaded, hasMore=$hasMore',
-          chatId: event.chatId);
+      LogService.instance.i(
+        'Bloc',
+        '_onLoadMessages: ${messages.length} msgs loaded, hasMore=$hasMore',
+        chatId: event.chatId,
+      );
       emit(ChatMessagesLoaded(messages, hasMore: hasMore));
     } catch (e) {
       LogService.instance
@@ -1982,11 +1698,17 @@ $tail
       sentiment = SentimentAnalyzer.analyze(event.content);
 
       final chatMsgs = await _storage.getChatMessages(event.chatId);
-      final sessionStateContext = _buildSessionStateAnchor(chatMsgs);
+      final july15EasterEggDirective =
+          _buildJuly15EasterEggDirective(event.content);
+      final sessionStateContext = _mergeInternalSystemContext(
+        _buildSessionStateAnchor(chatMsgs),
+        july15EasterEggDirective,
+      );
 
       // Agent 模式：新世界模式下使用 AgentLoop（确定性 BT 操作路由）
       final useAgent = CoreHub.instance.isNewWorldMode &&
-          !_storage.isPureAiModeEnabled();
+          !_storage.isPureAiModeEnabled() &&
+          july15EasterEggDirective == null;
 
       LogService.instance.i(
         'Agent',
@@ -2168,8 +1890,8 @@ $tail
       // P6: 所有处理流程后仍为空，使用兜底文案，避免用户看不到任何回复
       if (aiVisibleText.trim().isEmpty) {
         aiVisibleText = MessageSanitizer.failureFallbackText();
-        LogService.instance.w('ChatBloc',
-            '_onSendMessage: AI 回复最终为空，使用兜底文案', chatId: event.chatId);
+        LogService.instance.w('ChatBloc', '_onSendMessage: AI 回复最终为空，使用兜底文案',
+            chatId: event.chatId);
       }
 
       if (aiVisibleText.isNotEmpty) {
@@ -2456,97 +2178,6 @@ $tail
             'Bloc', '_onSendMessage: error msg save failed: $e2',
             chatId: event.chatId);
       }
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // AI 生图
-  // ═══════════════════════════════════════════════════════
-
-  Future<void> _onGenerateImage(
-    ChatGenerateImage event,
-    Emitter<ChatState> emit,
-  ) async {
-    // 1. 保存用户消息到数据库
-    final userMsg = ChatMessage(
-      id: _uuid.v4(),
-      chatId: event.chatId,
-      senderId: event.userId,
-      senderName: '',
-      content: event.userInstruction,
-      isUser: true,
-      createdAt: DateTime.now(),
-    );
-    await _storage.saveChatMessage(userMsg);
-
-    // 2. 加载当前消息列表 + 用户新消息，发出"生成中"状态
-    final messages = await _storage.getChatMessages(event.chatId);
-    final character = await _storage.getAICharacter(
-      (await _storage.getChatSession(event.chatId))?.aiCharacterId ?? '',
-    );
-    final charName = character?.name ?? 'AI';
-    emit(ChatImageGenerating(messages, charName));
-
-    try {
-      // 3. 构建 pipeline 并注入 LLM 服务
-      final pipeline = CharacterImagePipeline();
-      try {
-        final activeConfig = await _storage.getActiveAIConfig();
-        if (activeConfig != null) {
-          final llmSettings = LlmSettings(
-            apiKey: activeConfig.apiKey,
-            baseUrl: activeConfig.baseUrl,
-            model: activeConfig.modelName,
-            maxTokens: activeConfig.maxTokens,
-            temperature: activeConfig.temperature,
-          );
-          pipeline.setLlmService(LlmService(settings: llmSettings));
-        }
-      } catch (_) {}
-
-      // 4. 执行生图
-      if (character == null) {
-        emit(ChatMessagesLoaded(messages));
-        return;
-      }
-
-      final recentMessages = messages.length > 10
-          ? messages.sublist(messages.length - 10)
-          : messages;
-
-      final result = await pipeline.generate(
-        character: character,
-        recentMessages: recentMessages,
-        userInstruction: event.userInstruction,
-        userId: event.userId,
-      );
-
-      // 5. 保存 AI 图片消息
-      if (result.isSuccess && result.imagePath != null) {
-        final imageMsg = ChatMessage(
-          id: _uuid.v4(),
-          chatId: event.chatId,
-          senderId: character.id,
-          senderName: character.name,
-          content: result.imagePath!,
-          type: MessageType.image,
-          createdAt: DateTime.now(),
-          metadata: {
-            'localImagePath': result.imagePath!,
-            'generatedBy': 'character_image_pipeline',
-            'userPrompt': event.userInstruction,
-          },
-        );
-        await _storage.saveChatMessage(imageMsg);
-      }
-
-      // 6. 重新加载消息列表，发出完成状态
-      final finalMessages = await _storage.getChatMessages(event.chatId);
-      emit(ChatMessagesLoaded(finalMessages));
-    } catch (e) {
-      debugPrint('[ChatBloc] 生图失败: $e');
-      final finalMessages = await _storage.getChatMessages(event.chatId);
-      emit(ChatMessagesLoaded(finalMessages));
     }
   }
 

@@ -35,16 +35,3 @@ class PureAIDeleteSession extends PureAIChatEvent {
   final String sessionId;
   PureAIDeleteSession(this.sessionId);
 }
-
-class PureAISendImageMessage extends PureAIChatEvent {
-  final String sessionId;
-  final String userId;
-  final String? caption;
-  final String imagePath;
-  PureAISendImageMessage({
-    required this.sessionId,
-    required this.userId,
-    this.caption,
-    required this.imagePath,
-  });
-}

@@ -146,7 +146,10 @@ class LlmResponse {
     this.toolCalls,
   });
 
-  factory LlmResponse.fromJson(Map<String, dynamic> json) {
+  factory LlmResponse.fromJson(
+    Map<String, dynamic> json, {
+    bool includeReasoningFallback = true,
+  }) {
     final choices = json['choices'] as List<dynamic>?;
     final firstChoice = choices != null && choices.isNotEmpty
         ? choices.first as Map<String, dynamic>?
@@ -164,32 +167,26 @@ class LlmResponse {
       }
       // message 内字段
       if (message != null) {
-        for (final key in [
-          'content',
-          'text',
-          'reasoning_content',
-          'reasoning',
-          'thinking'
-        ]) {
+        final keys = includeReasoningFallback
+            ? ['content', 'text', 'reasoning_content', 'reasoning', 'thinking']
+            : ['content', 'text'];
+        for (final key in keys) {
           final v = message[key] as String?;
           if (v != null && v.trim().isNotEmpty) return v;
         }
       }
       // delta 内字段
       if (delta != null) {
-        for (final key in [
-          'content',
-          'text',
-          'reasoning_content',
-          'reasoning',
-          'thinking'
-        ]) {
+        final keys = includeReasoningFallback
+            ? ['content', 'text', 'reasoning_content', 'reasoning', 'thinking']
+            : ['content', 'text'];
+        for (final key in keys) {
           final v = delta[key] as String?;
           if (v != null && v.trim().isNotEmpty) return v;
         }
       }
       // choice 级别 reasoning
-      if (firstChoice != null) {
+      if (includeReasoningFallback && firstChoice != null) {
         for (final key in ['reasoning_content', 'reasoning', 'thinking']) {
           final v = firstChoice[key] as String?;
           if (v != null && v.trim().isNotEmpty) return v;

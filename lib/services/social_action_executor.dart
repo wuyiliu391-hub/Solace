@@ -9,6 +9,7 @@ import 'ai_relationship_service.dart';
 import 'memory_engine.dart';
 import 'forum_service.dart';
 import 'ai_service.dart';
+import 'ai_moment_service.dart';
 import 'llm_service.dart';
 import '../config/constants.dart';
 import '../models/app_config_data.dart';
@@ -109,8 +110,7 @@ class SocialActionExecutor {
           final latest = sessions.first;
           buffer.writeln('【${targetChar.name} 和用户的关系】');
           buffer.writeln('亲密等级：${latest.intimacyLevel}');
-          if (latest.lastMessage != null &&
-              latest.lastMessage!.isNotEmpty) {
+          if (latest.lastMessage != null && latest.lastMessage!.isNotEmpty) {
             buffer.writeln('最近聊天：${latest.lastMessage}');
           }
           buffer.writeln();
@@ -129,8 +129,7 @@ class SocialActionExecutor {
             buffer.writeln('【关系概况】');
             final label = _relLabel(rel.relationshipType);
             buffer.writeln('类型：$label');
-            buffer.writeln(
-                '亲密度：${(rel.affinity * 100).toStringAsFixed(0)}%');
+            buffer.writeln('亲密度：${(rel.affinity * 100).toStringAsFixed(0)}%');
             if (rel.description != null && rel.description!.isNotEmpty) {
               buffer.writeln('描述：${rel.description}');
             }
@@ -227,7 +226,8 @@ class SocialActionExecutor {
         content: '${sourceChar.name} 和 ${targetChar.name} 已经是好友了，关系更亲密了',
       );
       task.status = 'completed';
-      task.result = '${sourceChar.name} and ${targetChar.name} are already friends';
+      task.result =
+          '${sourceChar.name} and ${targetChar.name} are already friends';
       return;
     }
 
@@ -248,11 +248,9 @@ class SocialActionExecutor {
     );
 
     task.status = 'completed';
-    task.result =
-        '${sourceChar.name} and ${targetChar.name} are now friends';
+    task.result = '${sourceChar.name} and ${targetChar.name} are now friends';
     task.tokenUsage = 80;
-    debugPrint(
-        'SocialExecutor: ${sourceChar.name} + ${targetChar.name} 成为好友');
+    debugPrint('SocialExecutor: ${sourceChar.name} + ${targetChar.name} 成为好友');
   }
 
   /// 私聊：通过消息系统发送
@@ -291,7 +289,8 @@ class SocialActionExecutor {
       characterId: sourceId,
       targetCharacterId: targetId,
       interactionType: 'private_chat',
-      content: '${sourceChar.name} 对 ${targetChar.name} $relationshipInfo 说: $message'
+      content:
+          '${sourceChar.name} 对 ${targetChar.name} $relationshipInfo 说: $message'
           '${targetContext.isNotEmpty ? " | 角色背景：$targetContext" : ""}',
     );
 
@@ -325,6 +324,12 @@ class SocialActionExecutor {
         task.result = 'AI 生成动态内容失败';
         return;
       }
+    }
+    content = _cleanMomentText(content);
+    if (content.isEmpty) {
+      task.status = 'failed';
+      task.result = 'AI 生成动态内容失败';
+      return;
     }
 
     // 发布到真正的朋友圈（MomentsScreen 使用的 Moment 系统）
@@ -397,12 +402,17 @@ class SocialActionExecutor {
         return;
       }
     }
+    comment = _cleanMomentText(comment);
+    if (comment.isEmpty) {
+      task.status = 'failed';
+      task.result = 'AI 生成评论内容失败';
+      return;
+    }
 
     final targetInfo = '（对 ${moment.userName} 的动态）';
 
     // 避免同一个角色重复评论同一条动态
-    final alreadyCommented =
-        moment.comments.any((c) => c.userId == sourceId);
+    final alreadyCommented = moment.comments.any((c) => c.userId == sourceId);
     if (!alreadyCommented) {
       final updated = moment.copyWith(
         comments: [
@@ -523,6 +533,10 @@ class SocialActionExecutor {
 
   // ─── LLM 内容生成 ───
 
+  String _cleanMomentText(String text) {
+    return AIMomentService.extractFinalMomentContent(text).trim();
+  }
+
   /// 懒加载 LlmService（从存储中读取 AI 配置）
   Future<LlmService?> _getLlmService() async {
     if (_cachedLlmService != null) return _cachedLlmService;
@@ -551,9 +565,11 @@ class SocialActionExecutor {
 
     try {
       // 收集角色记忆
-      final socialMemories = await _memoryEngine.loadSocialMemories(character.id);
+      final socialMemories =
+          await _memoryEngine.loadSocialMemories(character.id);
 
-      final socialText = socialMemories.take(10).map((m) => '- ${m.content}').join('\n');
+      final socialText =
+          socialMemories.take(10).map((m) => '- ${m.content}').join('\n');
 
       final systemPrompt = '你是一个朋友圈动态生成器。'
           '\n角色名字：${character.name}'
@@ -571,9 +587,10 @@ class SocialActionExecutor {
         message: '请发一条朋友圈动态',
         systemPrompt: systemPrompt,
         maxTokensOverride: 150,
+        includeReasoningFallback: false,
       );
 
-      final text = response.content.trim();
+      final text = _cleanMomentText(response.content);
       if (text.isNotEmpty && !text.contains('抱歉') && !text.contains('无法')) {
         return text;
       }
@@ -597,7 +614,8 @@ class SocialActionExecutor {
     final pLower = character.personality.toLowerCase();
     for (final entry in personalityBased.entries) {
       if (pLower.contains(entry.key)) {
-        return entry.value[DateTime.now().millisecondsSinceEpoch % entry.value.length];
+        return entry
+            .value[DateTime.now().millisecondsSinceEpoch % entry.value.length];
       }
     }
     // 通用 fallback
@@ -659,9 +677,10 @@ class SocialActionExecutor {
         message: '请对这条朋友圈写一条评论',
         systemPrompt: systemPrompt,
         maxTokensOverride: 100,
+        includeReasoningFallback: false,
       );
 
-      final text = response.content.trim();
+      final text = _cleanMomentText(response.content);
       if (text.isNotEmpty && !text.contains('抱歉') && !text.contains('无法')) {
         return text;
       }
@@ -674,7 +693,16 @@ class SocialActionExecutor {
 
   /// LLM 不可用时的 fallback 评论
   String _fallbackCommentContent(AICharacter character) {
-    final comments = ['好棒！', '我也这么觉得~', '加油！', '太厉害了吧', '好羡慕', '真好啊', '我也是！', '赞一个'];
+    final comments = [
+      '好棒！',
+      '我也这么觉得~',
+      '加油！',
+      '太厉害了吧',
+      '好羡慕',
+      '真好啊',
+      '我也是！',
+      '赞一个'
+    ];
     return comments[DateTime.now().millisecondsSinceEpoch % comments.length];
   }
 
@@ -695,8 +723,8 @@ class SocialActionExecutor {
     for (final m in candidates) {
       double score = 0.5; // 默认分数
       try {
-        final rel = await _relationshipService.getRelationship(
-            sourceId, m.userId);
+        final rel =
+            await _relationshipService.getRelationship(sourceId, m.userId);
         if (rel != null) {
           score = rel.affinity;
           // 敌人/对手关系降低分数
@@ -720,7 +748,8 @@ class SocialActionExecutor {
 
       // 时间衰减：越新越优先
       final age = DateTime.now().difference(m.createdAt);
-      if (age.inHours < 1) score += 0.2;
+      if (age.inHours < 1)
+        score += 0.2;
       else if (age.inHours < 6) score += 0.1;
 
       scored.add(MapEntry(m, score));
@@ -737,8 +766,7 @@ class SocialActionExecutor {
   Future<void> _bumpAffinity(
       String charIdA, String charIdB, double delta) async {
     try {
-      final rel =
-          await _relationshipService.getRelationship(charIdA, charIdB);
+      final rel = await _relationshipService.getRelationship(charIdA, charIdB);
       if (rel != null) {
         final newAffinity = (rel.affinity + delta).clamp(0.0, 1.0);
         await _relationshipService.updateRelationship(

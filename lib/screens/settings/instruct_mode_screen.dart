@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
+import '../../utils/safe_file_picker.dart';
 
 /// Instruct 模板设置数据模型
 class InstructSettings {
@@ -123,7 +124,6 @@ class InstructSettings {
       'skipExamples': skipExamples,
     };
   }
-
 }
 
 /// 内置预设
@@ -179,7 +179,8 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
       _presets = list.cast<Map<String, dynamic>>();
     }
     if (_presets.isEmpty) {
-      _presets = _builtInPresets.map((e) => Map<String, dynamic>.from(e)).toList();
+      _presets =
+          _builtInPresets.map((e) => Map<String, dynamic>.from(e)).toList();
     }
 
     // 加载当前设置
@@ -243,11 +244,15 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
         title: const Text('另存为新预设'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(labelText: '预设名称', border: OutlineInputBorder()),
+          decoration: const InputDecoration(
+              labelText: '预设名称', border: OutlineInputBorder()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          TextButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('保存')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('保存')),
         ],
       ),
     );
@@ -272,11 +277,15 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
         title: const Text('重命名预设'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(labelText: '新名称', border: OutlineInputBorder()),
+          decoration: const InputDecoration(
+              labelText: '新名称', border: OutlineInputBorder()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          TextButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('确认')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('确认')),
         ],
       ),
     );
@@ -300,10 +309,13 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
         title: const Text('删除预设'),
         content: Text('确定删除预设 "$_selectedPresetName" 吗？'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+            style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error),
             child: const Text('删除'),
           ),
         ],
@@ -312,7 +324,8 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
     if (confirm != true) return;
     _presets.removeWhere((p) => p['name'] == _selectedPresetName);
     if (_presets.isEmpty) {
-      _presets = _builtInPresets.map((e) => Map<String, dynamic>.from(e)).toList();
+      _presets =
+          _builtInPresets.map((e) => Map<String, dynamic>.from(e)).toList();
     }
     _selectedPresetName = _presets.first['name'];
     _applyPreset(_presets.first);
@@ -323,7 +336,8 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
 
   /// 恢复内置预设
   void _restoreDefaults() {
-    _presets = _builtInPresets.map((e) => Map<String, dynamic>.from(e)).toList();
+    _presets =
+        _builtInPresets.map((e) => Map<String, dynamic>.from(e)).toList();
     _selectedPresetName = 'Alpaca';
     _applyPreset(_presets.first);
     _persistPresets();
@@ -334,7 +348,7 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
   /// 导出预设到 JSON 文件
   Future<void> _exportPreset() async {
     final json = jsonEncode(_settings.toJson());
-    final result = await FilePicker.platform.saveFile(
+    final result = await SafeFilePicker.saveFile(
       dialogTitle: '导出 Instruct 预设',
       fileName: '${_selectedPresetName}_instruct.json',
       type: FileType.custom,
@@ -352,14 +366,15 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
 
   /// 从 JSON 文件导入预设
   Future<void> _importPreset() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await SafeFilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json'],
     );
     if (result == null || result.files.isEmpty) return;
     try {
       final file = File(result.files.first.path!);
-      final jsonData = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final jsonData =
+          jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
       final name = jsonData['name'] as String? ?? '导入的预设';
       jsonData['name'] = name;
       _presets.add(jsonData);
@@ -402,7 +417,10 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
           _buildCard(
             colorScheme,
             SwitchListTile(
-              secondary: Icon(Icons.power_settings_new, color: _settings.enabled ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.4)),
+              secondary: Icon(Icons.power_settings_new,
+                  color: _settings.enabled
+                      ? colorScheme.primary
+                      : colorScheme.onSurface.withOpacity(0.4)),
               title: Text('启用 Instruct 模式', style: textTheme.titleMedium),
               subtitle: Text(
                 _settings.enabled ? '已启用' : '已禁用',
@@ -430,20 +448,28 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('预设管理', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                        Text('预设管理',
+                            style: textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600)),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: _presets.any((p) => p['name'] == _selectedPresetName) ? _selectedPresetName : null,
+                          value: _presets
+                                  .any((p) => p['name'] == _selectedPresetName)
+                              ? _selectedPresetName
+                              : null,
                           decoration: _inputDecoration('选择预设', colorScheme),
-                          items: _presets.map((p) => DropdownMenuItem(
-                            value: p['name'] as String,
-                            child: Text(p['name'] as String),
-                          )).toList(),
+                          items: _presets
+                              .map((p) => DropdownMenuItem(
+                                    value: p['name'] as String,
+                                    child: Text(p['name'] as String),
+                                  ))
+                              .toList(),
                           onChanged: (v) {
                             if (v == null) return;
                             setState(() {
                               _selectedPresetName = v;
-                              _applyPreset(_presets.firstWhere((p) => p['name'] == v));
+                              _applyPreset(
+                                  _presets.firstWhere((p) => p['name'] == v));
                             });
                             _persistSettings();
                           },
@@ -454,13 +480,21 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                           scrollDirection: Axis.horizontal,
                           child: Row(
                             children: [
-                              _iconBtn(Icons.save, '保存', _savePreset, colorScheme),
-                              _iconBtn(Icons.edit, '重命名', _renamePreset, colorScheme),
-                              _iconBtn(Icons.save_as, '另存为', _saveAsNewPreset, colorScheme),
-                              _iconBtn(Icons.file_upload, '导入', _importPreset, colorScheme),
-                              _iconBtn(Icons.file_download, '导出', _exportPreset, colorScheme),
-                              _iconBtn(Icons.delete_outline, '删除', _deletePreset, colorScheme, isError: true),
-                              _iconBtn(Icons.restore, '恢复默认', _restoreDefaults, colorScheme),
+                              _iconBtn(
+                                  Icons.save, '保存', _savePreset, colorScheme),
+                              _iconBtn(Icons.edit, '重命名', _renamePreset,
+                                  colorScheme),
+                              _iconBtn(Icons.save_as, '另存为', _saveAsNewPreset,
+                                  colorScheme),
+                              _iconBtn(Icons.file_upload, '导入', _importPreset,
+                                  colorScheme),
+                              _iconBtn(Icons.file_download, '导出', _exportPreset,
+                                  colorScheme),
+                              _iconBtn(Icons.delete_outline, '删除',
+                                  _deletePreset, colorScheme,
+                                  isError: true),
+                              _iconBtn(Icons.restore, '恢复默认', _restoreDefaults,
+                                  colorScheme),
                             ],
                           ),
                         ),
@@ -475,13 +509,43 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('设置选项', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-                        _buildCheckbox('用换行符包裹序列', _settings.wrap, (v) => _updateField(() => _settings.wrap = v), colorScheme),
-                        _buildCheckbox('替换序列中的宏', _settings.macro, (v) => _updateField(() => _settings.macro = v), colorScheme),
-                        _buildCheckbox('序列作为停止字符串', _settings.sequencesAsStopStrings, (v) => _updateField(() => _settings.sequencesAsStopStrings = v), colorScheme),
-                        _buildCheckbox('跳过示例对话格式化', _settings.skipExamples, (v) => _updateField(() => _settings.skipExamples = v), colorScheme),
-                        _buildCheckbox('系统序列与用户相同', _settings.systemSameAsUser, (v) => _updateField(() => _settings.systemSameAsUser = v), colorScheme),
-                        _buildCheckbox('绑定到上下文', _settings.bindToContext, (v) => _updateField(() => _settings.bindToContext = v), colorScheme),
+                        Text('设置选项',
+                            style: textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600)),
+                        _buildCheckbox(
+                            '用换行符包裹序列',
+                            _settings.wrap,
+                            (v) => _updateField(() => _settings.wrap = v),
+                            colorScheme),
+                        _buildCheckbox(
+                            '替换序列中的宏',
+                            _settings.macro,
+                            (v) => _updateField(() => _settings.macro = v),
+                            colorScheme),
+                        _buildCheckbox(
+                            '序列作为停止字符串',
+                            _settings.sequencesAsStopStrings,
+                            (v) => _updateField(
+                                () => _settings.sequencesAsStopStrings = v),
+                            colorScheme),
+                        _buildCheckbox(
+                            '跳过示例对话格式化',
+                            _settings.skipExamples,
+                            (v) =>
+                                _updateField(() => _settings.skipExamples = v),
+                            colorScheme),
+                        _buildCheckbox(
+                            '系统序列与用户相同',
+                            _settings.systemSameAsUser,
+                            (v) => _updateField(
+                                () => _settings.systemSameAsUser = v),
+                            colorScheme),
+                        _buildCheckbox(
+                            '绑定到上下文',
+                            _settings.bindToContext,
+                            (v) =>
+                                _updateField(() => _settings.bindToContext = v),
+                            colorScheme),
                         const Divider(height: 24),
                         // Names 行为下拉
                         DropdownButtonFormField<String>(
@@ -489,17 +553,22 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                           decoration: _inputDecoration('名称行为', colorScheme),
                           items: const [
                             DropdownMenuItem(value: 'none', child: Text('从不')),
-                            DropdownMenuItem(value: 'force', child: Text('群组和角色')),
-                            DropdownMenuItem(value: 'always', child: Text('始终')),
+                            DropdownMenuItem(
+                                value: 'force', child: Text('群组和角色')),
+                            DropdownMenuItem(
+                                value: 'always', child: Text('始终')),
                           ],
-                          onChanged: (v) => _updateField(() => _settings.namesBehavior = v ?? 'force'),
+                          onChanged: (v) => _updateField(
+                              () => _settings.namesBehavior = v ?? 'force'),
                           isExpanded: true,
                         ),
                         const SizedBox(height: 12),
                         // 激活正则
                         TextField(
-                          controller: TextEditingController(text: _settings.activationRegex),
-                          onChanged: (v) => _updateField(() => _settings.activationRegex = v),
+                          controller: TextEditingController(
+                              text: _settings.activationRegex),
+                          onChanged: (v) =>
+                              _updateField(() => _settings.activationRegex = v),
                           decoration: _inputDecoration('激活正则表达式', colorScheme),
                         ),
                       ],
@@ -515,8 +584,18 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                     textTheme,
                     initiallyExpanded: true,
                     children: [
-                      _buildSequenceField('故事字符串前缀', _settings.storyStringPrefix, (v) => _updateField(() => _settings.storyStringPrefix = v), colorScheme),
-                      _buildSequenceField('故事字符串后缀', _settings.storyStringSuffix, (v) => _updateField(() => _settings.storyStringSuffix = v), colorScheme),
+                      _buildSequenceField(
+                          '故事字符串前缀',
+                          _settings.storyStringPrefix,
+                          (v) => _updateField(
+                              () => _settings.storyStringPrefix = v),
+                          colorScheme),
+                      _buildSequenceField(
+                          '故事字符串后缀',
+                          _settings.storyStringSuffix,
+                          (v) => _updateField(
+                              () => _settings.storyStringSuffix = v),
+                          colorScheme),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -528,8 +607,17 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                     textTheme,
                     initiallyExpanded: true,
                     children: [
-                      _buildSequenceField('用户消息前缀 (input_sequence)', _settings.inputSequence, (v) => _updateField(() => _settings.inputSequence = v), colorScheme),
-                      _buildSequenceField('用户消息后缀 (input_suffix)', _settings.inputSuffix, (v) => _updateField(() => _settings.inputSuffix = v), colorScheme),
+                      _buildSequenceField(
+                          '用户消息前缀 (input_sequence)',
+                          _settings.inputSequence,
+                          (v) =>
+                              _updateField(() => _settings.inputSequence = v),
+                          colorScheme),
+                      _buildSequenceField(
+                          '用户消息后缀 (input_suffix)',
+                          _settings.inputSuffix,
+                          (v) => _updateField(() => _settings.inputSuffix = v),
+                          colorScheme),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -541,8 +629,17 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                     textTheme,
                     initiallyExpanded: true,
                     children: [
-                      _buildSequenceField('助手消息前缀 (output_sequence)', _settings.outputSequence, (v) => _updateField(() => _settings.outputSequence = v), colorScheme),
-                      _buildSequenceField('助手消息后缀 (output_suffix)', _settings.outputSuffix, (v) => _updateField(() => _settings.outputSuffix = v), colorScheme),
+                      _buildSequenceField(
+                          '助手消息前缀 (output_sequence)',
+                          _settings.outputSequence,
+                          (v) =>
+                              _updateField(() => _settings.outputSequence = v),
+                          colorScheme),
+                      _buildSequenceField(
+                          '助手消息后缀 (output_suffix)',
+                          _settings.outputSuffix,
+                          (v) => _updateField(() => _settings.outputSuffix = v),
+                          colorScheme),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -557,14 +654,20 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                       _buildSequenceField(
                         '系统消息前缀 (system_sequence)',
                         _settings.systemSequence,
-                        _settings.systemSameAsUser ? null : (v) => _updateField(() => _settings.systemSequence = v),
+                        _settings.systemSameAsUser
+                            ? null
+                            : (v) => _updateField(
+                                () => _settings.systemSequence = v),
                         colorScheme,
                         disabled: _settings.systemSameAsUser,
                       ),
                       _buildSequenceField(
                         '系统消息后缀 (system_suffix)',
                         _settings.systemSuffix,
-                        _settings.systemSameAsUser ? null : (v) => _updateField(() => _settings.systemSuffix = v),
+                        _settings.systemSameAsUser
+                            ? null
+                            : (v) =>
+                                _updateField(() => _settings.systemSuffix = v),
                         colorScheme,
                         disabled: _settings.systemSameAsUser,
                       ),
@@ -573,7 +676,9 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                           padding: const EdgeInsets.only(top: 4),
                           child: Text(
                             '已启用"系统序列与用户相同"，系统消息序列将使用用户消息序列',
-                            style: TextStyle(fontSize: 12, color: colorScheme.primary.withOpacity(0.8)),
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: colorScheme.primary.withOpacity(0.8)),
                           ),
                         ),
                     ],
@@ -587,13 +692,47 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
                     textTheme,
                     initiallyExpanded: false,
                     children: [
-                      _buildSequenceField('首个助手前缀 (first_output)', _settings.firstOutputSequence, (v) => _updateField(() => _settings.firstOutputSequence = v), colorScheme),
-                      _buildSequenceField('末尾助手前缀 (last_output)', _settings.lastOutputSequence, (v) => _updateField(() => _settings.lastOutputSequence = v), colorScheme),
-                      _buildSequenceField('首个用户前缀 (first_input)', _settings.firstInputSequence, (v) => _updateField(() => _settings.firstInputSequence = v), colorScheme),
-                      _buildSequenceField('末尾用户前缀 (last_input)', _settings.lastInputSequence, (v) => _updateField(() => _settings.lastInputSequence = v), colorScheme),
-                      _buildSequenceField('系统指令前缀 (last_system)', _settings.lastSystemSequence, (v) => _updateField(() => _settings.lastSystemSequence = v), colorScheme),
-                      _buildSequenceField('停止序列 (stop_sequence)', _settings.stopSequence, (v) => _updateField(() => _settings.stopSequence = v), colorScheme),
-                      _buildSequenceField('用户对齐消息 (user_alignment)', _settings.userAlignmentMessage, (v) => _updateField(() => _settings.userAlignmentMessage = v), colorScheme),
+                      _buildSequenceField(
+                          '首个助手前缀 (first_output)',
+                          _settings.firstOutputSequence,
+                          (v) => _updateField(
+                              () => _settings.firstOutputSequence = v),
+                          colorScheme),
+                      _buildSequenceField(
+                          '末尾助手前缀 (last_output)',
+                          _settings.lastOutputSequence,
+                          (v) => _updateField(
+                              () => _settings.lastOutputSequence = v),
+                          colorScheme),
+                      _buildSequenceField(
+                          '首个用户前缀 (first_input)',
+                          _settings.firstInputSequence,
+                          (v) => _updateField(
+                              () => _settings.firstInputSequence = v),
+                          colorScheme),
+                      _buildSequenceField(
+                          '末尾用户前缀 (last_input)',
+                          _settings.lastInputSequence,
+                          (v) => _updateField(
+                              () => _settings.lastInputSequence = v),
+                          colorScheme),
+                      _buildSequenceField(
+                          '系统指令前缀 (last_system)',
+                          _settings.lastSystemSequence,
+                          (v) => _updateField(
+                              () => _settings.lastSystemSequence = v),
+                          colorScheme),
+                      _buildSequenceField(
+                          '停止序列 (stop_sequence)',
+                          _settings.stopSequence,
+                          (v) => _updateField(() => _settings.stopSequence = v),
+                          colorScheme),
+                      _buildSequenceField(
+                          '用户对齐消息 (user_alignment)',
+                          _settings.userAlignmentMessage,
+                          (v) => _updateField(
+                              () => _settings.userAlignmentMessage = v),
+                          colorScheme),
                     ],
                   ),
                   const SizedBox(height: 32),
@@ -630,7 +769,8 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
   }
 
   // ── 复选框 ──
-  Widget _buildCheckbox(String title, bool value, ValueChanged<bool> onChanged, ColorScheme colorScheme) {
+  Widget _buildCheckbox(String title, bool value, ValueChanged<bool> onChanged,
+      ColorScheme colorScheme) {
     return CheckboxListTile(
       title: Text(title),
       value: value,
@@ -663,7 +803,8 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
           fillColor: disabled
               ? colorScheme.surfaceContainerHighest.withOpacity(0.2)
               : colorScheme.surfaceContainerHighest.withOpacity(0.5),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           isDense: true,
         ),
       ),
@@ -671,20 +812,26 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
   }
 
   // ── 操作按钮 ──
-  Widget _iconBtn(IconData icon, String tooltip, VoidCallback onTap, ColorScheme colorScheme, {bool isError = false}) {
+  Widget _iconBtn(IconData icon, String tooltip, VoidCallback onTap,
+      ColorScheme colorScheme,
+      {bool isError = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Tooltip(
         message: tooltip,
         child: Material(
-          color: isError ? colorScheme.error.withOpacity(0.1) : colorScheme.primary.withOpacity(0.1),
+          color: isError
+              ? colorScheme.error.withOpacity(0.1)
+              : colorScheme.primary.withOpacity(0.1),
           borderRadius: BorderRadius.circular(10),
           child: InkWell(
             borderRadius: BorderRadius.circular(10),
             onTap: onTap,
             child: Padding(
               padding: const EdgeInsets.all(10),
-              child: Icon(icon, size: 20, color: isError ? colorScheme.error : colorScheme.primary),
+              child: Icon(icon,
+                  size: 20,
+                  color: isError ? colorScheme.error : colorScheme.primary),
             ),
           ),
         ),
@@ -703,7 +850,8 @@ class _InstructModeScreenState extends State<InstructModeScreen> {
     return _buildCard(
       colorScheme,
       ExpansionTile(
-        title: Text(title, style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+        title: Text(title,
+            style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
         tilePadding: EdgeInsets.zero,
         childrenPadding: const EdgeInsets.only(top: 8),
         initiallyExpanded: initiallyExpanded,

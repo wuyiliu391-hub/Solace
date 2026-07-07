@@ -7,7 +7,6 @@ import '../../models/pure_ai_message.dart';
 import '../../models/chat_message.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/pure_ai_service.dart';
-import '../../services/multimodal_service.dart';
 import '../../utils/message_sanitizer.dart';
 import 'pure_ai_chat_event.dart';
 import 'pure_ai_chat_state.dart';
@@ -23,7 +22,6 @@ class PureAIChatBloc extends Bloc<PureAIChatEvent, PureAIChatState> {
     on<PureAISendMessage>(_onSendMessage);
     on<PureAILoadMessages>(_onLoadMessages);
     on<PureAIDeleteSession>(_onDeleteSession);
-    on<PureAISendImageMessage>(_onSendImageMessage);
   }
 
   Future<void> _onLoadSessions(
@@ -41,7 +39,7 @@ class PureAIChatBloc extends Bloc<PureAIChatEvent, PureAIChatState> {
     final session = PureAISession(
       id: _uuid.v4(),
       userId: event.userId,
-      title: event.title ?? 'AI助手',
+      title: event.title ?? 'AI鍔╂墜',
       createdAt: DateTime.now(),
     );
     await _storage.createPureAISession(session);
@@ -74,7 +72,7 @@ class PureAIChatBloc extends Bloc<PureAIChatEvent, PureAIChatState> {
     try {
       await _storage.savePureAIMessage(userMsg);
     } catch (_) {
-      emit(PureAIError('保存用户消息失败'));
+      emit(PureAIError('淇濆瓨鐢ㄦ埛娑堟伅澶辫触'));
       return;
     }
 
@@ -93,7 +91,8 @@ class PureAIChatBloc extends Bloc<PureAIChatEvent, PureAIChatState> {
       )) {
         finalContent = chunk.content;
         final streamText = MessageSanitizer.sanitizeStream(chunk.content);
-        final streamReasoning = MessageSanitizer.sanitizeStream(chunk.reasoning);
+        final streamReasoning =
+            MessageSanitizer.sanitizeStream(chunk.reasoning);
         if (streamText.isNotEmpty || streamReasoning.isNotEmpty) {
           emit(PureAIStreaming(messages, streamText,
               reasoning: streamReasoning));
@@ -101,7 +100,9 @@ class PureAIChatBloc extends Bloc<PureAIChatEvent, PureAIChatState> {
       }
 
       var responseText = MessageSanitizer.sanitizeFinal(
-          finalContent.trim().isNotEmpty ? finalContent : MessageSanitizer.failureFallbackText());
+          finalContent.trim().isNotEmpty
+              ? finalContent
+              : MessageSanitizer.failureFallbackText());
       if (MessageSanitizer.isLikelyUnreadableGibberish(responseText)) {
         responseText = MessageSanitizer.failureFallbackText();
       }
@@ -122,13 +123,14 @@ class PureAIChatBloc extends Bloc<PureAIChatEvent, PureAIChatState> {
       );
       await _storage.savePureAIMessage(aiMsg);
     } catch (e) {
-      debugPrint('PureAI回复失败: $e');
+      debugPrint('PureAI鍥炲澶辫触: $e');
       final errorMsg = PureAIMessage(
         id: _uuid.v4(),
         sessionId: event.sessionId,
         senderId: 'ai',
         senderName: 'AI',
-        content: '抱歉，现在出了点问题: ${e.toString().replaceAll('Exception: ', '')}',
+        content:
+            '鎶辨瓑锛岀幇鍦ㄥ嚭浜嗙偣闂: ${e.toString().replaceAll('Exception: ', '')}',
         type: MessageType.text,
         status: MessageStatus.sent,
         createdAt: DateTime.now(),
@@ -155,88 +157,10 @@ class PureAIChatBloc extends Bloc<PureAIChatEvent, PureAIChatState> {
     await _storage.deletePureAISession(event.sessionId);
   }
 
-  Future<void> _onSendImageMessage(
-    PureAISendImageMessage event,
-    Emitter<PureAIChatState> emit,
-  ) async {
-    final now = DateTime.now();
-
-    final userMsg = PureAIMessage(
-      id: _uuid.v4(),
-      sessionId: event.sessionId,
-      senderId: event.userId,
-      content: event.imagePath,
-      type: MessageType.image,
-      status: MessageStatus.sent,
-      createdAt: now,
-    );
-
-    try {
-      await _storage.savePureAIMessage(userMsg);
-    } catch (_) {
-      emit(PureAIError('保存图片消息失败'));
-      return;
-    }
-
-    var messages = await _storage.getPureAIMessages(event.sessionId);
-    emit(PureAIMessageSending(messages));
-
-    String? imageDescription;
-    try {
-      final multimodal = MultimodalService();
-      final description = await multimodal.describeImage(event.imagePath);
-      imageDescription = description;
-    } catch (e) {
-      debugPrint('图片识别失败: $e');
-    }
-
-    try {
-      final userText = event.caption ?? '';
-      String finalContent = '';
-
-      await for (final chunk in _aiService.sendPureAIMessageStream(
-        userMessage: userText.isNotEmpty ? userText : '用户发了一张图片',
-        chatHistory: messages,
-        imageDescription: imageDescription,
-      )) {
-        finalContent = chunk.content;
-        final streamText = MessageSanitizer.sanitizeStream(chunk.content);
-        final streamReasoning = MessageSanitizer.sanitizeStream(chunk.reasoning);
-        if (streamText.isNotEmpty || streamReasoning.isNotEmpty) {
-          emit(PureAIStreaming(messages, streamText,
-              reasoning: streamReasoning));
-        }
-      }
-
-      var responseText = MessageSanitizer.sanitizeFinal(
-          finalContent.trim().isNotEmpty ? finalContent : MessageSanitizer.failureFallbackText());
-      if (MessageSanitizer.isLikelyUnreadableGibberish(responseText)) {
-        responseText = MessageSanitizer.failureFallbackText();
-      }
-
-      final aiMsg = PureAIMessage(
-        id: _uuid.v4(),
-        sessionId: event.sessionId,
-        senderId: 'ai',
-        senderName: 'AI',
-        content: responseText,
-        type: MessageType.text,
-        status: MessageStatus.sent,
-        createdAt: DateTime.now(),
-      );
-      await _storage.savePureAIMessage(aiMsg);
-    } catch (e) {
-      debugPrint('PureAI图片回复失败: $e');
-    }
-
-    final allMessages = await _storage.getPureAIMessages(event.sessionId);
-    emit(PureAIMessagesLoaded(allMessages));
-  }
-
   String _stripSystemDirective(String text) {
     final patterns = [
-      RegExp(r'系统提示[\[（(]?.+?[\]）)]?', caseSensitive: false),
-      RegExp(r'系统提示\s+.+', caseSensitive: false),
+      RegExp(r'绯荤粺鎻愮ず[\[锛?]?.+?[\]锛?]?', caseSensitive: false),
+      RegExp(r'绯荤粺鎻愮ず\s+.+', caseSensitive: false),
     ];
     String cleaned = text;
     for (final pattern in patterns) {

@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'tts_service.dart';
 import '../config/tts_config.dart';
+import '../utils/safe_file_picker.dart';
 
 /// 音色克隆服务 — 管理用户的音色样本
 ///
@@ -75,7 +76,7 @@ class VoiceCloneService {
     String? previewText,
   }) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await SafeFilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['mp3', 'wav'],
         allowMultiple: false,
@@ -91,7 +92,8 @@ class VoiceCloneService {
 
       // 检查大小（base64 编码后会增加 33%，API 有请求体大小限制）
       if (bytes.length > 5 * 1024 * 1024) {
-        debugPrint('VoiceClone: 音频文件过大 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)}MB)，超过 5MB 限制');
+        debugPrint(
+            'VoiceClone: 音频文件过大 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)}MB)，超过 5MB 限制');
         return null;
       }
 
@@ -106,7 +108,8 @@ class VoiceCloneService {
       // 保存音色 + 默认风格指令
       await saveVoice(characterId, voiceBase64);
 
-      debugPrint('VoiceClone: 已保存音色样本 (${bytes.length} bytes, base64 length: ${voiceBase64.length})');
+      debugPrint(
+          'VoiceClone: 已保存音色样本 (${bytes.length} bytes, base64 length: ${voiceBase64.length})');
 
       // 自动合成试听
       String? previewPath;
@@ -148,7 +151,8 @@ class VoiceCloneService {
       debugPrint('VoiceClone: generatePreview 失败 - 无音色数据');
       throw Exception('未找到音色数据，请重新上传');
     }
-    debugPrint('VoiceClone: 开始生成试听 (voiceBase64 length: ${voiceBase64.length})');
+    debugPrint(
+        'VoiceClone: 开始生成试听 (voiceBase64 length: ${voiceBase64.length})');
     final tts = TTSService();
     final styleInstruction = getStyleInstruction(characterId);
     final path = await tts.generateAudio(
@@ -175,9 +179,23 @@ class VoiceCloneService {
 
     // 常用短句（AI 回复高频出现）
     const commonPhrases = [
-      '嗯嗯', '好的', '哈哈', '嗯', '好吧', '嘻嘻', '嘿嘿',
-      '知道了', '没关系', '当然', '真的吗', '太好了',
-      '你怎么了', '还好吗', '想你了', '晚安', '早安',
+      '嗯嗯',
+      '好的',
+      '哈哈',
+      '嗯',
+      '好吧',
+      '嘻嘻',
+      '嘿嘿',
+      '知道了',
+      '没关系',
+      '当然',
+      '真的吗',
+      '太好了',
+      '你怎么了',
+      '还好吗',
+      '想你了',
+      '晚安',
+      '早安',
     ];
 
     int generated = 0;

@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image/image.dart' as img;
+import '../utils/safe_file_picker.dart';
 
 /// 自定义图标服务
 ///
@@ -54,7 +55,7 @@ class CustomIconService {
   /// 返回裁剪后的本地文件路径，取消则返回 null
   static Future<String?> pickAndCropImage() async {
     // 1. 选择图片
-    final result = await FilePicker.platform.pickFiles(
+    final result = await SafeFilePicker.pickFiles(
       type: FileType.image,
       allowMultiple: false,
     );
@@ -69,10 +70,12 @@ class CustomIconService {
     final original = img.decodeImage(bytes);
     if (original == null) return null;
 
-    final size = original.width < original.height ? original.width : original.height;
+    final size =
+        original.width < original.height ? original.width : original.height;
     final x = (original.width - size) ~/ 2;
     final y = (original.height - size) ~/ 2;
-    final cropped = img.copyCrop(original, x: x, y: y, width: size, height: size);
+    final cropped =
+        img.copyCrop(original, x: x, y: y, width: size, height: size);
 
     // 3. 缩放到 256x256（图标够用）
     final resized = img.copyResize(cropped, width: 256, height: 256);

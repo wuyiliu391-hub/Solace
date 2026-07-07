@@ -105,6 +105,94 @@ class ResponseDecoder {
     return '';
   }
 
+  static String extractVisibleContent(dynamic data) {
+    if (data is! Map<String, dynamic>) return data.toString();
+
+    if (data['output_text'] is String) {
+      return data['output_text'] as String;
+    }
+    final output = data['output'];
+    if (output is List) {
+      for (final item in output) {
+        if (item is Map<String, dynamic>) {
+          final type = item['type'];
+          if (type is String &&
+              ['reasoning', 'thinking', 'analysis'].contains(type)) {
+            continue;
+          }
+          final content = item['content'];
+          if (item['type'] == 'message' && content is List) {
+            final texts = <String>[];
+            for (final c in content) {
+              if (c is Map<String, dynamic> && c['text'] is String) {
+                texts.add(c['text'] as String);
+              }
+            }
+            if (texts.isNotEmpty) return texts.join();
+          }
+          if (content is String && content.trim().isNotEmpty) {
+            return content;
+          }
+        }
+      }
+    }
+
+    final topContent = data['content'];
+    if (topContent is List) {
+      final texts = <String>[];
+      for (final c in topContent) {
+        if (c is Map<String, dynamic> &&
+            c['type'] == 'text' &&
+            c['text'] is String) {
+          texts.add(c['text'] as String);
+        }
+      }
+      if (texts.isNotEmpty) return texts.join();
+    }
+
+    final choices = data['choices'];
+    if (choices is List && choices.isNotEmpty) {
+      final choice = choices.first;
+      if (choice is Map<String, dynamic>) {
+        final message = choice['message'];
+        if (message is Map<String, dynamic>) {
+          for (final key in ['content', 'text']) {
+            final value = message[key];
+            if (value is String && value.trim().isNotEmpty) return value;
+          }
+          return message['content'] as String? ?? '';
+        }
+        final delta = choice['delta'];
+        if (delta is Map<String, dynamic>) {
+          for (final key in ['content', 'text']) {
+            final value = delta[key];
+            if (value is String && value.trim().isNotEmpty) return value;
+          }
+        }
+        final text = choice['text'];
+        if (text is String) return text;
+      }
+    }
+
+    final result = data['result'];
+    if (result is String) return result;
+
+    final nestedData = data['data'];
+    if (nestedData is Map) {
+      for (final key in ['text', 'content']) {
+        final value = nestedData[key];
+        if (value is String) return value;
+      }
+    }
+
+    for (final key in ['text', 'response', 'content']) {
+      final value = data[key];
+      if (value is String) return value;
+    }
+
+    return '';
+  }
+
   static Future<String> decode(String? contentType, List<int> bytes) async {
     final charset = _charsetFromContentType(contentType);
 

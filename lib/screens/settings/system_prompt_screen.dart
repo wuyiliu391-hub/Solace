@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
+import '../../utils/safe_file_picker.dart';
 
 class SystemPromptPreset {
   final String name;
@@ -103,8 +104,7 @@ final List<SystemPromptPreset> _defaultPresets = [
   ),
   SystemPromptPreset(
     name: 'Writer - Creative',
-    content:
-        'You are an intelligent, skilled, versatile writer.',
+    content: 'You are an intelligent, skilled, versatile writer.',
     postHistory: '',
   ),
   SystemPromptPreset(
@@ -245,8 +245,8 @@ class _SystemPromptScreenState extends State<SystemPromptScreen> {
 
   Future<void> _savePresets() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        'sysprompt_presets', jsonEncode(_presets.map((p) => p.toJson()).toList()));
+    await prefs.setString('sysprompt_presets',
+        jsonEncode(_presets.map((p) => p.toJson()).toList()));
   }
 
   void _onEnabledChanged(bool value) {
@@ -465,7 +465,8 @@ class _SystemPromptScreenState extends State<SystemPromptScreen> {
   Future<void> _restorePreset() async {
     final defaultPreset = _defaultPresets.firstWhere(
       (p) => p.name == _selectedPresetName,
-      orElse: () => SystemPromptPreset(name: _selectedPresetName, content: '', postHistory: ''),
+      orElse: () => SystemPromptPreset(
+          name: _selectedPresetName, content: '', postHistory: ''),
     );
 
     setState(() {
@@ -489,7 +490,7 @@ class _SystemPromptScreenState extends State<SystemPromptScreen> {
 
   Future<void> _importPreset() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await SafeFilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
       );
@@ -501,7 +502,7 @@ class _SystemPromptScreenState extends State<SystemPromptScreen> {
       if (file.bytes != null) {
         content = utf8.decode(file.bytes!);
       } else if (file.path != null) {
-        final fileObj = await FilePicker.platform.pickFiles();
+        final fileObj = await SafeFilePicker.pickFiles();
         if (fileObj == null) return;
         // fallback: read from bytes
         if (fileObj.files.first.bytes != null) {
@@ -563,9 +564,10 @@ class _SystemPromptScreenState extends State<SystemPromptScreen> {
         postHistory: _postHistoryController.text,
       );
 
-      final jsonStr = const JsonEncoder.withIndent('  ').convert(preset.toJson());
+      final jsonStr =
+          const JsonEncoder.withIndent('  ').convert(preset.toJson());
 
-      final result = await FilePicker.platform.saveFile(
+      final result = await SafeFilePicker.saveFile(
         dialogTitle: '导出系统提示词预设',
         fileName: '${_selectedPresetName.replaceAll(' ', '_')}.json',
         type: FileType.custom,
@@ -588,7 +590,8 @@ class _SystemPromptScreenState extends State<SystemPromptScreen> {
     }
   }
 
-  Future<void> _openFullScreenEditor(TextEditingController controller, String title) async {
+  Future<void> _openFullScreenEditor(
+      TextEditingController controller, String title) async {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
@@ -672,7 +675,8 @@ class _SystemPromptScreenState extends State<SystemPromptScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     filled: true,
-                    fillColor: colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                    fillColor:
+                        colorScheme.surfaceContainerHighest.withOpacity(0.5),
                   ),
                   items: _presets.map((p) {
                     final isDefault = _isDefaultPreset(p.name);
@@ -925,9 +929,7 @@ class _SystemPromptScreenState extends State<SystemPromptScreen> {
               child: Icon(
                 icon,
                 size: 20,
-                color: isDestructive
-                    ? colorScheme.error
-                    : colorScheme.primary,
+                color: isDestructive ? colorScheme.error : colorScheme.primary,
               ),
             ),
           ),

@@ -89,7 +89,7 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
     try {
       final storage = RepositoryProvider.of<LocalStorageRepository>(context);
       final userId = _getCurrentUserId();
-      
+
       final character = AICharacter(
         id: const Uuid().v4(),
         name: _nameController.text.trim(),
@@ -126,7 +126,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
             : null,
         dialogueExamples: _dialogueExamples,
         interactionConfig: const AIInteractionConfig(),
-        age: AgeExtractor.extract(_backgroundStoryController.text.trim()) ?? AgeExtractor.extract(_personalityController.text.trim()),
+        age: AgeExtractor.extract(_backgroundStoryController.text.trim()) ??
+            AgeExtractor.extract(_personalityController.text.trim()),
       );
 
       await storage.saveAICharacter(character);
@@ -246,8 +247,10 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
                 key: _formKey,
                 child: ListView(
                   controller: _scrollController,
-                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 600),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.only(
+                      left: 16, right: 16, top: 16, bottom: 600),
                   children: [
                     _buildAvatarSection(context),
                     const SizedBox(height: 16),
@@ -259,323 +262,329 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
                       icon: Icons.person_outline,
                       initiallyExpanded: true,
                       children: [
-                TextFormField(
-                  controller: _nameController,
-                  onTap: () => _enterEditMode(0),
-                  decoration: InputDecoration(
-                    labelText: '名字',
-                    hintText: '给你的好友取一个名字',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                        TextFormField(
+                          controller: _nameController,
+                          onTap: () => _enterEditMode(0),
+                          decoration: InputDecoration(
+                            labelText: '名字',
+                            hintText: '给你的好友取一个名字',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return '请输入名字';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        Text('性别',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: colorScheme.onSurface)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                                child: _buildGenderChip('女', Icons.female)),
+                            const SizedBox(width: 12),
+                            Expanded(child: _buildGenderChip('男', Icons.male)),
+                          ],
+                        ),
+                      ],
                     ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return '请输入名字';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                Text('性别', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: colorScheme.onSurface)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(child: _buildGenderChip('女', Icons.female)),
-                    const SizedBox(width: 12),
-                    Expanded(child: _buildGenderChip('男', Icons.male)),
-                  ],
-                ),
-              ],
-            ),
 
-            // 性格设定 — 默认展开
-            _buildCollapsibleSection(
-              context,
-              title: '性格设定',
-              icon: Icons.psychology_outlined,
-              initiallyExpanded: true,
-              children: [
-                TextFormField(
-                  onTap: () => _enterEditMode(1),
-                  controller: _personalityController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    labelText: '性格描述',
-                    hintText: '例如：温柔体贴，有些内向，喜欢倾听...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                    // 性格设定 — 默认展开
+                    _buildCollapsibleSection(
+                      context,
+                      title: '性格设定',
+                      icon: Icons.psychology_outlined,
+                      initiallyExpanded: true,
+                      children: [
+                        TextFormField(
+                          onTap: () => _enterEditMode(1),
+                          controller: _personalityController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText: '性格描述',
+                            hintText: '例如：温柔体贴，有些内向，喜欢倾听...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return '请输入性格描述';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
                     ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return '请输入性格描述';
-                    }
-                    return null;
-                  },
-                ),
-              ],
-            ),
 
-            // 关于TA — 默认展开
-            _buildCollapsibleSection(
-              context,
-              title: '关于TA',
-              icon: Icons.favorite_outline,
-              initiallyExpanded: true,
-              children: [
-                TextFormField(
-                  onTap: () => _enterEditMode(2),
-                  controller: _coreDesireController,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: 'TA的心愿',
-                    hintText: 'TA最想要什么？',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                    // 关于TA — 默认展开
+                    _buildCollapsibleSection(
+                      context,
+                      title: '关于TA',
+                      icon: Icons.favorite_outline,
+                      initiallyExpanded: true,
+                      children: [
+                        TextFormField(
+                          onTap: () => _enterEditMode(2),
+                          controller: _coreDesireController,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText: 'TA的心愿',
+                            hintText: 'TA最想要什么？',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return '请输入TA的心愿';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          onTap: () => _enterEditMode(2),
+                          controller: _moralBoundaryController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText: 'TA的原则',
+                            hintText: 'TA绝对不会做什么？',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return '请输入TA的原则';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
                     ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return '请输入TA的心愿';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  onTap: () => _enterEditMode(2),
-                  controller: _moralBoundaryController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    labelText: 'TA的原则',
-                    hintText: 'TA绝对不会做什么？',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return '请输入TA的原则';
-                    }
-                    return null;
-                  },
-                ),
-              ],
-            ),
 
-            // 说话习惯 — 默认收起
-            _buildCollapsibleSection(
-              context,
-              title: '说话习惯（可选）',
-              icon: Icons.chat_bubble_outline,
-              initiallyExpanded: false,
-              children: [
-                TextFormField(
-                  onTap: () => _enterEditMode(3),
-                  controller: _catchphrasesController,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: '习惯用语',
-                    hintText: '例如："真的吗？"、"哈哈哈"、"我觉得..."',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  onTap: () => _enterEditMode(3),
-                  controller: _openingLineController,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: '开场白',
-                    hintText: 'TA第一次打招呼时会说什么？',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            // TA的故事 — 默认收起
-            _buildCollapsibleSection(
-              context,
-              title: 'TA的故事（可选）',
-              icon: Icons.auto_stories_outlined,
-              initiallyExpanded: false,
-              children: [
-                TextFormField(
-                  onTap: () => _enterEditMode(4),
-                  controller: _backgroundStoryController,
-                  maxLines: 4,
-                  decoration: InputDecoration(
-                    labelText: 'TA的故事',
-                    hintText: 'TA有什么样的过去？',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            // 高级设置 — 默认收起
-            _buildCollapsibleSection(
-              context,
-              title: '高级设置（可选）',
-              icon: Icons.tune,
-              initiallyExpanded: false,
-              children: [
-                TextFormField(
-                  onTap: () => _enterEditMode(5),
-                  controller: _worldSettingController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    labelText: '世界观设定',
-                    hintText: 'TA生活在什么样的世界？现代都市、古代、未来...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  onTap: () => _enterEditMode(5),
-                  controller: _languageStyleController,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: '语言风格',
-                    hintText: '例如：温柔体贴、活泼俏皮、幽默风趣...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  onTap: () => _enterEditMode(5),
-                  controller: _tabooTopicsController,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: '禁忌话题',
-                    hintText: 'TA不会主动提起或深入讨论的话题...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  onTap: () => _enterEditMode(5),
-                  controller: _characterTagController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    labelText: '外貌设定（生图用）',
-                    hintText: '发色、瞳色、脸型、体型、服饰等，如：银色长发、紫色瞳孔、瓜子脸、白色连衣裙',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  onTap: () => _enterEditMode(5),
-                  controller: _userNicknameController,
-                  decoration: InputDecoration(
-                    labelText: '对用户的称呼',
-                    hintText: 'TA怎么称呼你？例如：朋友、小伙伴、同学...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  onTap: () => _enterEditMode(5),
-                  controller: _userPersonaController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    labelText: '你的人设（可选）',
-                    hintText: '你在TA眼中是什么样的？例如：一个喜欢画画的大学生...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '示例对话',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: _addDialogueExample,
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('添加示例'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '添加示例对话可以让AI更好地模仿TA的说话方式',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colorScheme.onSurface.withOpacity(0.5),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ..._dialogueExamples.asMap().entries.map((entry) {
-                  return _buildDialogueExampleCard(entry.key, colorScheme);
-                }),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-            _buildTipCard(context),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 56,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _createCharacter,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: colorScheme.primary,
-                  foregroundColor: colorScheme.onPrimary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                child: _isLoading
-                    ? SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            colorScheme.onPrimary,
+                    // 说话习惯 — 默认收起
+                    _buildCollapsibleSection(
+                      context,
+                      title: '说话习惯（可选）',
+                      icon: Icons.chat_bubble_outline,
+                      initiallyExpanded: false,
+                      children: [
+                        TextFormField(
+                          onTap: () => _enterEditMode(3),
+                          controller: _catchphrasesController,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText: '习惯用语',
+                            hintText: '例如："真的吗？"、"哈哈哈"、"我觉得..."',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
-                      )
-                    : const Text(
-                        '添加好友',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          onTap: () => _enterEditMode(3),
+                          controller: _openingLineController,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText: '开场白',
+                            hintText: 'TA第一次打招呼时会说什么？',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
+                      ],
+                    ),
+
+                    // TA的故事 — 默认收起
+                    _buildCollapsibleSection(
+                      context,
+                      title: 'TA的故事（可选）',
+                      icon: Icons.auto_stories_outlined,
+                      initiallyExpanded: false,
+                      children: [
+                        TextFormField(
+                          onTap: () => _enterEditMode(4),
+                          controller: _backgroundStoryController,
+                          maxLines: 4,
+                          decoration: InputDecoration(
+                            labelText: 'TA的故事',
+                            hintText: 'TA有什么样的过去？',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // 高级设置 — 默认收起
+                    _buildCollapsibleSection(
+                      context,
+                      title: '高级设置（可选）',
+                      icon: Icons.tune,
+                      initiallyExpanded: false,
+                      children: [
+                        TextFormField(
+                          onTap: () => _enterEditMode(5),
+                          controller: _worldSettingController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText: '世界观设定',
+                            hintText: 'TA生活在什么样的世界？现代都市、古代、未来...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          onTap: () => _enterEditMode(5),
+                          controller: _languageStyleController,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText: '语言风格',
+                            hintText: '例如：温柔体贴、活泼俏皮、幽默风趣...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          onTap: () => _enterEditMode(5),
+                          controller: _tabooTopicsController,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText: '禁忌话题',
+                            hintText: 'TA不会主动提起或深入讨论的话题...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          onTap: () => _enterEditMode(5),
+                          controller: _characterTagController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText: '外貌设定',
+                            hintText: '发色、瞳色、脸型、体型、服饰等，如：银色长发、紫色瞳孔、瓜子脸、白色连衣裙',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          onTap: () => _enterEditMode(5),
+                          controller: _userNicknameController,
+                          decoration: InputDecoration(
+                            labelText: '对用户的称呼',
+                            hintText: 'TA怎么称呼你？例如：朋友、小伙伴、同学...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          onTap: () => _enterEditMode(5),
+                          controller: _userPersonaController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText: '你的人设（可选）',
+                            hintText: '你在TA眼中是什么样的？例如：一个喜欢画画的大学生...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '示例对话',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: _addDialogueExample,
+                              icon: const Icon(Icons.add, size: 18),
+                              label: const Text('添加示例'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '添加示例对话可以让AI更好地模仿TA的说话方式',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colorScheme.onSurface.withOpacity(0.5),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ..._dialogueExamples.asMap().entries.map((entry) {
+                          return _buildDialogueExampleCard(
+                              entry.key, colorScheme);
+                        }),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+                    _buildTipCard(context),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _createCharacter,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: colorScheme.primary,
+                          foregroundColor: colorScheme.onPrimary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        child: _isLoading
+                            ? SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    colorScheme.onPrimary,
+                                  ),
+                                ),
+                              )
+                            : const Text(
+                                '添加好友',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                       ),
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 32),
-          ],
-        ),
-      ),
       ),
     );
   }
@@ -605,11 +614,16 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
               decoration: InputDecoration(
                 labelText: '名字',
                 hintText: '给你的好友取一个名字',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
             const SizedBox(height: 12),
-            Text('性别', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: colorScheme.onSurface)),
+            Text('性别',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: colorScheme.onSurface)),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -645,7 +659,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
               decoration: InputDecoration(
                 labelText: 'TA的心愿',
                 hintText: 'TA最想要什么？',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
             const SizedBox(height: 16),
@@ -656,7 +671,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
               decoration: InputDecoration(
                 labelText: 'TA的原则',
                 hintText: 'TA绝对不会做什么？',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ],
@@ -673,7 +689,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
               decoration: InputDecoration(
                 labelText: '习惯用语',
                 hintText: '例如："真的吗？"、"哈哈哈"、"我觉得..."',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
             const SizedBox(height: 16),
@@ -684,7 +701,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
               decoration: InputDecoration(
                 labelText: '开场白',
                 hintText: 'TA第一次打招呼时会说什么？',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ],
@@ -714,7 +732,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
               decoration: InputDecoration(
                 labelText: '世界观设定',
                 hintText: 'TA生活在什么样的世界？现代都市、古代、未来...',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
             const SizedBox(height: 16),
@@ -725,7 +744,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
               decoration: InputDecoration(
                 labelText: '语言风格',
                 hintText: '例如：温柔体贴、活泼俏皮、幽默风趣...',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
             const SizedBox(height: 16),
@@ -736,7 +756,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
               decoration: InputDecoration(
                 labelText: '禁忌话题',
                 hintText: 'TA不会主动提起或深入讨论的话题...',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
             const SizedBox(height: 16),
@@ -745,7 +766,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
               decoration: InputDecoration(
                 labelText: '对用户的称呼',
                 hintText: 'TA怎么称呼你？',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ],
@@ -856,8 +878,8 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
       ),
       child: Center(
         child: Text(
-          _nameController.text.isNotEmpty 
-              ? _nameController.text.substring(0, 1) 
+          _nameController.text.isNotEmpty
+              ? _nameController.text.substring(0, 1)
               : '?',
           style: TextStyle(
             fontSize: 36,
@@ -877,16 +899,22 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: selected ? colorScheme.primary : colorScheme.surfaceContainerHighest.withOpacity(0.5),
+          color: selected
+              ? colorScheme.primary
+              : colorScheme.surfaceContainerHighest.withOpacity(0.5),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected ? colorScheme.primary : colorScheme.outline.withOpacity(0.3),
+            color: selected
+                ? colorScheme.primary
+                : colorScheme.outline.withOpacity(0.3),
           ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: selected ? colorScheme.onPrimary : colorScheme.onSurface, size: 20),
+            Icon(icon,
+                color: selected ? colorScheme.onPrimary : colorScheme.onSurface,
+                size: 20),
             const SizedBox(width: 8),
             Text(
               label,
@@ -1088,7 +1116,7 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
   Future<void> _pickImage(ImageSource source) async {
     try {
       bool hasPermission = false;
-      
+
       if (source == ImageSource.camera) {
         hasPermission = await PermissionService.hasCameraPermission();
         if (!hasPermission) {

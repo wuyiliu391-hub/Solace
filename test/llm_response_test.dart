@@ -17,6 +17,25 @@ void main() {
       expect(response.promptTokens, 10);
       expect(response.completionTokens, 5);
     });
+
+    test('can disable reasoning fallback for visible-only callers', () {
+      final response = LlmResponse.fromJson(
+        {
+          'choices': [
+            {
+              'message': {
+                'role': 'assistant',
+                'content': '',
+                'reasoning_content': '我需要先分析动态内容再评论。',
+              },
+            }
+          ],
+        },
+        includeReasoningFallback: false,
+      );
+
+      expect(response.content, isEmpty);
+    });
   });
 
   group('LlmRequest', () {

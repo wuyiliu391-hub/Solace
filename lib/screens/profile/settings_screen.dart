@@ -12,6 +12,7 @@ import '../settings/ai_config_screen.dart';
 import '../settings/about_screen.dart';
 import '../settings/bt_yandere_mode_screen.dart';
 import '../settings/device_control_screen.dart';
+import '../../utils/safe_file_picker.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -109,8 +110,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               iconBgColor: Colors.red.withOpacity(0.1),
               title: '设备操控',
               subtitle: 'AI 无障碍操控手机权限管理',
-              onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const DeviceControlScreen())),
+              onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const DeviceControlScreen())),
               colorScheme: colorScheme,
             ),
             _buildDivider(colorScheme),
@@ -119,8 +122,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               iconBgColor: Colors.purple.withOpacity(0.1),
               title: 'BT 病娇模式',
               subtitle: 'AI 可操控 APP 内数据的总开关与权限',
-              onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const BtYandereModeScreen())),
+              onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const BtYandereModeScreen())),
               colorScheme: colorScheme,
             ),
           ], colorScheme),
@@ -136,16 +141,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               colorScheme: colorScheme,
             ),
           ], colorScheme),
-
           _buildSectionTitle('AI 输出风格', colorScheme),
           _buildCard([
             _buildSwitchTile(
               icon: Icons.wrap_text,
               iconBgColor: Colors.cyan.withOpacity(0.1),
               title: '自动分段',
-              subtitle: _autoParagraphEnabled
-                  ? 'AI 长回复自动拆分为多条气泡'
-                  : 'AI 回复完整显示在一条气泡中',
+              subtitle:
+                  _autoParagraphEnabled ? 'AI 长回复自动拆分为多条气泡' : 'AI 回复完整显示在一条气泡中',
               value: _autoParagraphEnabled,
               onChanged: (v) async {
                 final storage =
@@ -555,7 +558,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             underline: const SizedBox.shrink(),
             items: List.generate(
               options.length,
-              (i) => DropdownMenuItem(value: options[i], child: Text(labels[i])),
+              (i) =>
+                  DropdownMenuItem(value: options[i], child: Text(labels[i])),
             ),
             onChanged: (v) {
               if (v != null) onChanged(v);
@@ -775,22 +779,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _importBackup() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await SafeFilePicker.pickFiles(
         type: FileType.any,
         allowMultiple: false,
       );
       if (result == null || result.files.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('未选择文件')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('未选择文件')));
         }
         return;
       }
       final filePath = result.files.single.path;
       if (filePath == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('无法读取文件路径')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('无法读取文件路径')));
         }
         return;
       }
@@ -865,8 +869,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('取消')),
+                  onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
               TextButton(
                 onPressed: () async {
                   Navigator.pop(ctx);
@@ -879,8 +882,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       barrierDismissible: false,
                       builder: (_) => ValueListenableBuilder<String>(
                         valueListenable: progress,
-                        builder: (_, msg, __) =>
-                            ValueListenableBuilder<double>(
+                        builder: (_, msg, __) => ValueListenableBuilder<double>(
                           valueListenable: progressVal,
                           builder: (_, val, __) => AlertDialog(
                             shape: RoundedRectangleBorder(
@@ -960,8 +962,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Navigator.pop(context);
                 _confirmLogoutStep2();
               },
-              child: const Text('不备份，直接退出',
-                  style: TextStyle(color: Colors.red))),
+              child:
+                  const Text('不备份，直接退出', style: TextStyle(color: Colors.red))),
           TextButton(
               onPressed: () async {
                 Navigator.pop(context);
@@ -987,8 +989,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         content: const Text('确定要退出登录吗？退出后当前账号的所有数据将被清除。'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消')),
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
           TextButton(
               onPressed: () {
                 Navigator.pop(context);
@@ -1014,8 +1015,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         content: const Text('最后确认：退出后将清除所有本地数据，此操作不可恢复！'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消')),
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
@@ -1029,8 +1029,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               } catch (e) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('退出失败: $e'),
-                      backgroundColor: Colors.red));
+                      content: Text('退出失败: $e'), backgroundColor: Colors.red));
                 }
               }
             },
@@ -1124,6 +1123,4 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-
-
 }

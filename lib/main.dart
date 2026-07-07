@@ -1,4 +1,4 @@
-﻿// 性能优化 -- 耗电与老手机兼容
+// 性能优化 -- 耗电与老手机兼容
 import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -51,7 +51,6 @@ import 'blocs/group_chat/group_chat_event.dart';
 import 'blocs/pure_ai/pure_ai_chat_bloc.dart';
 import 'services/permission_service.dart';
 import 'services/notification_service.dart';
-import 'services/multimodal_service.dart';
 import 'services/update_service.dart';
 import 'services/workmanager_helper.dart'
     if (dart.library.html) 'services/workmanager_helper_web.dart';
@@ -60,7 +59,6 @@ import 'widgets/update_dialog.dart';
 import 'widgets/version_feature_dialog.dart';
 import 'config/constants.dart';
 import 'config/tts_config.dart';
-import 'config/image_gen_config.dart';
 import 'services/tts_service.dart';
 import 'services/log_service.dart';
 import 'services/ai_service.dart';
@@ -137,7 +135,8 @@ void main() async {
   // 以下全部是非关键服务，延迟初始化以加速首屏渲染
   Future.delayed(const Duration(seconds: 3), () async {
     try {
-      await initializeDateFormatting('zh_CN').timeout(const Duration(seconds: 3));
+      await initializeDateFormatting('zh_CN')
+          .timeout(const Duration(seconds: 3));
     } catch (e) {
       debugPrint('初始化日期区域失败: $e');
     }
@@ -158,8 +157,6 @@ void main() async {
         .catchError((e) {
       debugPrint('权限申请超时/失败: $e');
     });
-
-    _initMultimodal();
   });
 
   // 更低优先级：Hive + 语音 + 电池
@@ -168,7 +165,6 @@ void main() async {
       await Hive.initFlutter();
       await CustomIconService.init();
       await TTSConfig.init();
-      await ImageGenConfig.init();
       try {
         await TTSService().clearAllAudio();
       } catch (e) {
@@ -190,14 +186,6 @@ void main() async {
       debugPrint('Workmanager 初始化失败: $e');
     });
   });
-}
-
-Future<void> _initMultimodal() async {
-  try {
-    await MultimodalService().initialize();
-  } catch (e) {
-    debugPrint('MultimodalService 初始化失败: $e');
-  }
 }
 
 class _AuthGate extends StatefulWidget {
@@ -309,7 +297,7 @@ class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
     try {
       final prefs = await SharedPreferences.getInstance()
           .timeout(const Duration(seconds: 3));
-      final ackKey = PrefKeys.versionFeatureAck260;
+      const ackKey = PrefKeys.versionFeatureAck275;
       final hasAcked = prefs.getBool(ackKey) ?? false;
       if (!hasAcked && mounted) {
         await VersionFeatureDialog.showIfNeeded(context, ackKey);
@@ -1072,7 +1060,11 @@ class SolaceApp extends StatelessWidget {
                 useMaterial3: true,
                 fontFamily: 'Roboto',
                 textTheme: Typography.material2021().black.apply(
-                  fontFamilyFallback: ['Noto Sans SC', 'Noto Sans CJK SC', 'sans-serif'],
+                  fontFamilyFallback: [
+                    'Noto Sans SC',
+                    'Noto Sans CJK SC',
+                    'sans-serif'
+                  ],
                 ),
                 canvasColor: defaultLightColorScheme.surface,
                 scaffoldBackgroundColor: defaultLightColorScheme.surface,
@@ -1097,7 +1089,11 @@ class SolaceApp extends StatelessWidget {
                 useMaterial3: true,
                 fontFamily: 'Roboto',
                 textTheme: Typography.material2021().white.apply(
-                  fontFamilyFallback: ['Noto Sans SC', 'Noto Sans CJK SC', 'sans-serif'],
+                  fontFamilyFallback: [
+                    'Noto Sans SC',
+                    'Noto Sans CJK SC',
+                    'sans-serif'
+                  ],
                 ),
                 canvasColor: defaultDarkColorScheme.surface,
                 scaffoldBackgroundColor: defaultDarkColorScheme.surface,
@@ -1341,5 +1337,3 @@ class _GlobalRebuildBanner extends StatelessWidget {
     );
   }
 }
-
-

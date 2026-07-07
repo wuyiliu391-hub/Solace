@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Dart-%3E%3D3.0.0-blue?logo=dart" alt="Dart">
   <img src="https://img.shields.io/badge/Platform-Android%20%7C%20Web%20%7C%20Windows-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-16.2.0-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-16.3.0-orange" alt="Version">
 </p>
 
 ---
@@ -55,7 +55,6 @@
 - 流式/非流式双模式 AI 回复
 - 多模型切换（OpenAI 兼容接口）
 - 语音通话、语音消息、TTS 语音合成
-- 图片理解（多模态）、文字/图片生成
 
 ### 🧠 情感记忆引擎
 

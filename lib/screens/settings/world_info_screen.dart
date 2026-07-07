@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../models/character_card_v2.dart';
 import '../../repositories/world_info_repository.dart';
+import '../../utils/safe_file_picker.dart';
 
 /// 世界观管理界面（对标 SillyTavern World Info 面板）
 /// 完整实现书本选择、条目 CRUD、全局设置、导入导出、搜索过滤
@@ -87,9 +88,8 @@ class _WorldInfoScreenState extends State<WorldInfoScreen> {
       if (_currentBook != null) {
         _globalScanDepth =
             int.tryParse(_currentBook!.scanDepth ?? '') ?? _globalScanDepth;
-        _globalRecursiveScan =
-            _currentBook!.recursiveScanning == 'true' ||
-                _currentBook!.recursiveScanning == '1';
+        _globalRecursiveScan = _currentBook!.recursiveScanning == 'true' ||
+            _currentBook!.recursiveScanning == '1';
       }
     } catch (e) {
       _showError('加载条目失败: $e');
@@ -151,7 +151,7 @@ class _WorldInfoScreenState extends State<WorldInfoScreen> {
 
   Future<void> _importBook() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await SafeFilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
         dialogTitle: '选择世界观 JSON 文件',
@@ -182,7 +182,7 @@ class _WorldInfoScreenState extends State<WorldInfoScreen> {
       final json = await _repo.exportBookToJson(_selectedBookId!);
       final jsonStr = const JsonEncoder.withIndent('  ').convert(json);
 
-      final result = await FilePicker.platform.saveFile(
+      final result = await SafeFilePicker.saveFile(
         dialogTitle: '导出世界观',
         fileName: '${_currentBook?.name ?? "world_info"}.json',
         type: FileType.custom,
@@ -581,8 +581,7 @@ class _WorldInfoScreenState extends State<WorldInfoScreen> {
           max: 100,
           divisions: 100,
           displayValue: '$_globalContextBudget%',
-          onChanged: (v) =>
-              setState(() => _globalContextBudget = v.round()),
+          onChanged: (v) => setState(() => _globalContextBudget = v.round()),
           colorScheme: colorScheme,
         ),
         _buildCheckboxSetting(
@@ -594,22 +593,19 @@ class _WorldInfoScreenState extends State<WorldInfoScreen> {
         _buildCheckboxSetting(
           label: '区分大小写 (Case-Sensitive)',
           value: _globalCaseSensitive,
-          onChanged: (v) =>
-              setState(() => _globalCaseSensitive = v ?? false),
+          onChanged: (v) => setState(() => _globalCaseSensitive = v ?? false),
           colorScheme: colorScheme,
         ),
         _buildCheckboxSetting(
           label: '全词匹配 (Match Whole Words)',
           value: _globalMatchWholeWords,
-          onChanged: (v) =>
-              setState(() => _globalMatchWholeWords = v ?? false),
+          onChanged: (v) => setState(() => _globalMatchWholeWords = v ?? false),
           colorScheme: colorScheme,
         ),
         _buildCheckboxSetting(
           label: '使用分组评分 (Group Scoring)',
           value: _globalUseGroupScoring,
-          onChanged: (v) =>
-              setState(() => _globalUseGroupScoring = v ?? false),
+          onChanged: (v) => setState(() => _globalUseGroupScoring = v ?? false),
           colorScheme: colorScheme,
         ),
       ],
@@ -1403,8 +1399,7 @@ class _WorldInfoScreenState extends State<WorldInfoScreen> {
                 label: '扫描深度',
                 value: entry.scanDepth == 0 ? null : entry.scanDepth,
                 hint: '使用全局',
-                onChanged: (v) =>
-                    _updateEntryField(entry, scanDepth: v ?? 0),
+                onChanged: (v) => _updateEntryField(entry, scanDepth: v ?? 0),
                 colorScheme: colorScheme,
               ),
             ),
@@ -1432,22 +1427,19 @@ class _WorldInfoScreenState extends State<WorldInfoScreen> {
             _buildTriStateSetting(
               label: '区分大小写',
               value: entry.caseSensitive,
-              onChanged: (v) =>
-                  _updateEntryField(entry, caseSensitive: v),
+              onChanged: (v) => _updateEntryField(entry, caseSensitive: v),
               colorScheme: colorScheme,
             ),
             _buildTriStateSetting(
               label: '全词匹配',
               value: entry.matchWholeWords,
-              onChanged: (v) =>
-                  _updateEntryField(entry, matchWholeWords: v),
+              onChanged: (v) => _updateEntryField(entry, matchWholeWords: v),
               colorScheme: colorScheme,
             ),
             _buildTriStateSetting(
               label: '分组评分',
               value: entry.useGroupScoring,
-              onChanged: (v) =>
-                  _updateEntryField(entry, useGroupScoring: v),
+              onChanged: (v) => _updateEntryField(entry, useGroupScoring: v),
               colorScheme: colorScheme,
             ),
           ],
@@ -1507,8 +1499,8 @@ class _WorldInfoScreenState extends State<WorldInfoScreen> {
                 );
               },
               selectedColor: colorScheme.primary,
-              backgroundColor: colorScheme.surfaceContainerHighest
-                  .withOpacity(0.3),
+              backgroundColor:
+                  colorScheme.surfaceContainerHighest.withOpacity(0.3),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -1838,8 +1830,7 @@ class _WorldInfoScreenState extends State<WorldInfoScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            onSubmitted: (value) =>
-                Navigator.of(context).pop(value.trim()),
+            onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
           ),
           actions: [
             TextButton(
