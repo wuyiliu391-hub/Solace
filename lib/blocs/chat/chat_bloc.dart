@@ -355,6 +355,26 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     );
   }
 
+  /// 合并流式思考内容用于实时展示。
+  ///
+  /// 部分推理模型不使用独立的 reasoning_content 字段，而是把思考直接写在
+  /// 正文的 <think>…</think> 里。思考阶段该标签尚未闭合，sanitizeStream
+  /// 会把它整段清空，导致 streamText 与 chunk.reasoning 双双为空、消费循环
+  /// 一直不 emit —— 表现为「先卡住、思考完才一次性蹦出正文」。
+  /// 这里同时把 content 内嵌的 <think> 提取出来纳入 reasoning，
+  /// 让思考过程也能逐 chunk 实时流式显示。
+  String _mergeStreamReasoning(AIStreamChunk chunk) {
+    final fromField = MessageSanitizer.sanitizeStream(chunk.reasoning);
+    // cleanForStreamDisplay 返回 [正文, 从 content 提取出的思考]
+    final parts = AIService.cleanForStreamDisplay(chunk.content);
+    final fromContent = parts.length > 1
+        ? MessageSanitizer.sanitizeStream(parts[1])
+        : '';
+    return [fromField, fromContent]
+        .where((r) => r.isNotEmpty)
+        .join('\n');
+  }
+
   /// 流式发送（桥接：优先适配器）
   Stream<AIStreamChunk> _bridgeSendMessageStream({
     required AICharacter character,
@@ -696,8 +716,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
                 RegExp(r'<BT_ACTION>.*?</BT_ACTION>',
                     caseSensitive: false, dotAll: true),
                 '');
-        final streamReasoning =
-            MessageSanitizer.sanitizeStream(chunk.reasoning);
+        final streamReasoning = _mergeStreamReasoning(chunk);
         if (streamText.isNotEmpty || streamReasoning.isNotEmpty) {
           emit(ChatAIStreaming(chatMsgs, streamText, character.name,
               reasoning: streamReasoning));
@@ -743,8 +762,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
                 RegExp(r'<BT_ACTION>.*?</BT_ACTION>',
                     caseSensitive: false, dotAll: true),
                 '');
-        final streamReasoning =
-            MessageSanitizer.sanitizeStream(chunk.reasoning);
+        final streamReasoning = _mergeStreamReasoning(chunk);
         if (streamText.isNotEmpty || streamReasoning.isNotEmpty) {
           emit(ChatAIStreaming(chatMsgs, streamText, character.name,
               reasoning: streamReasoning));
