@@ -216,6 +216,9 @@ class AICharacter extends Equatable {
   /// 角色年龄（用户设定，从背景故事自动提取或手动设置）
   final int? age;
 
+  /// 结构化特征（兴趣/作息/口癖/时区）— JSON 编码
+  final String? structuredTraits;
+
   const AICharacter({
     required this.id,
     required this.name,
@@ -252,6 +255,7 @@ class AICharacter extends Equatable {
     this.characterTag,
     this.styleLock = 'anime',
     this.age,
+    this.structuredTraits,
   });
 
   AICharacter copyWith({
@@ -290,6 +294,7 @@ class AICharacter extends Equatable {
     String? characterTag,
     String? styleLock,
     int? age,
+    String? structuredTraits,
     bool clearBackgroundStory = false,
     bool clearWorldSetting = false,
     bool clearLanguageStyle = false,
@@ -342,6 +347,7 @@ class AICharacter extends Equatable {
           clearCharacterTag ? null : (characterTag ?? this.characterTag),
       styleLock: styleLock ?? this.styleLock,
       age: age ?? this.age,
+      structuredTraits: structuredTraits ?? this.structuredTraits,
     );
   }
 
@@ -386,6 +392,7 @@ class AICharacter extends Equatable {
       'characterTag': characterTag,
       'styleLock': styleLock,
       'age': age,
+      'structuredTraits': structuredTraits,
     };
   }
 
@@ -463,6 +470,7 @@ class AICharacter extends Equatable {
       characterTag: map['characterTag'] as String?,
       styleLock: (map['styleLock'] as String?) ?? 'anime',
       age: map['age'] as int?,
+      structuredTraits: map['structuredTraits'] as String?,
     );
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1428,6 +1429,9 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
   late TextEditingController _languageStyleController;
   late TextEditingController _tabooTopicsController;
   late TextEditingController _characterTagController;
+  late TextEditingController _hobbiesController;
+  late TextEditingController _routineController;
+  late TextEditingController _quirksController;
 
   late AICharacter _character;
   bool _isEditing = false;
@@ -1482,6 +1486,25 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
         TextEditingController(text: _character.tabooTopics ?? '');
     _characterTagController =
         TextEditingController(text: _character.characterTag ?? '');
+    // 结构化特征：从 JSON 解析到文本控制器
+    Map<String, dynamic> _traits = {};
+    if (_character.structuredTraits != null &&
+        _character.structuredTraits!.isNotEmpty) {
+      try {
+        _traits =
+            jsonDecode(_character.structuredTraits!) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+    _hobbiesController = TextEditingController(
+        text: (_traits['hobbies'] as List?)?.cast<String>().join('、') ?? '');
+    final routineStr = StringBuffer();
+    (_traits['routine'] as Map?)?.forEach((k, v) {
+      if (routineStr.isNotEmpty) routineStr.write('\n');
+      routineStr.write('$k: $v');
+    });
+    _routineController = TextEditingController(text: routineStr.toString());
+    _quirksController = TextEditingController(
+        text: (_traits['quirks'] as List?)?.cast<String>().join('；') ?? '');
     _evolutionEnabled = _character.evolutionEnabled;
     _qualitativeEvolutionEnabled = _character.qualitativeEvolutionEnabled;
   }
@@ -1498,6 +1521,9 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
     _languageStyleController.dispose();
     _tabooTopicsController.dispose();
     _characterTagController.dispose();
+    _hobbiesController.dispose();
+    _routineController.dispose();
+    _quirksController.dispose();
     _editingScrollController.dispose();
     super.dispose();
   }
@@ -1581,6 +1607,59 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
     }
   }
 
+  /// 构建结构化特征 JSON 字符串（兴趣、作息、口癖、时区）
+  String? _buildStructuredTraitsJson() {
+    final hobbiesRaw = _hobbiesController.text.trim();
+    final routineRaw = _routineController.text.trim();
+    final quirksRaw = _quirksController.text.trim();
+
+    final hobbies = hobbiesRaw
+        .split(RegExp(r'[、,，\n]'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final routine = <String, String>{};
+    for (final line in routineRaw.split('\n')) {
+      final parts = line.split(RegExp(r'[:：]'));
+      if (parts.length >= 2 && parts[0].trim().isNotEmpty) {
+        routine[parts[0].trim()] = parts.sublist(1).join(':').trim();
+      }
+    }
+
+    final quirks = quirksRaw
+        .split(RegExp(r'[；;\n]'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    if (hobbies.isEmpty && routine.isEmpty && quirks.isEmpty) {
+      return null;
+    }
+
+    final traits = <String, dynamic>{
+      'hobbies': hobbies,
+      'routine': routine,
+      'quirks': quirks,
+      'timezone': _detectUserTimezone(),
+    };
+    return jsonEncode(traits);
+  }
+
+  /// 检测用户当前时区（简体中文标签）
+  static String _detectUserTimezone() {
+    final offset = DateTime.now().timeZoneOffset.inHours;
+    const labels = {
+      8: 'Asia/Shanghai (UTC+8)',
+      9: 'Asia/Tokyo (UTC+9)',
+      7: 'Asia/Bangkok (UTC+7)',
+      0: 'Europe/London (UTC+0)',
+      -5: 'America/New_York (UTC-5)',
+      -8: 'America/Los_Angeles (UTC-8)',
+    };
+    return labels[offset] ?? 'UTC$offset';
+  }
+
   Future<void> _saveChanges() async {
     if (_isSaving) return;
 
@@ -1616,6 +1695,7 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
         clearCharacterTag: characterTag.isEmpty,
         evolutionEnabled: _evolutionEnabled,
         qualitativeEvolutionEnabled: _qualitativeEvolutionEnabled,
+        structuredTraits: _buildStructuredTraitsJson(),
         updatedAt: DateTime.now(),
       );
 
@@ -1663,7 +1743,8 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
     '世界观',
     '语言风格',
     '禁忌话题',
-    '外貌设定'
+    '外貌设定',
+    '生活习惯与特征',
   ];
 
   @override
@@ -1732,6 +1813,13 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
                 _characterTagController,
                 '描述TA的外貌特征：发色、瞳色、脸型、体型、服饰等',
                 sectionIndex: 7),
+            _buildCollapsibleEditableSection(
+                context,
+                '生活习惯与特征',
+                Icons.spa_outlined,
+                null,
+                '兴趣爱好、日常作息、口癖，让AI更有真实的生活气息',
+                sectionIndex: 8),
             const SizedBox(height: 12),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -2513,6 +2601,141 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
           ],
         );
         break;
+      case 8: // 生活习惯与特征
+        content = Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '兴趣爱好',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '用、分隔多个爱好，会让 AI 自然地谈论和回复相关话题',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colorScheme.onSurface.withOpacity(0.6),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _hobbiesController,
+                autofocus: true,
+                maxLines: null,
+                onChanged: (_) => _onContentChanged(),
+                decoration: InputDecoration(
+                  hintText: '如：钢琴、推理小说、看电影、烘焙',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                '日常作息',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '每行一条，格式: 时段: 活动（"周练琴不回消息"等行程会影响活跃时段）',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colorScheme.onSurface.withOpacity(0.6),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _routineController,
+                autofocus: true,
+                maxLines: null,
+                onChanged: (_) => _onContentChanged(),
+                decoration: InputDecoration(
+                  hintText:
+                      '早上7-8点: 起床准备\n工作日9-18点: 在公司\n周三下午: 练琴不回消息\n深夜1-2点: 经常失眠刷手机',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                '小习惯 / 口癖',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '用；分隔，这些口癖会让 AI 回复更有个人色彩',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colorScheme.onSurface.withOpacity(0.6),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _quirksController,
+                autofocus: true,
+                maxLines: null,
+                onChanged: (_) => _onContentChanged(),
+                decoration: InputDecoration(
+                  hintText: '如：习惯先说"诶"；生气时会突然很安静；喜欢反复翻看朋友圈',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.lightbulb_outline,
+                            size: 16, color: colorScheme.primary),
+                        const SizedBox(width: 6),
+                        Text(
+                          '提示',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '结构化特征比在"性格"里堆文字更具体——AI 会在相关场景自然带出这些细节，'
+                      '让对话有真实的生活气息。时区会自动基于你的设备检测。',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colorScheme.onSurface.withOpacity(0.6),
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+        break;
       default:
         content = const SizedBox.shrink();
     }
@@ -2557,7 +2780,7 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
     BuildContext context,
     String title,
     IconData icon,
-    TextEditingController controller,
+    TextEditingController? controller,
     String hint, {
     int sectionIndex = 0,
   }) {
@@ -2590,21 +2813,34 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: colorScheme.outline.withOpacity(0.3)),
               ),
-              child: TextField(
-                controller: controller,
-                maxLines: 4,
-                onChanged: (_) => _onContentChanged(),
-                onTap: () => _enterEditMode(sectionIndex),
-                style: const TextStyle(fontSize: 14, height: 1.5),
-                decoration: InputDecoration(
-                  hintText: hint,
-                  hintStyle: TextStyle(
-                      color: colorScheme.onSurface.withOpacity(0.4),
-                      fontSize: 14),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.all(12),
-                ),
-              ),
+              child: controller == null
+                  ? ListTile(
+                      contentPadding: const EdgeInsets.all(12),
+                      title: Text(
+                        hint,
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: colorScheme.onSurface.withOpacity(0.6)),
+                      ),
+                      trailing: Icon(Icons.chevron_right,
+                          size: 20, color: colorScheme.onSurface.withOpacity(0.4)),
+                      onTap: () => _enterEditMode(sectionIndex),
+                    )
+                  : TextField(
+                      controller: controller,
+                      maxLines: 4,
+                      onChanged: (_) => _onContentChanged(),
+                      onTap: () => _enterEditMode(sectionIndex),
+                      style: const TextStyle(fontSize: 14, height: 1.5),
+                      decoration: InputDecoration(
+                        hintText: hint,
+                        hintStyle: TextStyle(
+                            color: colorScheme.onSurface.withOpacity(0.4),
+                            fontSize: 14),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.all(12),
+                      ),
+                    ),
             ),
           ],
         ),

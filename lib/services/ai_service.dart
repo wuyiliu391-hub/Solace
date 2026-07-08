@@ -20,6 +20,7 @@ import 'bing_cn_mcp_service.dart';
 import 'scenario_service.dart';
 import 'prompt_rewriter.dart';
 import 'usage_meter_service.dart';
+import 'ai_location_engine.dart';
 
 /// 创建带连接超时的 HTTP Client
 http.Client _createClient() {
@@ -2362,6 +2363,103 @@ class AIService {
       debugPrint(
           '===== AIService._buildSystemPrompt: emotion prompt failed: $e =====');
     }
+
+    // 场景引擎 — 对话背景锚点（让 AI 知道它"在哪、在做什么"）
+    try {
+      final scenarioPrompt =
+          ScenarioService(_storage.sharedPreferences!)
+              .buildScenarioPrompt(character.id, userId);
+      if (scenarioPrompt.isNotEmpty) {
+        buffer.writeln(scenarioPrompt);
+      }
+    } catch (e) {
+      debugPrint('AIService: 场景注入失败 — $e');
+    }
+
+    // 角色实时位置注入（P2-7：让 AI 有具体的位置感而非凭空生活）
+    try {
+      if (!pureAiMode) {
+        final prefs = _storage.sharedPreferences;
+        if (prefs != null) {
+          final todayKey =
+              'vp_loc_${character.id}_${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
+          final cached = prefs.getString(todayKey);
+          String placeName = '', activity = '', mood = '';
+          if (cached != null && cached.isNotEmpty) {
+            final parts = cached.split('\x00');
+            if (parts.length >= 3) {
+              placeName = parts[0];
+              activity = parts[1];
+              mood = parts[2];
+            }
+          }
+          // 缓存为空则即时生成今天的轨迹点（用本地时间表）
+          if (placeName.isEmpty) {
+            try {
+              final loc = AILocationEngine.generateCurrentLocation(character.id);
+              placeName = loc.placeName ?? '';
+              activity = loc.activity ?? '';
+              mood = loc.emotion ?? '';
+              await prefs.setString(todayKey, '$placeName\x00$activity\x00$mood');
+            } catch (_) {}
+          }
+          if (placeName.isNotEmpty) {
+            buffer.writeln('\n【你现在的位置与活动】');
+            buffer.writeln('你此刻正在「$placeName」$activity');
+            if (mood.isNotEmpty) buffer.writeln('此刻的活动心情：$mood');
+            buffer.writeln(
+                '不要主动宣告"我在什么地方"——除非对方问起或者情境自然能带出。让它影响你说话的节奏和语气。');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('AIService: 位置注入失败 — $e');
+    }
+
+    // 结构化特征 — 兴趣/作息/口癖（让 AI 有具体的生活而非空洞人设）
+    try {
+      final traitsStr = character.structuredTraits;
+      if (traitsStr != null && traitsStr.isNotEmpty) {
+        final traitsMap = jsonDecode(traitsStr) as Map<String, dynamic>;
+        final hobbies = traitsMap['hobbies'] as List?;
+        final routine = traitsMap['routine'] as Map?;
+        final quirks = traitsMap['quirks'] as List?;
+        final timezone = traitsMap['timezone'] as String?;
+
+        final hasAny = (hobbies != null && hobbies.isNotEmpty) ||
+            (routine != null && routine.isNotEmpty) ||
+            (quirks != null && quirks.isNotEmpty) ||
+            (timezone != null && timezone.isNotEmpty);
+        if (hasAny) {
+          buffer.writeln('\n【生活习惯与特征】');
+          if (hobbies != null && hobbies.isNotEmpty) {
+            buffer.writeln(
+                '你的兴趣爱好：${hobbies.cast<String>().join('、')}');
+          }
+          if (routine != null && routine.isNotEmpty) {
+            buffer.writeln('你的日常作息：');
+            routine.forEach((k, v) {
+              buffer.writeln('  - $k：$v');
+            });
+            buffer.writeln(
+                '这些是你的固定习惯，到点就该在做这些事。如果用户找你聊天，你可以根据这个时点自然地说出你在做什么。');
+          }
+          if (quirks != null && quirks.isNotEmpty) {
+            buffer.writeln('你的小习惯：${quirks.cast<String>().join('；')}');
+          }
+          if (timezone != null && timezone.isNotEmpty) {
+            final now = DateTime.now();
+            buffer.writeln(
+                '你所在的时区是 $timezone，你"现在"的生活时间约为 ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}，请用这个时间感受你当前在做什么、困不困、是不是该睡了。');
+          }
+          buffer.writeln(
+              '不要刻意罗列这些特征，让它们自然地渗透进你的回复——只有在相关时才让用户感受到它们的存在。');
+        }
+      }
+    } catch (e) {
+      debugPrint('AIService: 结构化特征注入失败 — $e');
+    }
+
     final memoryMode = _storage.getGlobalMemoryMode();
     try {
       if (memoryMode == 'off') {
@@ -2399,20 +2497,22 @@ class AIService {
     }
 
     // 全生命周期数字生命世界 — 前端修复
-    // 社交记忆注入：让角色能自然提及与其他角色的社交互动
+    // 社交记忆注入：让角色能自然提及与其他角色的社交互动，
+    // 这些事件也是情绪的外部驱动源（让情绪的起伏有外部原因，不只是用户引起）
     try {
       final socialMemories = await _memoryEngine.loadSocialMemories(character.id);
       if (socialMemories.isNotEmpty) {
         final recentSocial = socialMemories.take(5).toList();
-        buffer.writeln('\n【最近的社交动态】');
-        buffer.writeln('你最近的生活里发生了这些事，聊天时可以自然地提起：');
+        buffer.writeln('\n【最近的生活动态 — 已影响此刻心情】');
+        buffer.writeln('你最近的生活里发生了这些事（不只是和你聊天的对方，还有其他人和你自己的事）：');
         for (final mem in recentSocial) {
           final content = mem.content.trim();
           if (content.isNotEmpty) {
             buffer.writeln('- $content');
           }
         }
-        buffer.writeln('这些是你真实经历过的社交互动，不是编造的。如果聊到相关话题，可以自然地说出来。');
+        buffer.writeln('这些是你真实经历过的，不是编造的。让这些事情悄悄地影响你此刻的心境——');
+        buffer.writeln('如果聊到相关话题，可以自然说出；如果没聊到，也让它透过你的语气、心情、动机自然浮现出来。');
       }
     } catch (e) {
       debugPrint('AIService: 社交记忆注入失败 — $e');
@@ -2452,6 +2552,8 @@ class AIService {
       buffer.writeln('风格统一为文学小说体，承接历史、人设、记忆和关系发展自然推进。');
       buffer.writeln(
           '【必须包含】场景描写（环境/空间/光线/声音至少一种）、人物动作、神态或心理（至少一人）、对白（不能是全文主体）、事件推进。');
+      buffer.writeln(
+          '【对白格式】所有角色说出口的话，必须用中文双引号「“」「”」包裹（例如：“你终于来了。”）；旁白、动作、神态、心理描写一律不加引号。这样便于阅读时区分对白与叙述。');
       if (faMode) {
         buffer.writeln('\n【法模式回复风格】');
         buffer.writeln('你正在以「${character.name}」的视角与用户互动。');

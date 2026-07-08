@@ -392,6 +392,7 @@ class LocalStorageRepository {
       'characterTag': 'TEXT',
       'styleLock': 'TEXT NOT NULL DEFAULT "anime"',
       'age': 'INTEGER',
+      'structuredTraits': 'TEXT',
     },
     'ai_configs': {
       'providerName': 'TEXT NOT NULL DEFAULT ""',
@@ -1393,6 +1394,11 @@ class LocalStorageRepository {
       await _addColumnIfNotExists(
           db, 'virtual_phones', 'lastAdvanceAt', 'TEXT');
     }
+    if (oldVersion < 52) {
+      // 角色结构化特征（兴趣、作息、口癖）
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'structuredTraits', 'TEXT');
+    }
   }
 
   /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
@@ -1444,7 +1450,7 @@ class LocalStorageRepository {
     await db.execute(
         ''' CREATE TABLE users ( id TEXT PRIMARY KEY, nickname TEXT NOT NULL, avatarUrl TEXT, createdAt TEXT NOT NULL, lastLoginAt TEXT, signature TEXT, gender TEXT, birthday TEXT, location TEXT, bio TEXT, status TEXT, backgroundImage TEXT, coins INTEGER NOT NULL DEFAULT 100, totalCoinsEarned INTEGER NOT NULL DEFAULT 100, totalCoinsSpent INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
-        ''' CREATE TABLE ai_characters ( id TEXT PRIMARY KEY, name TEXT NOT NULL, avatarUrl TEXT, personality TEXT NOT NULL, coreDesire TEXT NOT NULL, moralBoundary TEXT NOT NULL, backgroundStory TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, worldSetting TEXT, languageStyle TEXT, tabooTopics TEXT, userNickname TEXT, catchphrases TEXT, openingLine TEXT, dialogueExamples TEXT, interactionConfig TEXT, gender TEXT, isHidden INTEGER NOT NULL DEFAULT 0, isOnline INTEGER NOT NULL DEFAULT 1, currentStatus TEXT, lastOnlineAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, immutableAnchor TEXT, deviationRadius REAL NOT NULL DEFAULT 0.4, evolutionEnabled INTEGER NOT NULL DEFAULT 1, qualitativeEvolutionEnabled INTEGER NOT NULL DEFAULT 0, currentAnchor TEXT, referenceImg TEXT, fixedSeed INTEGER NOT NULL DEFAULT -1, characterTag TEXT, styleLock TEXT NOT NULL DEFAULT "anime", age INTEGER ) ''');
+        ''' CREATE TABLE ai_characters ( id TEXT PRIMARY KEY, name TEXT NOT NULL, avatarUrl TEXT, personality TEXT NOT NULL, coreDesire TEXT NOT NULL, moralBoundary TEXT NOT NULL, backgroundStory TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, worldSetting TEXT, languageStyle TEXT, tabooTopics TEXT, userNickname TEXT, catchphrases TEXT, openingLine TEXT, dialogueExamples TEXT, interactionConfig TEXT, gender TEXT, isHidden INTEGER NOT NULL DEFAULT 0, isOnline INTEGER NOT NULL DEFAULT 1, currentStatus TEXT, lastOnlineAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, immutableAnchor TEXT, deviationRadius REAL NOT NULL DEFAULT 0.4, evolutionEnabled INTEGER NOT NULL DEFAULT 1, qualitativeEvolutionEnabled INTEGER NOT NULL DEFAULT 0, currentAnchor TEXT, referenceImg TEXT, fixedSeed INTEGER NOT NULL DEFAULT -1, characterTag TEXT, styleLock TEXT NOT NULL DEFAULT "anime", age INTEGER, structuredTraits TEXT ) ''');
     await db.execute(
         ''' CREATE TABLE ai_configs ( id TEXT PRIMARY KEY, providerName TEXT NOT NULL, baseUrl TEXT NOT NULL, apiKey TEXT NOT NULL, extraApiKeys TEXT NOT NULL DEFAULT '', modelName TEXT NOT NULL, temperature REAL NOT NULL, maxTokens INTEGER NOT NULL, isActive INTEGER NOT NULL DEFAULT 1, isThinkingModel INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, updatedAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(

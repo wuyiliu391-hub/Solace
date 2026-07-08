@@ -47,10 +47,12 @@ import '../../services/voice_clone_service.dart';
 import '../../services/audio_transcription_service.dart';
 import '../../services/weather_service.dart';
 import '../../services/emotion_engine.dart';
+import '../../models/character_emotion.dart';
 import 'package:record/record.dart';
 import '../../screens/settings/log_viewer_screen.dart';
 import 'chat_settings_screen.dart';
 import 'voice_call_screen.dart';
+import '../../services/scenario_service.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final ChatSession session;
@@ -276,6 +278,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       centerTitle: true,
       actions: [
         IconButton(
+          tooltip: '设置场景',
+          icon: Icon(
+            Icons.landscape_rounded,
+            color: isDark ? Colors.white : Colors.black,
+            size: 22,
+          ),
+          onPressed: () => _showScenarioSheet(context),
+        ),
+        IconButton(
           tooltip: 'TA 的手机',
           icon: Icon(
             Icons.smartphone_rounded,
@@ -295,6 +306,189 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ],
     );
   }
+
+  /// 场景设置底部弹窗
+  Future<void> _showScenarioSheet(BuildContext context) async {
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final prefs = storage.sharedPreferences;
+    if (prefs == null) return;
+
+    final user = await storage.getCurrentUser();
+    final userId = user?.id ?? 'default';
+    final characterId = widget.session.aiCharacterId;
+    final svc = ScenarioService(prefs);
+    final current = svc.getScenario(characterId, userId);
+
+    if (!context.mounted) return;
+
+    final whereCtrl =
+        TextEditingController(text: current?.where ?? '');
+    final doingCtrl =
+        TextEditingController(text: current?.doing ?? '');
+    final moodCtrl =
+        TextEditingController(text: current?.mood ?? '');
+    final extraCtrl =
+        TextEditingController(text: current?.extra ?? '');
+    bool withUser = current?.withUser ?? false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final pad = MediaQuery.of(ctx).viewInsets.bottom;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + pad),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.landscape_rounded, size: 20),
+                      const SizedBox(width: 8),
+                      const Text('当前场景',
+                          style: TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.w600)),
+                      const Spacer(),
+                      if (current != null)
+                        TextButton(
+                          onPressed: () async {
+                            await svc.clearScenario(characterId, userId);
+                            if (ctx.mounted) Navigator.pop(ctx);
+                          },
+                          child: const Text('清除',
+                              style: TextStyle(color: Colors.red)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '让 AI 知道你们现在所处的背景，对话会更有沉浸感',
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(ctx)
+                            .colorScheme
+                            .onSurface
+                            .withAlpha(153)),
+                  ),
+                  const SizedBox(height: 16),
+                  _scenarioField(ctx, whereCtrl, '在哪', '例：星巴克、家里的卧室、雨天的路上'),
+                  const SizedBox(height: 10),
+                  _scenarioField(ctx, doingCtrl, '在做什么', '例：等朋友、刚下班、躺着刷手机'),
+                  const SizedBox(height: 10),
+                  _scenarioField(ctx, moodCtrl, '氛围 / 心境', '例：慵懒的午后、有点烦躁'),
+                  const SizedBox(height: 10),
+                  _scenarioField(ctx, extraCtrl, '补充（选填）', '例：今天下雨、刚发完一条朋友圈'),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: withUser,
+                        onChanged: (v) =>
+                            setSheetState(() => withUser = v ?? false),
+                      ),
+                      const Text('对方也在同一场景（你们在一起）'),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // 快选预设
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: _scenarioPresets.map((p) {
+                      return ActionChip(
+                        label: Text(p['label']!,
+                            style: const TextStyle(fontSize: 12)),
+                        onPressed: () {
+                          whereCtrl.text = p['where'] ?? '';
+                          doingCtrl.text = p['doing'] ?? '';
+                          moodCtrl.text = p['mood'] ?? '';
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final newCtx = ScenarioContext(
+                          where: whereCtrl.text.trim().isEmpty
+                              ? null
+                              : whereCtrl.text.trim(),
+                          doing: doingCtrl.text.trim().isEmpty
+                              ? null
+                              : doingCtrl.text.trim(),
+                          mood: moodCtrl.text.trim().isEmpty
+                              ? null
+                              : moodCtrl.text.trim(),
+                          withUser: withUser,
+                          extra: extraCtrl.text.trim().isEmpty
+                              ? null
+                              : extraCtrl.text.trim(),
+                          isManual: true,
+                          setAt: DateTime.now(),
+                        );
+                        if (newCtx.isEmpty) {
+                          await svc.clearScenario(characterId, userId);
+                        } else {
+                          await svc.setScenario(characterId, userId, newCtx);
+                        }
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      },
+                      child: const Text('保存场景'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _scenarioField(BuildContext ctx, TextEditingController ctrl,
+      String label, String hint) {
+    return TextField(
+      controller: ctrl,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        hintStyle:
+            TextStyle(fontSize: 12, color: Theme.of(ctx).hintColor),
+        border: const OutlineInputBorder(),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        isDense: true,
+      ),
+    );
+  }
+
+  static const List<Map<String, String>> _scenarioPresets = [
+    {'label': '☕ 咖啡厅', 'where': '咖啡厅', 'doing': '喝咖啡', 'mood': '惬意'},
+    {'label': '🏠 在家', 'where': '家里', 'doing': '躺着休息', 'mood': '慵懒'},
+    {'label': '🌙 深夜', 'where': '卧室', 'doing': '睡前聊天', 'mood': '有点困但不想睡'},
+    {
+      'label': '🌧 雨天',
+      'where': '窗边',
+      'doing': '看雨发呆',
+      'mood': '有些伤感'
+    },
+    {'label': '🚶 散步', 'where': '公园', 'doing': '散步', 'mood': '放松'},
+    {
+      'label': '📚 自习',
+      'where': '图书馆',
+      'doing': '看书/学习',
+      'mood': '专注但有点无聊'
+    },
+  ];
 
   Future<void> _openVirtualPhone(BuildContext context) async {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
@@ -4756,6 +4950,11 @@ class _MessageBubble extends StatelessWidget {
                                 message.reasoning != null &&
                                 message.reasoning!.isNotEmpty)
                               _ReasoningSection(reasoning: message.reasoning!),
+                            if (isAI &&
+                                !isRecalled &&
+                                message.metadata?['aiEmotion'] != null)
+                              _buildEmotionChip(context,
+                                  message.metadata!['aiEmotion'] as String),
                             Builder(builder: (_) {
                               final baseColor = isRecalled
                                   ? (isAI
@@ -4862,6 +5061,36 @@ class _MessageBubble extends StatelessWidget {
             style: TextStyle(
                 fontSize: 10, color: colorScheme.error.withOpacity(0.6)));
     }
+  }
+
+  /// AI 消息上的情绪小图标（从 metadata 读取持久化情绪）
+  Widget _buildEmotionChip(BuildContext context, String emotionName) {
+    final emotion = EmotionType.values
+        .where((e) => e.name == emotionName)
+        .firstOrNull;
+    if (emotion == null || emotion == EmotionType.calm) {
+      return const SizedBox.shrink();
+    }
+    final brightness = Theme.of(context).brightness;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(emotion.icon, size: 13, color: emotion.color),
+          const SizedBox(width: 3),
+          Text(
+            emotion.label,
+            style: TextStyle(
+              fontSize: 11,
+              color: brightness == Brightness.dark
+                  ? emotion.color.withValues(alpha: 0.8)
+                  : emotion.color.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildReplyPreview(BuildContext context, ColorScheme colorScheme,

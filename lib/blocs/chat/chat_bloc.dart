@@ -68,6 +68,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   final Map<String, List<String>> _pendingBlockMessages = {};
   final Map<String, DateTime> _lastObservationTrigger = {};
   final Map<String, int> _lastMemoryExtractionUserCount = {};
+  /// 微记忆冷却时间戳，按 chatId 跟踪，避免同会话短时刷入多条
+  final Map<String, DateTime> _lastMicroTime = {};
   late final BtAgentExecutionService _btAgentExecutionService;
   final AIServiceAdapter? _aiAdapter;
 
@@ -265,6 +267,67 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       _lastMemoryExtractionUserCount[chatId] = userMessageCount;
     }
     return shouldExtract;
+  }
+
+  /// 实时增量微记忆提取器（不走 LLM）——从最近一对 user/AI 消息中
+  /// 识别关键信号（用户自述、约定、情感转折点），立刻写入一条记忆，
+  /// 让接下来的回复能引用刚说的事。
+  /// 特点：快速关键词规则，单 root 轻量，30 分钟冷却。
+  /// 不替代 LLM 批量重建，只补足"当前会话刚说的事"的连续性。
+  static const Duration _microCooldown = Duration(minutes: 30);
+  static final RegExp _microUserRegex =
+      RegExp(r'(?:我在|我住|我家|我下周|我明天|我后天|我今天|我要去|'
+          r'我考了|我过了|我升|我辞职|我搬家|我生日|我叫|我属|'
+          r'我喜欢|我不喜欢|我讨厌|我习惯|我常|我一般|'
+          r'约定|说好|答应|以后会|记得|别忘|跟你说件事)');
+  static final RegExp _microAiRegex =
+      RegExp(r'(?:那你|我知道了|记住了|以后|你说过|你喜欢|你在)');
+  static final List<String> _microIgnoreSubstrings = ['好的', '哈哈', '嗯嗯', '嗯'];
+
+  Future<void> _maybeExtractMicroMemory({
+    required String chatId,
+    required String characterId,
+    required String userId,
+    required ChatMessage justSavedAiMsg,
+    required String userContent,
+  }) async {
+    final trimmed = userContent.trim();
+    if (trimmed.isEmpty || trimmed.length < 8) return;
+    if (_microIgnoreSubstrings.any(trimmed.contains)) return;
+
+    // 检查是否匹配关键信号
+    final userMatch = _microUserRegex.firstMatch(trimmed);
+    final aiMatch = _microAiRegex.firstMatch(justSavedAiMsg.content);
+    if (userMatch == null && aiMatch == null) return;
+
+    // 冷却检查
+    final last = _lastMicroTime[chatId];
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < _microCooldown) return;
+    _lastMicroTime[chatId] = now;
+
+    // 截取用户的原话 + AI 的回应当作记忆内容，保持"刚说的事最鲜活"
+    final userSnip = trimmed.length > 60 ? '${trimmed.substring(0, 60)}…' : trimmed;
+    final aiSnip = justSavedAiMsg.content.length > 60
+        ? '${justSavedAiMsg.content.substring(0, 60)}…'
+        : justSavedAiMsg.content;
+    final memContent = '用户说："$userSnip" — 对方回复："${aiSnip.isEmpty ? "（无回应文字）" : aiSnip}"';
+
+    try {
+      await _storage.saveMemory(Memory(
+        id: _uuid.v4(),
+        characterId: characterId,
+        userId: userId,
+        type: MemoryType.conversation,
+        content: memContent,
+        importance: MemoryImportance.normal,
+        keywords: [],
+        createdAt: now,
+        weight: 1.2, // 微记忆略加权，确保近期对话能被优先检索
+      ));
+    } catch (e) {
+      LogService.instance.w('Bloc', '微记忆提取失败: $e', chatId: chatId);
+    }
   }
 
   List<PureAIMessage> _toPureAIHistory(List<ChatMessage> chatHistory) {
@@ -1983,8 +2046,36 @@ $tail
       }
 
       if (aiVisibleText.isNotEmpty) {
+        // 更新角色情绪（此前只读不写，导致情绪永远不累积）
+        CharacterEmotion? aiEmotion;
+        try {
+          if (!isEmotionLocked) {
+            aiEmotion = await _emotionEngine.updateEmotion(
+              character: character,
+              userId: event.userId,
+              userMessage: event.content,
+              userSentiment: sentiment,
+              intimacyLevel: session.intimacyLevel,
+            );
+          } else {
+            aiEmotion = await _emotionEngine.getCurrentEmotion(
+                character: character, userId: event.userId);
+          }
+        } catch (e) {
+          LogService.instance.w('Bloc', 'updateEmotion failed: $e',
+              chatId: event.chatId);
+        }
+
         final webSearchTrace =
             event.enableWebSearch ? _bridgeLastWebSearchTrace : null;
+        final meta = <String, dynamic>{};
+        if (webSearchTrace != null) meta['webSearchTrace'] = webSearchTrace;
+        if (aiEmotion != null) {
+          meta['aiEmotion'] = aiEmotion.primaryEmotion.name;
+          meta['aiEmotionLabel'] = aiEmotion.primaryEmotion.label;
+          meta['aiValence'] =
+              (aiEmotion.valence * 100).round() / 100; // 保留两位小数
+        }
         await _storage.saveChatMessage(ChatMessage(
           id: _uuid.v4(),
           chatId: event.chatId,
@@ -1996,14 +2087,34 @@ $tail
           createdAt: DateTime.now(),
           reasoning:
               reasoningText.trim().isNotEmpty ? reasoningText.trim() : null,
-          metadata: webSearchTrace != null
-              ? {'webSearchTrace': webSearchTrace}
-              : null,
+          metadata: meta.isNotEmpty ? meta : null,
         ));
       }
 
       // 切换到最终消息列表
       emit(ChatMessagesLoaded(await _storage.getChatMessages(event.chatId)));
+
+      // 实时增量微记忆：AI 回复刚保存完，立刻提取可能的关键信息写入记忆库，
+      // 让接下来的回复能引用"刚刚说的事"，而不是等下一次离线批次重建。
+      if (aiVisibleText.isNotEmpty) {
+        final lastAiMsg = ChatMessage(
+          id: _uuid.v4(),
+          chatId: event.chatId,
+          senderId: 'ai_${character.id}',
+          senderName: character.name,
+          content: aiVisibleText,
+          type: MessageType.text,
+          status: MessageStatus.sent,
+          createdAt: DateTime.now(),
+        );
+        await _maybeExtractMicroMemory(
+          chatId: event.chatId,
+          characterId: character.id,
+          userId: event.userId,
+          justSavedAiMsg: lastAiMsg,
+          userContent: displayContent.isEmpty ? event.content : displayContent,
+        );
+      }
 
       // 鏍囪宸茶
       try {
