@@ -4408,10 +4408,10 @@ class _MessageBubble extends StatelessWidget {
   static const double _bubbleRadius = 12.0;
   static const double _hPad = 16.0;
 
-  /// 匹配对白：中文双引号「…」、直角引号「」/『』、英文双引号 "…"。
-  /// 用于小说模式把对白与旁白区分上色。
+  /// 匹配对白：中文弯引号「”…”」、直角引号「」/『』。
+  /// 故意不匹配英文直双引号 “...”——AI 日常回复中引用/强调也会用它，误判率高。
   static final RegExp _dialogueRe =
-      RegExp(r'“[^”]*”|「[^」]*」|『[^』]*』|"[^"]*"');
+      RegExp(r'”[^”]*”|「[^」]*」|『[^』]*』');
 
   /// 把一段文本按「引号内=对白（蓝色）/引号外=旁白（默认色）」拆成富文本片段。
   /// 若文本里没有任何对白引号，返回 null（外层回退到普通 Text）。
