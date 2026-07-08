@@ -397,7 +397,8 @@ class _MainShellState extends State<_MainShell> {
       final prefs = await SharedPreferences.getInstance();
       final done = prefs.getBool(PrefKeys.forceModeConfirmV14) ?? false;
       if (done) {
-        await _ensureRequiredModesAndBtPermissions(prefs);
+        // 已确认过：只补全从未设置过的键，不覆盖用户已手动修改的值
+        await _ensureRequiredModesAndBtPermissions(prefs, onlyMissing: true);
         return;
       }
       if (!mounted) return;
@@ -482,14 +483,22 @@ class _MainShellState extends State<_MainShell> {
   }
 
   Future<void> _ensureRequiredModesAndBtPermissions(
-      SharedPreferences prefs) async {
-    await prefs.setBool(PrefKeys.loverModeEnabled, true);
-    await prefs.setBool(PrefKeys.openModeEnabled, true);
-    await prefs.setBool(PrefKeys.faModeEnabled, true);
-    await prefs.setBool(PrefKeys.daoModeEnabled, true);
-    await prefs.setBool(PrefKeys.btYandereMasterEnabled, true);
+      SharedPreferences prefs, {bool onlyMissing = false}) async {
+    // onlyMissing=true: 已确认过的后续启动只补全从未写过的键，不覆盖用户修改
+    void maybeSet(String key) {
+      if (!onlyMissing || prefs.getBool(key) == null) {
+        prefs.setBool(key, true);
+      }
+    }
+    maybeSet(PrefKeys.loverModeEnabled);
+    maybeSet(PrefKeys.openModeEnabled);
+    maybeSet(PrefKeys.faModeEnabled);
+    maybeSet(PrefKeys.daoModeEnabled);
+    maybeSet(PrefKeys.btYandereMasterEnabled);
     for (final key in PrefKeys.btAllPermissionKeys) {
-      await prefs.setBool(key, true);
+      if (!onlyMissing || prefs.getBool(key) == null) {
+        prefs.setBool(key, true);
+      }
     }
   }
 
