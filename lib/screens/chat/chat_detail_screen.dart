@@ -39,6 +39,7 @@ import '../../widgets/typing_indicator.dart';
 import '../../widgets/voice_message_bubble.dart';
 import '../../widgets/mode_control_mini_panel.dart';
 import '../../utils/ui_utils.dart';
+import '../../utils/avatar_resolver.dart';
 import '../../config/constants.dart';
 import '../../config/business_rules.dart';
 import '../../services/log_service.dart';
@@ -505,30 +506,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Widget _buildAppBarAvatar(String? avatarUrl, bool isDark) {
-    if (avatarUrl == null || avatarUrl.isEmpty) {
-      return Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
-        ),
-        child: Icon(
-          Icons.smart_toy_rounded,
-          size: 20,
-          color: isDark ? Colors.white70 : Colors.grey.shade600,
-        ),
-      );
-    }
-    if (avatarUrl.startsWith('/') ||
-        avatarUrl.startsWith('C:') ||
-        avatarUrl.startsWith('\\')) {
-      return Image.file(
-        File(avatarUrl),
-        width: 36,
-        height: 36,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Container(
+    Widget fallback() => Container(
           width: 36,
           height: 36,
           decoration: BoxDecoration(
@@ -540,28 +518,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             size: 20,
             color: isDark ? Colors.white70 : Colors.grey.shade600,
           ),
-        ),
-      );
-    }
-    return Image.network(
+        );
+
+    final image = AvatarResolver.imageWidget(
       avatarUrl,
       width: 36,
       height: 36,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
-        ),
-        child: Icon(
-          Icons.smart_toy_rounded,
-          size: 20,
-          color: isDark ? Colors.white70 : Colors.grey.shade600,
-        ),
-      ),
+      onError: fallback,
     );
+    if (image != null) return image;
+    return fallback();
   }
 
   void _showPersonaEvolutionNotice(ChatPersonaEvolved state) {
@@ -3707,6 +3673,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               reasoning: reasoning,
               avatarUrl: currentAvatar,
               name: currentName,
+              novelMode: RepositoryProvider.of<LocalStorageRepository>(context)
+                  .isChatStyleNovelModeEnabled(),
             );
           }
 
@@ -3877,41 +3845,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Widget _buildSearchResultAvatar(String? avatarUrl, double size, bool isAI) {
-    if (avatarUrl == null || avatarUrl.isEmpty) {
-      return Icon(
-        isAI ? Icons.smart_toy_outlined : Icons.person_outline,
-        size: size * 0.5,
-        color: isAI ? Colors.purple : Colors.blue,
-      );
-    }
-
-    if (avatarUrl.startsWith('/') ||
-        avatarUrl.startsWith('C:') ||
-        avatarUrl.startsWith('\\')) {
-      return Image.file(
-        File(avatarUrl),
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Icon(
+    Widget fallback() => Icon(
           isAI ? Icons.smart_toy_outlined : Icons.person_outline,
           size: size * 0.5,
           color: isAI ? Colors.purple : Colors.blue,
-        ),
-      );
-    }
+        );
 
-    return Image.network(
+    final image = AvatarResolver.imageWidget(
       avatarUrl,
       width: size,
       height: size,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => Icon(
-        isAI ? Icons.smart_toy_outlined : Icons.person_outline,
-        size: size * 0.5,
-        color: isAI ? Colors.purple : Colors.blue,
-      ),
+      onError: fallback,
     );
+    if (image != null) return image;
+    return fallback();
   }
 
   Widget _buildHighlightedText(
@@ -4023,12 +3970,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
               child: ClipOval(
                 child: currentAvatar != null && currentAvatar.isNotEmpty
-                    ? Image.network(
-                        currentAvatar,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            _buildAvatarPlaceholder(currentName, colorScheme),
-                      )
+                    ? (AvatarResolver.imageWidget(currentAvatar,
+                            fit: BoxFit.cover,
+                            onError: () =>
+                                _buildAvatarPlaceholder(currentName, colorScheme)) ??
+                        _buildAvatarPlaceholder(currentName, colorScheme))
                     : _buildAvatarPlaceholder(currentName, colorScheme),
               ),
             ),
@@ -5165,30 +5111,14 @@ class _MessageBubble extends StatelessWidget {
   }
 
   Widget _buildAvatarImage(String? avatarUrl, double size, bool isAI) {
-    if (avatarUrl == null || avatarUrl.isEmpty) {
-      return _buildDefaultAvatar(isAI: isAI, size: size);
-    }
-
-    if (avatarUrl.startsWith('/') ||
-        avatarUrl.startsWith('C:') ||
-        avatarUrl.startsWith('\\')) {
-      return Image.file(
-        File(avatarUrl),
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) =>
-            _buildDefaultAvatar(isAI: isAI, size: size),
-      );
-    }
-
-    return Image.network(
+    final image = AvatarResolver.imageWidget(
       avatarUrl,
       width: size,
       height: size,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => _buildDefaultAvatar(isAI: isAI, size: size),
+      onError: () => _buildDefaultAvatar(isAI: isAI, size: size),
     );
+    if (image != null) return image;
+    return _buildDefaultAvatar(isAI: isAI, size: size);
   }
 
   Widget _buildDefaultAvatar({required bool isAI, required double size}) {
@@ -5578,12 +5508,14 @@ class _StreamingBubble extends StatelessWidget {
   final String? reasoning;
   final String? avatarUrl;
   final String name;
+  final bool novelMode;
 
   const _StreamingBubble({
     required this.text,
     this.reasoning,
     this.avatarUrl,
     this.name = 'AI',
+    this.novelMode = false,
   });
 
   @override
@@ -5612,12 +5544,8 @@ class _StreamingBubble extends StatelessWidget {
           CircleAvatar(
             radius: 16,
             backgroundColor: colorScheme.primary.withOpacity(0.1),
-            backgroundImage: avatarUrl != null && avatarUrl!.isNotEmpty
-                ? (avatarUrl!.startsWith('/')
-                    ? FileImage(File(avatarUrl!))
-                    : NetworkImage(avatarUrl!)) as ImageProvider
-                : null,
-            child: avatarUrl == null || avatarUrl!.isEmpty
+            backgroundImage: AvatarResolver.imageProvider(avatarUrl),
+            child: AvatarResolver.imageProvider(avatarUrl) == null
                 ? Icon(Icons.auto_awesome, size: 18, color: colorScheme.primary)
                 : null,
           ),
@@ -5643,14 +5571,26 @@ class _StreamingBubble extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                   ],
-                  if (cleanText.isNotEmpty)
-                    SelectableText(
-                      cleanText,
-                      style: TextStyle(
+                  if (cleanText.isNotEmpty) ...[
+                    Builder(builder: (ctx) {
+                      final brightness = Theme.of(ctx).brightness;
+                      final baseStyle = TextStyle(
                         color: colorScheme.onSurface,
                         fontSize: 15,
-                      ),
-                    ),
+                      );
+                      if (novelMode) {
+                        final dialogueColor = brightness == Brightness.dark
+                            ? _MessageBubble._douyinBlueDark
+                            : _MessageBubble._douyinBlue;
+                        final spans = _MessageBubble._buildDialogueSpans(
+                            cleanText, baseStyle, dialogueColor);
+                        if (spans != null) {
+                          return Text.rich(TextSpan(children: spans));
+                        }
+                      }
+                      return SelectableText(cleanText, style: baseStyle);
+                    }),
+                  ],
                   if (!hasReasoning && text.isEmpty) TypingIndicator(),
                 ],
               ),

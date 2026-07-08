@@ -1,8 +1,9 @@
-﻿// 【对标来源：SillyTavern-1.18.0 — index.html:7377 #message_template 消息模板】
+﻿﻿// 【对标来源：SillyTavern-1.18.0 — index.html:7377 #message_template 消息模板】
 // 1:1 转译自 SillyTavern 消息气泡 DOM 结构为 Flutter Widget
 // 参考文件：index.html:7377-7450 (#message_template)
 
 import "package:flutter/material.dart";
+import '../../utils/avatar_resolver.dart';
 import "../../models/chat_message.dart";
 
 /// 消息气泡 V2（对标 SillyTavern #message_template）
@@ -149,6 +150,7 @@ class MessageBubbleV2 extends StatelessWidget {
 
   /// 构建头像（对标 .mesAvatarWrapper .avatar img）
   Widget _buildAvatar() {
+    final imageProvider = AvatarResolver.imageProvider(avatarPath);
     return Container(
       width: 40,
       height: 40,
@@ -156,14 +158,14 @@ class MessageBubbleV2 extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.grey[300],
-        image: avatarPath != null
+        image: imageProvider != null
             ? DecorationImage(
-                image: AssetImage(avatarPath!),
+                image: imageProvider,
                 fit: BoxFit.cover,
               )
             : null,
       ),
-      child: avatarPath == null
+      child: imageProvider == null
           ? Icon(
               isUser ? Icons.person : Icons.smart_toy,
               color: Colors.grey[600],

@@ -1,14 +1,13 @@
 {
-  "version": "16.3.0",
-  "build": 276,
+  "version": "17.0.1",
+  "build": 278,
   "minSdk": 23,
   "forceUpdate": false,
-  "releaseDate": "2026-07-07",
-  "downloadUrl": "https://solace-auth.pages.dev/api/v1/download?v=16.3.0",
+  "releaseDate": "2026-07-08",
+  "downloadUrl": "https://solace-auth.pages.dev/api/v1/download?v=17.0.1",
   "changelog": [
-    "修复备份文件导入失败问题",
-    "理论修复动态输出思考内容问题",
-    "整体代码结构优化与清理"
+    "修复导入备份失败问题",
+    "底部导航栏新增小说功能"
   ],
-  "announcement": "本版本修复了备份文件导入失败问题，并理论修复了 AI 动态输出思考内容泄露的问题。同时进行了大范围代码清理，移除已到期的图片生成与多模态功能。"
+  "announcement": "Solace 17.0.1 更新：修复导入备份失败问题；底部导航栏新增小说功能。"
 }

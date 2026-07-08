@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../utils/avatar_resolver.dart';
 
 class TypingIndicator extends StatefulWidget {
   final String? avatarUrl;
@@ -112,10 +113,11 @@ class _TypingIndicatorState extends State<TypingIndicator>
   }
 
   Widget _buildAvatar(ColorScheme colorScheme) {
-    if (widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty) {
+    final imageProvider = AvatarResolver.imageProvider(widget.avatarUrl);
+    if (imageProvider != null) {
       return CircleAvatar(
         radius: 18,
-        backgroundImage: NetworkImage(widget.avatarUrl!),
+        backgroundImage: imageProvider,
         onBackgroundImageError: (_, __) {},
       );
     }

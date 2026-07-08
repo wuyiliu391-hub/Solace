@@ -34,6 +34,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         final user = await _storage.getUser(userId);
         if (user != null) {
           await _storage.remove(PrefKeys.loggedOut);
+          // 每次启动都检查内置角色是否存在（已有则跳过，升级用户也能拿到）
+          await _storage.seedBuiltInCharacters();
           emit(AuthAuthenticated(user));
           return;
         }
@@ -53,6 +55,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
       await _storage.saveUser(user);
       await _storage.setString(PrefKeys.currentUserId, 'local_user');
+      // 内置角色种子
+      await _storage.seedBuiltInCharacters();
       emit(AuthAuthenticated(user));
     } catch (e) {
       emit(AuthError(e.toString()));

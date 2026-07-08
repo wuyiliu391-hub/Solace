@@ -14,6 +14,7 @@ import '../chat/chat_detail_screen.dart';
 import '../../blocs/chat/chat_bloc.dart';
 import '../../services/ai_service.dart';
 import '../../services/bridge/ai_service_adapter.dart';
+import '../../utils/avatar_resolver.dart';
 
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen({super.key});
@@ -471,35 +472,26 @@ class _CharacterTile extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final displayName = character.userAlias ?? character.name;
 
-    if (character.avatarUrl == null || character.avatarUrl!.isEmpty) {
+    final imageProvider = AvatarResolver.imageProvider(character.avatarUrl);
+    if (imageProvider != null) {
       return CircleAvatar(
         radius: 28,
-        backgroundColor: colorScheme.primaryContainer,
-        child: Text(
-          displayName.isNotEmpty ? displayName.substring(0, 1) : '?',
-          style: TextStyle(
-            color: colorScheme.onPrimaryContainer,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      );
-    }
-
-    if (character.avatarUrl!.startsWith('/') ||
-        character.avatarUrl!.startsWith('C:') ||
-        character.avatarUrl!.contains('\\')) {
-      return CircleAvatar(
-        radius: 28,
-        backgroundImage: FileImage(File(character.avatarUrl!)),
+        backgroundImage: imageProvider,
         onBackgroundImageError: (error, stackTrace) {},
       );
     }
 
     return CircleAvatar(
       radius: 28,
-      backgroundImage: NetworkImage(character.avatarUrl!),
-      onBackgroundImageError: (error, stackTrace) {},
+      backgroundColor: colorScheme.primaryContainer,
+      child: Text(
+        displayName.isNotEmpty ? displayName.substring(0, 1) : '?',
+        style: TextStyle(
+          color: colorScheme.onPrimaryContainer,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 }

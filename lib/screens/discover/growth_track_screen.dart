@@ -5,6 +5,7 @@ import '../../config/growth_copy.dart';
 import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/growth_data_service.dart';
+import '../../utils/avatar_resolver.dart';
 
 class GrowthTrackScreen extends StatefulWidget {
   const GrowthTrackScreen({super.key});
@@ -131,10 +132,8 @@ class _GrowthTrackScreenState extends State<GrowthTrackScreen> {
                 ? const Icon(Icons.groups_rounded, size: 16)
                 : CircleAvatar(
                     radius: 10,
-                    backgroundImage: character!.avatarUrl != null
-                        ? NetworkImage(character.avatarUrl!)
-                        : null,
-                    child: character.avatarUrl == null
+                    backgroundImage: AvatarResolver.imageProvider(character!.avatarUrl),
+                    child: AvatarResolver.imageProvider(character!.avatarUrl) == null
                         ? const Icon(Icons.person, size: 12)
                         : null,
                   ),

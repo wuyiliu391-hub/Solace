@@ -47,9 +47,9 @@ class VersionFeatureDialog extends StatelessWidget {
                   Icon(Icons.rocket_launch, color: cs.primary, size: 32),
                   const SizedBox(height: 8),
                   Text(
-                    'Solace ${AppVersion.version} 更新公告',
+                    'Solace ${AppVersion.version} 大型版本更新',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 15,
                       fontWeight: FontWeight.bold,
                       color: cs.onSurface,
                     ),
@@ -65,14 +65,35 @@ class VersionFeatureDialog extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _sectionTitle('源码回归', cs),
-                    _item('作者重新找回源码，项目恢复维护并完成本轮更新。'),
+                    _sectionTitle('单聊界面优化', cs),
+                    _item('对话文本与旁白内容分隔展示，AI 输出文字统一采用蓝色字体。'),
+                    _item('该功能在部分场景下仍存在未知 BUG，后续版本持续修复优化。'),
                     const SizedBox(height: 10),
-                    _sectionTitle('功能调整', cs),
-                    _item('暂时删除所有图片相关功能，先保证聊天与核心体验稳定。'),
+                    _sectionTitle('功能入口调整', cs),
+                    _item('故事书入口迁移至发现页面，访问更便捷。'),
                     const SizedBox(height: 10),
-                    _sectionTitle('隐藏彩蛋', cs),
-                    _item('加入一个小彩蛋，保持神秘，留给你在聊天里发现。'),
+                    _sectionTitle('输出逻辑修复', cs),
+                    _item('解决多款模式下内容分段异常、一次性完整刷屏输出的故障。'),
+                    const SizedBox(height: 10),
+                    _sectionTitle('仿生沉浸体验深度升级', cs),
+                    _item('消息持久化存储'),
+                    _item('角色情绪状态持久化'),
+                    _item('动态打字延迟效果'),
+                    _item('角色结构化特征存档'),
+                    _item('用户每日行为轨迹持久保存'),
+                    _item('增量记忆库二次迭代更新'),
+                    _item('情绪感知敏感度全面加深'),
+                    const SizedBox(height: 10),
+                    _sectionTitle('设备操控测试版', cs),
+                    _item('上线锁屏专属交互模式。'),
+                    const SizedBox(height: 10),
+                    _sectionTitle('内置官方角色', cs),
+                    _item('内置官方角色「老大」（项目作者），内置强制规范：严禁色情、违法、调教、低俗类相关内容。'),
+                    const SizedBox(height: 10),
+                    _sectionTitle('发现页面全新改版', cs),
+                    _item('支持左滑切换第二分页'),
+                    _item('新增娱乐专区：真心话大冒险、默契测试、心有灵犀、角色印象'),
+                    _item('旧版全部历史功能统一收纳至「更多娱乐」入口'),
                   ],
                 ),
               ),
@@ -109,11 +130,11 @@ class VersionFeatureDialog extends StatelessWidget {
 
   Widget _sectionTitle(String title, ColorScheme cs) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: 3),
       child: Text(
         title,
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: FontWeight.w700,
           color: cs.primary,
         ),
@@ -123,18 +144,18 @@ class VersionFeatureDialog extends StatelessWidget {
 
   Widget _item(String text) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1.5),
+      padding: const EdgeInsets.symmetric(vertical: 1),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('·  ',
-              style: TextStyle(fontSize: 11, color: Color(0xFF5F6368))),
+              style: TextStyle(fontSize: 10.5, color: Color(0xFF5F6368))),
           Expanded(
             child: Text(
               text,
               style: const TextStyle(
-                fontSize: 11,
-                height: 1.4,
+                fontSize: 10.5,
+                height: 1.35,
                 color: Color(0xFF3C4043),
               ),
             ),

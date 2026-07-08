@@ -10,6 +10,7 @@ import '../../repositories/local_storage_repository.dart';
 import '../../services/global_time_clock.dart';
 import '../../services/heartbeat_service.dart';
 import '../../services/world_engine.dart';
+import '../../utils/avatar_resolver.dart';
 import 'character_detail_screen.dart';
 import 'life_timeline.dart';
 import 'observation_panel.dart';
@@ -401,7 +402,8 @@ class _WorldHomeScreenState extends State<WorldHomeScreen>
                     border: Border.all(color: stageColor, width: 2),
                     image: avatarUrl != null && avatarUrl.isNotEmpty
                         ? DecorationImage(
-                            image: NetworkImage(avatarUrl),
+                            image: AvatarResolver.imageProvider(avatarUrl) ??
+                                const NetworkImage(''),
                             fit: BoxFit.cover,
                           )
                         : null,

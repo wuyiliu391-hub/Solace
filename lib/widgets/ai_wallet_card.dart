@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/ai_wallet.dart';
 import '../models/ai_character.dart';
 import '../config/business_rules.dart';
+import '../utils/avatar_resolver.dart';
 
 /// AI钱包卡片 - 用于展示AI角色的钱包余额和信息
 /// 支持两种模式：紧凑模式（列表项）和完整模式（详情页）
@@ -74,14 +75,19 @@ class AIWalletCard extends StatelessWidget {
                   child: character?.avatarUrl != null
                       ? ClipRRect(
                           borderRadius: BorderRadius.circular(22),
-                          child: Image.network(
-                            character!.avatarUrl!,
+                          child: AvatarResolver.imageWidget(
+                            character!.avatarUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const Icon(
+                            onError: () => const Icon(
                               Icons.smart_toy_rounded,
                               color: Colors.white,
                               size: 24,
                             ),
+                          ) ??
+                              const Icon(
+                            Icons.smart_toy_rounded,
+                            color: Colors.white,
+                            size: 24,
                           ),
                         )
                       : const Icon(
@@ -244,14 +250,19 @@ class AIWalletCard extends StatelessWidget {
                 child: character?.avatarUrl != null
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(22),
-                        child: Image.network(
-                          character!.avatarUrl!,
+                        child: AvatarResolver.imageWidget(
+                          character!.avatarUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Icon(
+                          onError: () => const Icon(
                             Icons.smart_toy_rounded,
                             color: Colors.white,
                             size: 22,
                           ),
+                        ) ??
+                            const Icon(
+                          Icons.smart_toy_rounded,
+                          color: Colors.white,
+                          size: 22,
                         ),
                       )
                     : const Icon(

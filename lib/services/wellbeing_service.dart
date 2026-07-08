@@ -173,40 +173,42 @@ extension WellbeingGate on WellbeingService {
     return nowMin >= c.bedStartMin || nowMin < c.bedEndMin;
   }
 
-  /// 本地闸核心：给定一个「AI 想让你休息」的提议，决定是否真的放行锁屏。
+  /// 本地闸核心：决定是否放行锁屏。
   ///
-  /// 这是唯一的执行决策点。AI（外部端点）的输出只是 [aiSuggests] 这个布尔提议，
-  /// 它进不来这里的判定——真正放行必须同时满足：
+  /// [aiSuggests] = true  → AI 在对话中发出了 [rest_suggest]，规则命中即放行
+  /// [aiSuggests] = false → 心跳定时检查，规则命中同样放行（自动模式）
+  ///
+  /// 真正放行必须同时满足：
   ///   1. 本地功能已开启；2. 设备管理员已授权；
   ///   3. 命中某条本地规则（就寝时段 / 连续使用超限）。
-  /// 任何一条不满足都拒绝。外部端点无法绕过。
+  /// 外部端点（含 AI）无法绕过本地闸——零上传、零远控。
   Future<GateDecision> evaluate({required bool aiSuggests}) async {
     final c = await loadConfig();
-    if (!c.enabled) return GateDecision.denied;
-    if (!await isAdminActive()) return GateDecision.denied;
+    if (!c.enabled) return const GateDecision(false, '作息陪伴未开启');
+    if (!await isAdminActive()) return const GateDecision(false, '设备管理员权限未授权');
 
     final now = DateTime.now();
 
-    // 规则一：就寝时段
+    // 规则一：就寝时段（自动 + AI 双路触发）
     if (c.lockOnBedtime && _inBedtime(c, now)) {
-      if (aiSuggests) {
-        return const GateDecision(true, '已到就寝时段');
-      }
+      final h = now.hour.toString().padLeft(2, '0');
+      final m = now.minute.toString().padLeft(2, '0');
+      return GateDecision(true, '当前 $h:$m 处于就寝时段');
     }
 
     // 规则二：连续使用超限（读本地 UsageStats，纯本地判定）
     if (c.lockOnOveruse) {
       final usage = await queryUsage(windowMinutes: c.maxUsageMin);
-      final totalMs =
-          usage.fold<int>(0, (sum, u) => sum + u.totalMs);
+      final totalMs = usage.fold<int>(0, (sum, u) => sum + u.totalMs);
       if (totalMs >= c.maxUsageMin * 60 * 1000) {
-        if (aiSuggests) {
-          return GateDecision(true, '连续使用已超 ${c.maxUsageMin} 分钟');
-        }
+        return GateDecision(true, '连续使用已超 ${c.maxUsageMin} 分钟');
       }
+      // 还没到上限，告诉调用方已用了多少
+      final usedMin = (totalMs / 60000).floor();
+      return GateDecision(false, '已连续使用 $usedMin 分钟，上限 ${c.maxUsageMin} 分钟');
     }
 
-    return GateDecision.denied;
+    return const GateDecision(false, '未命中任何规则');
   }
 
   /// 提议 → 判定 → （放行则）本地锁屏。返回实际是否锁屏。

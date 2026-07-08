@@ -9,6 +9,7 @@ import '../../repositories/local_storage_repository.dart';
 import 'order_tracking_screen.dart';
 import '../../models/shop_order.dart';
 import '../../services/delivery_simulator.dart';
+import '../../utils/avatar_resolver.dart';
 
 /// AI小商店 - 主界面
 /// 灵感来源：微信底部抽屉 + 拼多多卡片网格
@@ -739,34 +740,16 @@ class _ShopScreenState extends State<ShopScreen>
   Widget _buildAvatar(ChatSession session) {
     final avatarUrl = session.aiCharacterAvatar;
     final colorScheme = Theme.of(context).colorScheme;
-    
-    if (avatarUrl != null && avatarUrl.isNotEmpty) {
-      if (avatarUrl.startsWith('/') || avatarUrl.contains('\\')) {
-        return CircleAvatar(
-          radius: 14,
-          backgroundImage: FileImage(File(avatarUrl)),
-          onBackgroundImageError: (_, __) {},
-          child: avatarUrl.isEmpty
-              ? Text(
-                  session.aiCharacterName.isNotEmpty ? session.aiCharacterName[0] : '?',
-                  style: TextStyle(fontSize: 12, color: colorScheme.primary),
-                )
-              : null,
-        );
-      }
+
+    final imageProvider = AvatarResolver.imageProvider(avatarUrl);
+    if (imageProvider != null) {
       return CircleAvatar(
         radius: 14,
-        backgroundImage: NetworkImage(avatarUrl),
+        backgroundImage: imageProvider,
         onBackgroundImageError: (_, __) {},
-        child: avatarUrl.isEmpty
-            ? Text(
-                session.aiCharacterName.isNotEmpty ? session.aiCharacterName[0] : '?',
-                style: TextStyle(fontSize: 12, color: colorScheme.primary),
-              )
-            : null,
       );
     }
-    
+
     return CircleAvatar(
       radius: 14,
       backgroundColor: colorScheme.primaryContainer,

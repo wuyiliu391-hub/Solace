@@ -32,6 +32,7 @@ import '../models/shop_order.dart';
 import '../models/pure_ai_session.dart';
 import '../models/story_book.dart';
 import '../models/story_segment.dart';
+import '../data/builtin_characters.dart';
 import '../models/story_scene.dart';
 import '../models/story_save.dart';
 import '../models/virtual_phone/virtual_phone.dart';
@@ -41,6 +42,7 @@ import '../models/virtual_phone/vp_note.dart';
 import '../models/virtual_phone/vp_moment.dart';
 import '../models/pure_ai_message.dart';
 import '../models/bt_agent_action.dart';
+import '../models/novel.dart';
 import '../services/bt_operation_lock_service.dart';
 import '../config/business_rules.dart';
 import '../config/constants.dart';
@@ -416,6 +418,8 @@ class LocalStorageRepository {
       'title': 'TEXT NOT NULL DEFAULT ""',
       'content': 'TEXT NOT NULL DEFAULT ""',
       'isRead': 'INTEGER NOT NULL DEFAULT 0',
+      'isFromUser': 'INTEGER NOT NULL DEFAULT 0',
+      'needsReply': 'INTEGER NOT NULL DEFAULT 0',
       'sourceChatId': 'TEXT',
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'readAt': 'TEXT',
@@ -783,6 +787,92 @@ class LocalStorageRepository {
       'chatType': 'TEXT NOT NULL DEFAULT "single"',
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
     },
+    'social_memories': {
+      'id': 'TEXT PRIMARY KEY',
+      'characterId': 'TEXT NOT NULL DEFAULT ""',
+      'targetCharacterId': 'TEXT NOT NULL DEFAULT ""',
+      'interactionType': 'TEXT DEFAULT "chat"',
+      'content': 'TEXT DEFAULT ""',
+      'emotionTag': 'TEXT DEFAULT ""',
+      'importance': 'TEXT DEFAULT "normal"',
+      'keywords': 'TEXT DEFAULT "[]"',
+      'timestamp': 'TEXT NOT NULL DEFAULT ""',
+      'weight': 'REAL DEFAULT 1.0',
+      'pinned': 'INTEGER DEFAULT 0',
+      'lastRecalledAt': 'TEXT',
+    },
+    'moment_bookmarks': {
+      'id': 'TEXT PRIMARY KEY',
+      'momentId': 'TEXT NOT NULL DEFAULT ""',
+      'userId': 'TEXT NOT NULL DEFAULT ""',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+    },
+    'moment_notifications': {
+      'id': 'TEXT PRIMARY KEY',
+      'momentId': 'TEXT NOT NULL DEFAULT ""',
+      'actorId': 'TEXT NOT NULL DEFAULT ""',
+      'actorName': 'TEXT NOT NULL DEFAULT ""',
+      'actorAvatar': 'TEXT',
+      'type': 'INTEGER NOT NULL DEFAULT 0',
+      'content': 'TEXT',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'isRead': 'INTEGER NOT NULL DEFAULT 0',
+      'isFromAI': 'INTEGER NOT NULL DEFAULT 0',
+    },
+    'trending_tags': {
+      'tag': 'TEXT PRIMARY KEY',
+      'count': 'INTEGER NOT NULL DEFAULT 1',
+      'lastUsedAt': 'TEXT NOT NULL DEFAULT ""',
+    },
+    'pure_ai_sessions': {
+      'id': 'TEXT PRIMARY KEY',
+      'userId': 'TEXT NOT NULL DEFAULT ""',
+      'title': 'TEXT NOT NULL DEFAULT "AI"',
+      'lastMessage': 'TEXT',
+      'lastMessageTime': 'TEXT',
+      'isPinned': 'INTEGER NOT NULL DEFAULT 0',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'updatedAt': 'TEXT',
+    },
+    'pure_ai_messages': {
+      'id': 'TEXT PRIMARY KEY',
+      'sessionId': 'TEXT NOT NULL DEFAULT ""',
+      'senderId': 'TEXT NOT NULL DEFAULT ""',
+      'senderName': 'TEXT',
+      'content': 'TEXT NOT NULL DEFAULT ""',
+      'type': 'INTEGER NOT NULL DEFAULT 0',
+      'status': 'INTEGER NOT NULL DEFAULT 1',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'metadata': 'TEXT',
+    },
+    'novels': {
+      'id': 'TEXT PRIMARY KEY',
+      'userId': 'TEXT NOT NULL DEFAULT ""',
+      'title': 'TEXT NOT NULL DEFAULT ""',
+      'coverUrl': 'TEXT',
+      'synopsis': 'TEXT NOT NULL DEFAULT ""',
+      'worldSetting': 'TEXT NOT NULL DEFAULT ""',
+      'characters': 'TEXT NOT NULL DEFAULT ""',
+      'genre': 'INTEGER NOT NULL DEFAULT 7',
+      'status': 'INTEGER NOT NULL DEFAULT 0',
+      'totalWords': 'INTEGER NOT NULL DEFAULT 0',
+      'chapterCount': 'INTEGER NOT NULL DEFAULT 0',
+      'isArchived': 'INTEGER NOT NULL DEFAULT 0',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
+      'lastChapterPreview': 'TEXT',
+    },
+    'novel_chapters': {
+      'id': 'TEXT PRIMARY KEY',
+      'novelId': 'TEXT NOT NULL DEFAULT ""',
+      'sortOrder': 'INTEGER NOT NULL DEFAULT 0',
+      'title': 'TEXT NOT NULL DEFAULT ""',
+      'content': 'TEXT NOT NULL DEFAULT ""',
+      'wordCount': 'INTEGER NOT NULL DEFAULT 0',
+      'isAiGenerated': 'INTEGER NOT NULL DEFAULT 0',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
+    },
   };
 
   /// 修复 isUser 字段：根据 senderId 修正因迁移导致的默认值错误
@@ -902,6 +992,53 @@ class LocalStorageRepository {
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_bt_agent_actions_createdAt ON bt_agent_actions(createdAt DESC)');
         break;
+      case 'social_memories':
+        await db.execute(''' CREATE TABLE IF NOT EXISTS social_memories (
+          id TEXT PRIMARY KEY, characterId TEXT NOT NULL, targetCharacterId TEXT NOT NULL,
+          interactionType TEXT DEFAULT 'chat', content TEXT DEFAULT '',
+          emotionTag TEXT DEFAULT '', importance TEXT DEFAULT 'normal',
+          keywords TEXT DEFAULT '[]', timestamp TEXT NOT NULL,
+          weight REAL DEFAULT 1.0, pinned INTEGER DEFAULT 0, lastRecalledAt TEXT
+        ) ''');
+        break;
+      case 'moment_bookmarks':
+        await db.execute(''' CREATE TABLE IF NOT EXISTS moment_bookmarks (
+          id TEXT PRIMARY KEY, momentId TEXT NOT NULL, userId TEXT NOT NULL,
+          createdAt TEXT NOT NULL
+        ) ''');
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_moment_bookmarks_userId ON moment_bookmarks(userId)');
+        break;
+      case 'moment_notifications':
+        await db.execute(''' CREATE TABLE IF NOT EXISTS moment_notifications (
+          id TEXT PRIMARY KEY, momentId TEXT NOT NULL, actorId TEXT NOT NULL,
+          actorName TEXT NOT NULL, actorAvatar TEXT, type INTEGER NOT NULL DEFAULT 0,
+          content TEXT, createdAt TEXT NOT NULL, isRead INTEGER NOT NULL DEFAULT 0,
+          isFromAI INTEGER NOT NULL DEFAULT 0
+        ) ''');
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_moment_notifications_createdAt ON moment_notifications(createdAt DESC)');
+        break;
+      case 'trending_tags':
+        await db.execute(''' CREATE TABLE IF NOT EXISTS trending_tags (
+          tag TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 1,
+          lastUsedAt TEXT NOT NULL
+        ) ''');
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_trending_tags_count ON trending_tags(count DESC)');
+        break;
+      case 'pure_ai_sessions':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS pure_ai_sessions ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, title TEXT NOT NULL DEFAULT 'AI', lastMessage TEXT, lastMessageTime TEXT, isPinned INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT ) ''');
+        break;
+      case 'pure_ai_messages':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS pure_ai_messages ( id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, senderId TEXT NOT NULL, senderName TEXT, content TEXT NOT NULL, type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, metadata TEXT ) ''');
+        break;
+      case 'novels':
+      case 'novel_chapters':
+        await _createNovelTables(db);
+        break;
     }
   }
 
@@ -998,77 +1135,69 @@ class LocalStorageRepository {
           ''' CREATE INDEX IF NOT EXISTS idx_moments_createdAt ON moments(createdAt DESC) ''');
     }
     if (oldVersion < 4) {
-      await db
-          .execute('ALTER TABLE ai_characters ADD COLUMN languageStyle TEXT');
-      await db.execute('ALTER TABLE ai_characters ADD COLUMN tabooTopics TEXT');
-      await db
-          .execute('ALTER TABLE ai_characters ADD COLUMN userNickname TEXT');
-      await db.execute(
-          'ALTER TABLE ai_characters ADD COLUMN dialogueExamples TEXT');
-      await db.execute(
-          'ALTER TABLE ai_characters ADD COLUMN interactionConfig TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'languageStyle', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'tabooTopics', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'userNickname', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'dialogueExamples', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'interactionConfig', 'TEXT');
     }
     if (oldVersion < 5) {
-      await db.execute(
-          'ALTER TABLE chat_sessions ADD COLUMN isPinned INTEGER NOT NULL DEFAULT 0');
-      await db
-          .execute('ALTER TABLE chat_sessions ADD COLUMN backgroundImage TEXT');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'isPinned', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'chat_sessions', 'backgroundImage', 'TEXT');
     }
     if (oldVersion < 6) {
-      await db.execute('ALTER TABLE users ADD COLUMN gender TEXT');
-      await db.execute('ALTER TABLE users ADD COLUMN birthday TEXT');
-      await db.execute('ALTER TABLE users ADD COLUMN location TEXT');
-      await db.execute('ALTER TABLE users ADD COLUMN bio TEXT');
-      await db.execute(
-          'ALTER TABLE users ADD COLUMN coins INTEGER NOT NULL DEFAULT 100');
-      await db.execute(
-          'ALTER TABLE users ADD COLUMN totalCoinsEarned INTEGER NOT NULL DEFAULT 100');
-      await db.execute(
-          'ALTER TABLE users ADD COLUMN totalCoinsSpent INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'users', 'gender', 'TEXT');
+      await _addColumnIfNotExists(db, 'users', 'birthday', 'TEXT');
+      await _addColumnIfNotExists(db, 'users', 'location', 'TEXT');
+      await _addColumnIfNotExists(db, 'users', 'bio', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'users', 'coins', 'INTEGER NOT NULL DEFAULT 100');
+      await _addColumnIfNotExists(
+          db, 'users', 'totalCoinsEarned', 'INTEGER NOT NULL DEFAULT 100');
+      await _addColumnIfNotExists(
+          db, 'users', 'totalCoinsSpent', 'INTEGER NOT NULL DEFAULT 0');
     }
     if (oldVersion < 7) {
-      await db.execute(
-          'ALTER TABLE ai_characters ADD COLUMN isHidden INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE chat_sessions ADD COLUMN isHidden INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'isHidden', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'isHidden', 'INTEGER NOT NULL DEFAULT 0');
     }
     if (oldVersion < 8) {}
     if (oldVersion < 9) {
-      await db.execute('ALTER TABLE users ADD COLUMN status TEXT');
+      await _addColumnIfNotExists(db, 'users', 'status', 'TEXT');
     }
     if (oldVersion < 10) {
-      await db.execute(
-          'ALTER TABLE chat_sessions ADD COLUMN dailyIntimacyCount INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE chat_sessions ADD COLUMN lastIntimacyDate TEXT');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'dailyIntimacyCount', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'chat_sessions', 'lastIntimacyDate', 'TEXT');
     }
     if (oldVersion < 11) {
-      await db.execute(
-          'ALTER TABLE ai_characters ADD COLUMN isOnline INTEGER NOT NULL DEFAULT 1');
-      await db
-          .execute('ALTER TABLE ai_characters ADD COLUMN currentStatus TEXT');
-      await db
-          .execute('ALTER TABLE ai_characters ADD COLUMN lastOnlineAt TEXT');
-      await db.execute(
-          'ALTER TABLE chat_sessions ADD COLUMN aiIsOnline INTEGER NOT NULL DEFAULT 1');
-      await db
-          .execute('ALTER TABLE chat_sessions ADD COLUMN aiCurrentStatus TEXT');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'isOnline', 'INTEGER NOT NULL DEFAULT 1');
+      await _addColumnIfNotExists(db, 'ai_characters', 'currentStatus', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'lastOnlineAt', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'aiIsOnline', 'INTEGER NOT NULL DEFAULT 1');
+      await _addColumnIfNotExists(db, 'chat_sessions', 'aiCurrentStatus', 'TEXT');
     }
     if (oldVersion < 12) {
       await db.execute(
           ''' CREATE TABLE IF NOT EXISTS sticker_packs ( id TEXT PRIMARY KEY, name TEXT NOT NULL, coverImagePath TEXT, stickers TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, isDefault INTEGER NOT NULL DEFAULT 0 ) ''');
     }
     if (oldVersion < 13) {
-      await db.execute(
-          'ALTER TABLE moments ADD COLUMN visibility INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'visibility', 'INTEGER NOT NULL DEFAULT 0');
     }
     if (oldVersion < 14) {
-      await db.execute('ALTER TABLE ai_characters ADD COLUMN gender TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'gender', 'TEXT');
     }
     if (oldVersion < 15) {
-      await db
-          .execute('ALTER TABLE ai_characters ADD COLUMN catchphrases TEXT');
-      await db.execute('ALTER TABLE ai_characters ADD COLUMN openingLine TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'catchphrases', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'openingLine', 'TEXT');
     }
     if (oldVersion < 16) {
       await db.execute("UPDATE chat_messages SET type = 2 WHERE type = 3");
@@ -1076,19 +1205,19 @@ class LocalStorageRepository {
     }
     if (oldVersion < 17) {}
     if (oldVersion < 18) {
-      await db.execute(
-          'ALTER TABLE chat_sessions ADD COLUMN isBlocked INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE chat_sessions ADD COLUMN blockedBy INTEGER NOT NULL DEFAULT 0');
-      await db.execute('ALTER TABLE chat_sessions ADD COLUMN blockedAt TEXT');
-      await db.execute('ALTER TABLE chat_sessions ADD COLUMN blockReason TEXT');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'isBlocked', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'blockedBy', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'chat_sessions', 'blockedAt', 'TEXT');
+      await _addColumnIfNotExists(db, 'chat_sessions', 'blockReason', 'TEXT');
     }
     if (oldVersion < 19) {
       // 预留
     }
     if (oldVersion < 20) {
-      await db.execute(
-          'ALTER TABLE ai_configs ADD COLUMN isThinkingModel INTEGER NOT NULL DEFAULT 1');
+      await _addColumnIfNotExists(
+          db, 'ai_configs', 'isThinkingModel', 'INTEGER NOT NULL DEFAULT 1');
     }
     if (oldVersion < 21) {
       await db.execute(
@@ -1112,11 +1241,11 @@ class LocalStorageRepository {
     }
     if (oldVersion < 25) {
       // 艾宾浩斯热度系统：给 memories 表增加 weight/pinned/lastRecalledAt
-      await db.execute(
-          'ALTER TABLE memories ADD COLUMN weight REAL NOT NULL DEFAULT 1.0');
-      await db.execute(
-          'ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
-      await db.execute('ALTER TABLE memories ADD COLUMN lastRecalledAt TEXT');
+      await _addColumnIfNotExists(
+          db, 'memories', 'weight', 'REAL NOT NULL DEFAULT 1.0');
+      await _addColumnIfNotExists(
+          db, 'memories', 'pinned', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'memories', 'lastRecalledAt', 'TEXT');
     }
     if (oldVersion < 26) {
       // v10.0 大版本：6大模块数据库迁移
@@ -1155,84 +1284,81 @@ class LocalStorageRepository {
         sceneDescription TEXT, distance REAL NOT NULL DEFAULT 0, createdAt TEXT NOT NULL DEFAULT ''
       ) ''');
       // 扩展现有表
-      await db.execute('ALTER TABLE users ADD COLUMN appIconPath TEXT');
-      await db.execute('ALTER TABLE users ADD COLUMN lockScreenPassword TEXT');
-      await db.execute(
-          'ALTER TABLE users ADD COLUMN lockScreenDuration INTEGER NOT NULL DEFAULT 0');
-      await db.execute('ALTER TABLE users ADD COLUMN lockScreenTextColor TEXT');
-      await db.execute(
-          'ALTER TABLE users ADD COLUMN lockScreenFontSize REAL NOT NULL DEFAULT 1.0');
-      await db.execute('ALTER TABLE users ADD COLUMN currentWeather TEXT');
-      await db.execute('ALTER TABLE users ADD COLUMN lastWeatherUpdate TEXT');
-      await db.execute('ALTER TABLE ai_characters ADD COLUMN avatarGif TEXT');
-      await db.execute(
-          'ALTER TABLE ai_characters ADD COLUMN autoReplyStickers INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE ai_characters ADD COLUMN translatedSettings TEXT');
-      await db.execute('ALTER TABLE chat_messages ADD COLUMN pokeSuffix TEXT');
-      await db.execute('ALTER TABLE chat_messages ADD COLUMN stickerId TEXT');
-      await db.execute('ALTER TABLE chat_messages ADD COLUMN stickerPath TEXT');
-      await db.execute('ALTER TABLE moments ADD COLUMN replyToCommentId TEXT');
-      await db.execute('ALTER TABLE moments ADD COLUMN replyToContent TEXT');
-      await db.execute(
-          'ALTER TABLE moments ADD COLUMN aiLiked INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'users', 'appIconPath', 'TEXT');
+      await _addColumnIfNotExists(db, 'users', 'lockScreenPassword', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'users', 'lockScreenDuration', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'users', 'lockScreenTextColor', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'users', 'lockScreenFontSize', 'REAL NOT NULL DEFAULT 1.0');
+      await _addColumnIfNotExists(db, 'users', 'currentWeather', 'TEXT');
+      await _addColumnIfNotExists(db, 'users', 'lastWeatherUpdate', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'avatarGif', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'autoReplyStickers', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'translatedSettings', 'TEXT');
+      await _addColumnIfNotExists(db, 'chat_messages', 'pokeSuffix', 'TEXT');
+      await _addColumnIfNotExists(db, 'chat_messages', 'stickerId', 'TEXT');
+      await _addColumnIfNotExists(db, 'chat_messages', 'stickerPath', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'replyToCommentId', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'replyToContent', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'moments', 'aiLiked', 'INTEGER NOT NULL DEFAULT 0');
     }
     if (oldVersion < 27) {
-      await db
-          .execute('ALTER TABLE ai_characters ADD COLUMN immutableAnchor TEXT');
-      await db.execute(
-          'ALTER TABLE ai_characters ADD COLUMN deviationRadius REAL NOT NULL DEFAULT 0.4');
-      await db.execute(
-          'ALTER TABLE ai_characters ADD COLUMN evolutionEnabled INTEGER NOT NULL DEFAULT 1');
-      await db.execute(
-          'ALTER TABLE ai_characters ADD COLUMN qualitativeEvolutionEnabled INTEGER NOT NULL DEFAULT 0');
-      await db
-          .execute('ALTER TABLE ai_characters ADD COLUMN currentAnchor TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'immutableAnchor', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'deviationRadius', 'REAL NOT NULL DEFAULT 0.4');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'evolutionEnabled', 'INTEGER NOT NULL DEFAULT 1');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'qualitativeEvolutionEnabled', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'ai_characters', 'currentAnchor', 'TEXT');
       await db.execute(
           ''' CREATE TABLE IF NOT EXISTS growth_events ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '', userId TEXT NOT NULL DEFAULT '', triggerType TEXT NOT NULL DEFAULT 'micro', evolutionMode TEXT NOT NULL DEFAULT 'micro', triggerData TEXT NOT NULL DEFAULT '{}', deltas TEXT NOT NULL DEFAULT '{}', impactScore REAL NOT NULL DEFAULT 0, reason TEXT, createdAt TEXT NOT NULL DEFAULT '' ) ''');
       await db.execute(
           ''' CREATE TABLE IF NOT EXISTS persona_snapshots ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '', snapshotType TEXT NOT NULL DEFAULT 'initial', traitsData TEXT NOT NULL DEFAULT '{}', surfaceData TEXT NOT NULL DEFAULT '{}', createdAt TEXT NOT NULL DEFAULT '', label TEXT ) ''');
     }
     if (oldVersion < 28) {
-      await db.execute(
-          'ALTER TABLE chat_messages ADD COLUMN isUser INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE chat_messages ADD COLUMN isSystem INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE chat_messages ADD COLUMN isHidden INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE chat_messages ADD COLUMN isGhost INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'isUser', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'isSystem', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'isHidden', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'isGhost', 'INTEGER NOT NULL DEFAULT 0');
       // 修复已有数据：根据 senderId 修正 isUser 字段
       await db.execute(
           "UPDATE chat_messages SET isUser = 1 WHERE senderId NOT LIKE 'ai_%' AND senderId != 'system' AND senderId != 'system_risk'");
     }
     if (oldVersion < 29) {
-      await db.execute('ALTER TABLE users ADD COLUMN backgroundImage TEXT');
+      await _addColumnIfNotExists(db, 'users', 'backgroundImage', 'TEXT');
     }
     if (oldVersion < 30) {
-      await db.execute('ALTER TABLE chat_messages ADD COLUMN reasoning TEXT');
+      await _addColumnIfNotExists(db, 'chat_messages', 'reasoning', 'TEXT');
     }
     if (oldVersion < 31) {
       // X 推特风格：moments 表新增字段
-      await db.execute('ALTER TABLE moments ADD COLUMN parentKey TEXT');
-      await db.execute('ALTER TABLE moments ADD COLUMN retweetKey TEXT');
-      await db.execute('ALTER TABLE moments ADD COLUMN quoteKey TEXT');
-      await db.execute(
-          'ALTER TABLE moments ADD COLUMN retweetCount INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE moments ADD COLUMN replyCount INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE moments ADD COLUMN bookmarkCount INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE moments ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0');
-      await db
-          .execute('ALTER TABLE moments ADD COLUMN tags TEXT DEFAULT \'[]\'');
-      await db.execute('ALTER TABLE moments ADD COLUMN userHandle TEXT');
-      await db.execute('ALTER TABLE moments ADD COLUMN userGender TEXT');
-      await db.execute(
-          'ALTER TABLE moments ADD COLUMN userVerified INTEGER NOT NULL DEFAULT 0');
-      await db.execute(
-          'ALTER TABLE moments ADD COLUMN customLikeCount INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'moments', 'parentKey', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'retweetKey', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'quoteKey', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'moments', 'retweetCount', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'replyCount', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'bookmarkCount', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'viewCount', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'moments', 'tags', "TEXT DEFAULT '[]'");
+      await _addColumnIfNotExists(db, 'moments', 'userHandle', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'userGender', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'moments', 'userVerified', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'customLikeCount', 'INTEGER NOT NULL DEFAULT 0');
 
       // 书签表
       await db.execute(''' CREATE TABLE IF NOT EXISTS moment_bookmarks (
@@ -1285,7 +1411,7 @@ class LocalStorageRepository {
       await createIntimacyEventsTable(db);
     }
     if (oldVersion < 34) {
-      await db.execute('ALTER TABLE ai_characters ADD COLUMN userPersona TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'userPersona', 'TEXT');
     }
     // 先确保 ai_letters 表存在（旧用户升级时表可能不存在）
     await createAILettersTable(db);
@@ -1399,6 +1525,10 @@ class LocalStorageRepository {
       await _addColumnIfNotExists(
           db, 'ai_characters', 'structuredTraits', 'TEXT');
     }
+    if (oldVersion < 53) {
+      // 小说模块
+      await _createNovelTables(db);
+    }
   }
 
   /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
@@ -1429,6 +1559,18 @@ class LocalStorageRepository {
         ''' CREATE INDEX IF NOT EXISTS idx_vp_moments_phone ON vp_moments(phoneId) ''');
   }
 
+
+  /// 小说模块两张表建表语句（_onCreate / 迁移 / createMissingTable 共用）
+  static Future<void> _createNovelTables(Database db) async {
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS novels ( id TEXT PRIMARY KEY, userId TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', coverUrl TEXT, synopsis TEXT NOT NULL DEFAULT '', worldSetting TEXT NOT NULL DEFAULT '', characters TEXT NOT NULL DEFAULT '', genre INTEGER NOT NULL DEFAULT 7, status INTEGER NOT NULL DEFAULT 0, totalWords INTEGER NOT NULL DEFAULT 0, chapterCount INTEGER NOT NULL DEFAULT 0, isArchived INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL DEFAULT '', updatedAt TEXT NOT NULL DEFAULT '', lastChapterPreview TEXT ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_novels_userId ON novels(userId) ''');
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS novel_chapters ( id TEXT PRIMARY KEY, novelId TEXT NOT NULL DEFAULT '', sortOrder INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', content TEXT NOT NULL DEFAULT '', wordCount INTEGER NOT NULL DEFAULT 0, isAiGenerated INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL DEFAULT '', updatedAt TEXT NOT NULL DEFAULT '' ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_novel_chapters_novel ON novel_chapters(novelId, sortOrder) ''');
+  }
 
   /// 故事书四张表建表语句（_onCreate / 迁移 / createMissingTable 共用）
   static Future<void> _createStoryTables(Database db) async {
@@ -1494,6 +1636,118 @@ class LocalStorageRepository {
         ''' CREATE TABLE pure_ai_messages ( id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, senderId TEXT NOT NULL, senderName TEXT, content TEXT NOT NULL, type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, metadata TEXT ) ''');
     await _createStoryTables(db);
     await _createVirtualPhoneTables(db);
+
+    // ─── 以下表在旧版本仅由 _onUpgrade 创建，新用户 _onCreate 缺失会导致崩溃 ───
+
+    // AI 社交记忆表（v38 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS social_memories (
+      id TEXT PRIMARY KEY,
+      characterId TEXT NOT NULL,
+      targetCharacterId TEXT NOT NULL,
+      interactionType TEXT DEFAULT 'chat',
+      content TEXT DEFAULT '',
+      emotionTag TEXT DEFAULT '',
+      importance TEXT DEFAULT 'normal',
+      keywords TEXT DEFAULT '[]',
+      timestamp TEXT NOT NULL,
+      weight REAL DEFAULT 1.0,
+      pinned INTEGER DEFAULT 0,
+      lastRecalledAt TEXT
+    ) ''');
+
+    // X 推特风格：书签表（v31 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS moment_bookmarks (
+      id TEXT PRIMARY KEY, momentId TEXT NOT NULL, userId TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    ) ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_moment_bookmarks_userId ON moment_bookmarks(userId)');
+
+    // X 推特风格：通知表（v31 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS moment_notifications (
+      id TEXT PRIMARY KEY, momentId TEXT NOT NULL, actorId TEXT NOT NULL,
+      actorName TEXT NOT NULL, actorAvatar TEXT, type INTEGER NOT NULL DEFAULT 0,
+      content TEXT, createdAt TEXT NOT NULL, isRead INTEGER NOT NULL DEFAULT 0,
+      isFromAI INTEGER NOT NULL DEFAULT 0
+    ) ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_moment_notifications_createdAt ON moment_notifications(createdAt DESC)');
+
+    // X 推特风格：热门话题表（v31 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS trending_tags (
+      tag TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 1,
+      lastUsedAt TEXT NOT NULL
+    ) ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_trending_tags_count ON trending_tags(count DESC)');
+
+    // 内心活动表（v26 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS inner_thoughts (
+      id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '', userId TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '', type INTEGER NOT NULL DEFAULT 0,
+      emotionValence REAL NOT NULL DEFAULT 0, emotionArousal REAL NOT NULL DEFAULT 0,
+      isRead INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL DEFAULT ''
+    ) ''');
+
+    // 虚拟日记帖子和评论表（v26 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS forum_posts (
+      id TEXT PRIMARY KEY, authorId TEXT NOT NULL DEFAULT '', authorName TEXT NOT NULL DEFAULT '',
+      authorAvatar TEXT, isFromAI INTEGER NOT NULL DEFAULT 0, characterId TEXT,
+      title TEXT NOT NULL DEFAULT '', content TEXT NOT NULL DEFAULT '', images TEXT, tags TEXT,
+      likes TEXT DEFAULT '[]', isAnonymous INTEGER NOT NULL DEFAULT 0,
+      visibility INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL DEFAULT '', updatedAt TEXT
+    ) ''');
+    await db.execute(''' CREATE TABLE IF NOT EXISTS forum_comments (
+      id TEXT PRIMARY KEY, postId TEXT NOT NULL DEFAULT '', authorId TEXT NOT NULL DEFAULT '',
+      authorName TEXT NOT NULL DEFAULT '', authorAvatar TEXT, isFromAI INTEGER NOT NULL DEFAULT 0,
+      characterId TEXT, content TEXT NOT NULL DEFAULT '', replyToId TEXT, replyToName TEXT,
+      isAnonymous INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL DEFAULT ''
+    ) ''');
+
+    // 共同回忆相册表（v26 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS shared_album_entries (
+      id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '', userId TEXT NOT NULL DEFAULT '',
+      memoryId TEXT, title TEXT NOT NULL DEFAULT '', description TEXT, eventDate TEXT,
+      imagePath TEXT, importance INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL DEFAULT ''
+    ) ''');
+
+    // 虚拟地图位置表（v26 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS virtual_locations (
+      id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '', userId TEXT NOT NULL DEFAULT '',
+      userLat REAL NOT NULL DEFAULT 0, userLng REAL NOT NULL DEFAULT 0,
+      aiLat REAL NOT NULL DEFAULT 0, aiLng REAL NOT NULL DEFAULT 0,
+      sceneDescription TEXT, distance REAL NOT NULL DEFAULT 0, createdAt TEXT NOT NULL DEFAULT ''
+    ) ''');
+
+    // 角色成长事件表（v27 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS growth_events (
+      id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '', userId TEXT NOT NULL DEFAULT '',
+      triggerType TEXT NOT NULL DEFAULT 'micro', evolutionMode TEXT NOT NULL DEFAULT 'micro',
+      triggerData TEXT NOT NULL DEFAULT '{}', deltas TEXT NOT NULL DEFAULT '{}',
+      impactScore REAL NOT NULL DEFAULT 0, reason TEXT, createdAt TEXT NOT NULL DEFAULT ''
+    ) ''');
+
+    // 角色人格快照表（v27 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS persona_snapshots (
+      id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '', snapshotType TEXT NOT NULL DEFAULT 'initial',
+      traitsData TEXT NOT NULL DEFAULT '{}', surfaceData TEXT NOT NULL DEFAULT '{}',
+      createdAt TEXT NOT NULL DEFAULT '', label TEXT
+    ) ''');
+
+    // BT Agent 审计日志表（v37 迁移新增）
+    await db.execute(''' CREATE TABLE IF NOT EXISTS bt_agent_actions (
+      id TEXT PRIMARY KEY, actionType TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '',
+      scope TEXT NOT NULL DEFAULT '', targetType TEXT NOT NULL DEFAULT '', targetId TEXT NOT NULL DEFAULT '',
+      reason TEXT NOT NULL DEFAULT '', stateBefore TEXT NOT NULL DEFAULT '', stateAfter TEXT NOT NULL DEFAULT '',
+      result TEXT NOT NULL DEFAULT '', rejectionReason TEXT NOT NULL DEFAULT '',
+      characterId TEXT NOT NULL DEFAULT '', sessionId TEXT NOT NULL DEFAULT '',
+      chatType TEXT NOT NULL DEFAULT 'single', createdAt TEXT NOT NULL DEFAULT ''
+    ) ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_bt_agent_actions_createdAt ON bt_agent_actions(createdAt DESC)');
+
+    // 小说模块（v53 新增）
+    await _createNovelTables(db);
   }
 
   Future<void> saveUser(User user) async {
@@ -1896,6 +2150,29 @@ class LocalStorageRepository {
           where: 'id = ?', whereArgs: [character.id]);
       if (updateCount == 0) {
         await db.insert('ai_characters', map);
+      }
+    }
+  }
+
+  /// 内置角色种子：首次安装时自动写入内置角色
+  ///
+  /// 检查每个内置角色是否已存在于数据库中，不存在则插入。
+  /// 这样旧用户覆盖升级后也能吃到新内置角色。
+  Future<void> seedBuiltInCharacters() async {
+    final db = await _ensureDb();
+
+    for (final character in BuiltinCharacters.all) {
+      final existing = await db.query(
+        'ai_characters',
+        where: 'id = ?',
+        whereArgs: [character.id],
+        limit: 1,
+      );
+      if (existing.isEmpty) {
+        await db.insert('ai_characters', character.toMap());
+        debugPrint('Seeded built-in character: ${character.name}');
+      } else {
+        debugPrint('Built-in character already exists: ${character.name}');
       }
     }
   }
@@ -3759,9 +4036,39 @@ class LocalStorageRepository {
         'shop_orders',
         'pure_ai_sessions',
         'pure_ai_messages',
+        'inner_thoughts',
+        'forum_posts',
+        'forum_comments',
+        'shared_album_entries',
+        'virtual_locations',
+        'persona_snapshots',
+        'growth_events',
+        'bt_agent_actions',
+        'ai_letters',
+        'intimacy_events',
+        'moment_bookmarks',
+        'moment_notifications',
+        'trending_tags',
+        'social_memories',
+        // 故事书模块
+        'story_books',
+        'story_segments',
+        'story_scenes',
+        'story_saves',
+        // 虚拟手机模块
+        'virtual_phones',
+        'vp_contacts',
+        'vp_chats',
+        'vp_chat_messages',
+        'vp_notes',
+        'vp_moments',
       ];
       for (final table in allTables) {
-        await db.delete(table);
+        try {
+          await db.delete(table);
+        } catch (_) {
+          // 表可能不存在，静默跳过
+        }
       }
     }
     await _prefs?.clear();
@@ -3800,6 +4107,7 @@ class LocalStorageRepository {
       'moment_bookmarks',
       'moment_notifications',
       'trending_tags',
+      'social_memories',
       // 故事书模块（DB v49）
       'story_books',
       'story_segments',
@@ -3977,6 +4285,7 @@ class LocalStorageRepository {
       'moment_bookmarks',
       'moment_notifications',
       'trending_tags',
+      'social_memories',
       // 故事书模块（DB v49）
       'story_books',
       'story_segments',
@@ -5290,5 +5599,62 @@ class LocalStorageRepository {
     final maps = await db.query('vp_moments',
         where: 'phoneId = ?', whereArgs: [phoneId], orderBy: 'orderIndex ASC');
     return maps.map((m) => VpMoment.fromMap(m)).toList();
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // 小说模块 CRUD
+  // ════════════════════════════════════════════════════════════
+
+  Future<void> saveNovel(Novel novel) async {
+    final db = await _ensureDb();
+    await db.insert('novels', novel.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Novel?> getNovel(String id) async {
+    final db = await _ensureDb();
+    final maps = await db.query('novels', where: 'id = ?', whereArgs: [id]);
+    if (maps.isEmpty) return null;
+    return Novel.fromMap(maps.first);
+  }
+
+  Future<List<Novel>> getNovels(String userId) async {
+    final db = await _ensureDb();
+    final maps = await db.query(
+      'novels',
+      where: 'userId = ?',
+      whereArgs: [userId],
+      orderBy: 'updatedAt DESC',
+    );
+    return maps.map((m) => Novel.fromMap(m)).toList();
+  }
+
+  Future<void> deleteNovel(String id) async {
+    final db = await _ensureDb();
+    await db.delete('novels', where: 'id = ?', whereArgs: [id]);
+    // 级联删除章节
+    await db.delete('novel_chapters', where: 'novelId = ?', whereArgs: [id]);
+  }
+
+  Future<void> saveNovelChapter(NovelChapter chapter) async {
+    final db = await _ensureDb();
+    await db.insert('novel_chapters', chapter.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<NovelChapter>> getNovelChapters(String novelId) async {
+    final db = await _ensureDb();
+    final maps = await db.query(
+      'novel_chapters',
+      where: 'novelId = ?',
+      whereArgs: [novelId],
+      orderBy: 'sortOrder ASC',
+    );
+    return maps.map((m) => NovelChapter.fromMap(m)).toList();
+  }
+
+  Future<void> deleteNovelChapter(String id) async {
+    final db = await _ensureDb();
+    await db.delete('novel_chapters', where: 'id = ?', whereArgs: [id]);
   }
 }

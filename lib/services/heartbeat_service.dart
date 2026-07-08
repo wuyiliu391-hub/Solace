@@ -20,6 +20,7 @@ import 'weather_service.dart';
 import 'day_night_service.dart';
 import 'social_scheduler_service.dart';
 import 'world_engine.dart';
+import 'wellbeing_service.dart';
 
 /// 心跳服务 — AI 的"生命脉搏"
 ///
@@ -262,6 +263,14 @@ class HeartbeatService {
 
       // v15.0: 新世界社交调度
       await _socialScheduler?.runSocialCycle();
+
+      // 作息陪伴：每轮心跳检查一次（纯本地闸，不调 LLM，不上传任何数据）
+      // aiSuggests: false  → 仅靠时间/使用时长规则判定，不依赖 AI 建议
+      try {
+        await WellbeingService().maybeLock(aiSuggests: false);
+      } catch (e) {
+        debugPrint('HeartbeatService: wellbeing check error: $e');
+      }
     } catch (e) {
       debugPrint('HeartbeatService: error: $e');
     } finally {

@@ -148,6 +148,9 @@ class VirtualPhoneGenerator {
       b.writeln('· newMoments：0~2 条新动态，取材于最近真实发生的事，禁止与旧内容雷同；');
       b.writeln('· newNotes：0~1 条新备忘/心事，写 TA 最近藏起来的真实想法；');
       b.writeln('· newUserMessages：0~4 条 TA 发给「我」的新消息（延续你俩最近的对话语气）。');
+      b.writeln('· 时间铁律：这些都是"距上次更新到现在"这段最近时间里新增的，'
+          'time / date 必须是最近的过去（如"$_todayHint"、"昨天"、"刚刚"），'
+          '要比上面"已有的近期内容"更新、更靠近"现在"，绝不能早于旧内容或晚于"现在"。');
       b.writeln('宁少勿滥：没有值得记的就返回空数组。所有内容必须从记忆/人设衍生。');
       b.writeln('只输出 JSON：');
       b.writeln(
@@ -253,6 +256,57 @@ class VirtualPhoneGenerator {
 
   // ============ 记忆锚点上下文 ============
 
+  static const List<String> _weekdayCn = [
+    '周一', '周二', '周三', '周四', '周五', '周六', '周日'
+  ];
+
+  /// "今天"的口语提示（如"今天(6月3日)"），供各模块 prompt 复用。
+  String get _todayHint {
+    final now = DateTime.now();
+    return '今天(${now.month}月${now.day}日)';
+  }
+
+  /// 构建「当前时间锚点」——所有模块共享的时间基准。
+  /// 让 LLM 知道"现在"是哪一天几点星期几，从而所有 time/date 标签
+  /// 都相对这个"现在"倒推，与现实和剧情时序保持一致。
+  String _buildTimeAnchor() {
+    final now = DateTime.now();
+    final y = now.year;
+    final mo = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    final hh = now.hour.toString().padLeft(2, '0');
+    final mm = now.minute.toString().padLeft(2, '0');
+    final wd = _weekdayCn[(now.weekday - 1).clamp(0, 6)];
+    String period;
+    final h = now.hour;
+    if (h < 5) {
+      period = '凌晨';
+    } else if (h < 9) {
+      period = '早晨';
+    } else if (h < 12) {
+      period = '上午';
+    } else if (h < 14) {
+      period = '中午';
+    } else if (h < 18) {
+      period = '下午';
+    } else if (h < 23) {
+      period = '晚上';
+    } else {
+      period = '深夜';
+    }
+
+    final b = StringBuffer();
+    b.writeln('== 当前时间锚点（所有时间/日期标签必须以此为基准）==');
+    b.writeln('“现在”是：$y年$mo月$d日 $wd $period $hh:$mm。');
+    b.writeln('铁律（时间一致性）：');
+    b.writeln('· 所有 time / date 字段都表示"过去发生"的时点，绝不能晚于上面的“现在”；');
+    b.writeln('· 用相对且贴近现实的口语标签，例如："今天 $hh:$mm 前的某刻"、"昨天晚上"、"$wd上午"、"三天前"、"上周六"、"$mo月${(now.day - 2).clamp(1, 28)}日"；');
+    b.writeln('· 越近期的内容排在越前面，时间要连贯、符合剧情推进顺序，不要出现未来时间或自相矛盾的先后关系；');
+    b.writeln('· 如果记忆/对话里提到了具体的相对时间（如"明天考试"），要换算成相对"现在"的正确说法后再写。');
+    b.writeln();
+    return b.toString();
+  }
+
   /// 汇总「已成型的记忆库 + 真实单聊历史 + 关系状态 + 人设」，
   /// 作为所有手机模块共享的衍生依据。返回结构化文本 + 是否记忆稀缺标记。
   Future<_MemoryContext> _buildMemoryContext(
@@ -261,6 +315,9 @@ class VirtualPhoneGenerator {
     String userNickname,
   ) async {
     final b = StringBuffer();
+
+    // ---- 时间锚点（放最前，让所有后续内容都以"现在"为参照）----
+    b.write(_buildTimeAnchor());
 
     // ---- 人设（固定成型的角色体系）----
     b.writeln('== 角色人设（固定，不可违背）==');
@@ -378,14 +435,37 @@ class VirtualPhoneGenerator {
         .toList();
     if (visible.isEmpty) return '';
     final tail = visible.length > 24 ? visible.sublist(visible.length - 24) : visible;
+    final now = DateTime.now();
     final b = StringBuffer();
     for (final m in tail) {
       final who = m.isUser ? userNick : characterName;
       final line = m.content.trim().replaceAll('\n', ' ');
       final clipped = line.length > 120 ? '${line.substring(0, 120)}…' : line;
-      b.writeln('$who：$clipped');
+      b.writeln('[${_relativeTimeLabel(m.createdAt, now)}] $who：$clipped');
     }
     return b.toString().trim();
+  }
+
+  /// 把绝对时间转成相对"现在"的口语标签，帮助 LLM 建立剧情时序。
+  static String _relativeTimeLabel(DateTime t, DateTime now) {
+    final diff = now.difference(t);
+    final hh = t.hour.toString().padLeft(2, '0');
+    final mm = t.minute.toString().padLeft(2, '0');
+    if (diff.inMinutes < 60 && diff.inMinutes >= 0) {
+      return '刚刚';
+    }
+    // 按自然日判断"今天/昨天/前天"
+    final today = DateTime(now.year, now.month, now.day);
+    final that = DateTime(t.year, t.month, t.day);
+    final dayGap = today.difference(that).inDays;
+    if (dayGap == 0) return '今天 $hh:$mm';
+    if (dayGap == 1) return '昨天 $hh:$mm';
+    if (dayGap == 2) return '前天 $hh:$mm';
+    if (dayGap > 0 && dayGap < 7) return '$dayGap天前';
+    if (dayGap >= 7 && dayGap < 14) return '上周';
+    if (dayGap >= 14 && dayGap < 30) return '${(dayGap / 7).floor()}周前';
+    if (dayGap >= 30) return '${(dayGap / 30).floor()}个月前';
+    return '${t.month}月${t.day}日';
   }
 
   // ============ 分模块生成 ============
@@ -393,9 +473,12 @@ class VirtualPhoneGenerator {
   static const String _systemPrompt =
       '你是一名擅长角色塑造的编剧，正在为一个虚构角色设计「TA 私人手机里的内容」。'
       '这是纯粹的虚构创作，所有内容都出自你的想象，不涉及任何真实的人或设备。'
-      '铁律：你所写的一切都必须从我提供的【角色人设 + 记忆库 + 真实单聊摘录】中衍生，'
+      '铁律一（素材约束）：你所写的一切都必须从我提供的【角色人设 + 记忆库 + 真实单聊摘录】中衍生，'
       '严禁脱离这些材料凭空捏造无关的人、事、喜好或经历；'
       '记忆材料不足时宁缺毋滥，可以少写，绝不允许用随机无关内容凑数。'
+      '铁律二（时间一致性）：严格遵守我给出的【当前时间锚点】，'
+      '所有 time / date 字段都必须是相对"现在"的过去时点，不得晚于"现在"、不得出现未来日期、'
+      '不同条目之间的先后顺序要连贯合理、贴合剧情推进，绝不允许时间错乱或与现实季节/星期矛盾。'
       '你必须只输出一个 JSON 对象，不要任何解释、不要 markdown 代码块。';
 
   /// 统一的一次性 LLM 调用 + JSON 解析。
@@ -485,6 +568,8 @@ class VirtualPhoneGenerator {
     b.writeln('  体现 TA 私下如何跟我说话、如何看待我，可自然引用记忆库里的共同经历；');
     b.writeln('· 其它段落要呼应角色的人设与记忆，禁止无关剧情；');
     b.writeln('· fromOwner=true 表示 ${c.name} 本人发的，false 表示对方发的；');
+    b.writeln('· time 字段：每条消息的时间标签必须基于开头的【当前时间锚点】倒推，'
+        '同一段对话内时间要递增连贯（如"昨天 21:03"→"昨天 21:05"），越近的对话排越前；');
     b.writeln('· 记忆很少时可只写 1~2 段，不要硬凑。');
     b.writeln('只输出 JSON（title 为聊天对象名）：');
     b.writeln(
@@ -542,6 +627,8 @@ class VirtualPhoneGenerator {
     b.writeln('虚构 ${c.name} 写在备忘录里的 2~5 条私密心事。');
     b.writeln('· 每条都要能对应到记忆库里的具体喜好/情绪/里程碑，或真实单聊里发生过的事；');
     b.writeln('· 至少一条 aboutUser=true（关于「我」的），写 TA 藏起来没说出口的真实想法；');
+    b.writeln('· date 字段：每条备忘的日期标签基于【当前时间锚点】倒推，'
+        '是写下这条心事的过去日期（如"昨天"、"$_todayHint"、"上周三"），不得晚于"现在"，越近的排越前；');
     b.writeln('· 严禁写与记忆/人设无关的空泛内容；记忆很少时可只写 1~2 条。');
     b.writeln('只输出 JSON：');
     b.writeln('{"notes":[{"title":"","body":"","date":"","aboutUser":false}]}');
@@ -583,6 +670,8 @@ class VirtualPhoneGenerator {
     b.writeln('· 取材于记忆库里的共同经历/最近状态/记住的情绪，或角色人设中的生活；');
     b.writeln('· 可以有隐晦提及「我」的动态（不点名），呼应你们之间发生过的事；');
     b.writeln('· 点赞数虚构合理数字，评论可留空或来自通讯录里的人；');
+    b.writeln('· time 字段：每条动态的发布时间基于【当前时间锚点】倒推，'
+        '是过去发出的（如"$_todayHint 中午"、"昨天"、"三天前"），不得晚于"现在"，越近的排越前；');
     b.writeln('· 禁止与记忆/人设无关的随机内容；记忆很少时可只写 2~3 条。');
     b.writeln('只输出 JSON：');
     b.writeln(

@@ -21,7 +21,10 @@ class SafeFilePicker {
 
   static bool _isUninitializedPlatform(Object error) {
     final message = error.toString();
-    return error.runtimeType.toString() == 'LateInitializationError' &&
+    // 在 release 混淆编译（--obfuscate）下，runtimeType.toString() 返回的是
+    // 混淆后的名字，不等于 'LateInitializationError'，因此不能依赖 runtimeType。
+    // Dart VM 的错误消息格式（"has not been initialized"）不受混淆影响，用它判断更可靠。
+    return message.contains('has not been initialized') &&
         message.contains('_instance');
   }
 

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../config/moments_theme.dart';
+import '../../utils/avatar_resolver.dart';
 
 /// 复用头像组件，支持本地文件和网络 URL
 class CircularAvatar extends StatelessWidget {
@@ -32,29 +33,14 @@ class CircularAvatar extends StatelessWidget {
 
   Widget _buildImage(BuildContext context) {
     if (avatarPath != null && avatarPath!.isNotEmpty) {
-      if (avatarPath!.startsWith('http')) {
-        return ClipOval(
-          child: Image.network(
-            avatarPath!,
-            width: radius * 2,
-            height: radius * 2,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _fallbackInitial(context),
-          ),
-        );
-      } else {
-        final file = File(avatarPath!);
-        if (file.existsSync()) {
-          return ClipOval(
-            child: Image.file(
-              file,
-              width: radius * 2,
-              height: radius * 2,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _fallbackInitial(context),
-            ),
-          );
-        }
+      final image = AvatarResolver.imageWidget(
+        avatarPath,
+        width: radius * 2,
+        height: radius * 2,
+        onError: () => _fallbackInitial(context),
+      );
+      if (image != null) {
+        return ClipOval(child: image);
       }
     }
     return _fallbackInitial(context);

@@ -5,6 +5,7 @@ import '../../models/ai_character.dart';
 import '../../models/character_emotion.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/emotion_engine.dart';
+import '../../utils/avatar_resolver.dart';
 
 class DailyScreen extends StatefulWidget {
   const DailyScreen({super.key});
@@ -240,9 +241,11 @@ class _DailyScreenState extends State<DailyScreen>
                     width: 40,
                     height: 40,
                     child: (_primaryCharacter!.avatarUrl ?? '').isNotEmpty
-                        ? Image.network(_primaryCharacter!.avatarUrl!,
+                        ? (AvatarResolver.imageWidget(
+                            _primaryCharacter!.avatarUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _defaultAvatar(cs))
+                            onError: () => _defaultAvatar(cs)) ??
+                            _defaultAvatar(cs))
                         : _defaultAvatar(cs),
                   ),
                 )

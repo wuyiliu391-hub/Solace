@@ -2,12 +2,6 @@ import 'package:flutter/material.dart';
 import '../../services/wellbeing_service.dart';
 
 /// 作息陪伴设置页（纯本地）
-///
-/// 让用户开启/关闭作息陪伴，授予「仅锁屏」的设备管理员与「使用情况访问」，
-/// 并配置就寝时段、连续使用上限、触发规则。
-///
-/// 所有配置本地存储，所有感知本地读取，所有锁屏本地触发——零数据外传。
-/// AI 只能通过 [rest_suggest] 标记「提议」休息，是否真锁屏由本页规则决定。
 class WellbeingScreen extends StatefulWidget {
   const WellbeingScreen({super.key});
 
@@ -22,6 +16,11 @@ class _WellbeingScreenState extends State<WellbeingScreen> {
   bool _adminActive = false;
   bool _usageAccess = false;
   bool _loading = true;
+
+  // 测试按钮状态
+  bool _testingLock = false;
+  bool _testingEval = false;
+  String? _lastEvalResult;
 
   @override
   void initState() {
@@ -77,40 +76,51 @@ class _WellbeingScreenState extends State<WellbeingScreen> {
           ));
   }
 
-  // BODY_PLACEHOLDER
+  /// 手动强制测试锁屏
+  Future<void> _testLockNow() async {
+    setState(() => _testingLock = true);
+    final ok = await _service.lockNow();
+    if (!mounted) return;
+    setState(() => _testingLock = false);
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('锁屏失败 — 请先授予设备管理员权限')),
+      );
+    }
+    // 成功则屏幕直接熄灭，不需要提示
+  }
+
+  /// 手动触发一次规则评估（不锁屏，只看结果）
+  Future<void> _testEvaluate() async {
+    setState(() {
+      _testingEval = true;
+      _lastEvalResult = null;
+    });
+    final decision = await _service.evaluate(aiSuggests: false);
+    if (!mounted) return;
+    setState(() {
+      _testingEval = false;
+      _lastEvalResult = decision.allow
+          ? '✅ 规则命中，会触发锁屏\n原因：${decision.reason}'
+          : '⏸ 规则未命中，不锁屏\n原因：${decision.reason}';
+    });
+  }
 
   List<Widget> _buildChildren(ColorScheme cs) {
     return [
-      // 说明卡片
-      Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: cs.primaryContainer.withOpacity(0.35),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.favorite_outline, size: 20, color: cs.primary),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'TA 会在你设定的休息时段温柔提醒你放下手机。所有感知与锁屏都在本机完成，'
-                '不上传任何数据；锁屏后用你自己的密码即可解开，可随时关闭。',
-                style: TextStyle(
-                    fontSize: 13, height: 1.5, color: cs.onSurface.withOpacity(0.75)),
-              ),
-            ),
-          ],
-        ),
-      ),
+      // ── 功能说明卡片 ──
+      _buildCapabilityCard(cs),
+      const SizedBox(height: 16),
+
+      // ── 触发时机说明 ──
+      _buildTriggerCard(cs),
       const SizedBox(height: 16),
 
       // 主开关
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         title: const Text('启用作息陪伴'),
-        subtitle: const Text('开启后 AI 才会感知作息并可能提议休息'),
+        subtitle: const Text('开启后心跳服务每 2-5 分钟自动检查一次规则'),
         value: _cfg.enabled,
         onChanged: (v) => _update(WellbeingConfig(
           enabled: v,
@@ -123,7 +133,7 @@ class _WellbeingScreenState extends State<WellbeingScreen> {
       ),
       const Divider(),
 
-      // 授权区
+      // ── 授权区 ──
       ListTile(
         contentPadding: EdgeInsets.zero,
         leading: Icon(
@@ -150,7 +160,7 @@ class _WellbeingScreenState extends State<WellbeingScreen> {
         title: const Text('使用情况访问'),
         subtitle: Text(_usageAccess
             ? '已授权 · 仅读前台应用时长，读不到应用内容'
-            : '未授权 · 点击授予（用于感知使用时长）'),
+            : '未授权 · 点击授予（用于感知连续使用时长）'),
         trailing: _usageAccess ? null : const Icon(Icons.chevron_right),
         onTap: _usageAccess
             ? null
@@ -162,6 +172,7 @@ class _WellbeingScreenState extends State<WellbeingScreen> {
       ),
       const Divider(),
 
+      // ── 休息规则 ──
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Text('休息规则',
@@ -171,7 +182,6 @@ class _WellbeingScreenState extends State<WellbeingScreen> {
                 color: cs.onSurface.withOpacity(0.6))),
       ),
 
-      // 规则一：就寝时段锁屏
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         title: const Text('就寝时段提议锁屏'),
@@ -207,7 +217,6 @@ class _WellbeingScreenState extends State<WellbeingScreen> {
       ),
       const SizedBox(height: 8),
 
-      // 规则二：连续使用超限锁屏
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         title: const Text('连续使用超限提议锁屏'),
@@ -238,8 +247,200 @@ class _WellbeingScreenState extends State<WellbeingScreen> {
             lockOnOveruse: _cfg.lockOnOveruse,
           )),
         ),
-      const SizedBox(height: 24),
+
+      const Divider(),
+
+      // ── 手动测试区 ──
+      _buildTestSection(cs),
+      const SizedBox(height: 32),
     ];
+  }
+
+  /// 功能能力说明卡
+  Widget _buildCapabilityCard(ColorScheme cs) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.favorite_outline, size: 18, color: cs.primary),
+              const SizedBox(width: 8),
+              Text('TA 能做什么',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: cs.primary)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _capabilityRow(Icons.lock_outline, '锁屏', '到了就寝时间或使用超限，自动锁屏。你用自己的密码即可解锁，随时可关闭。', cs),
+          const SizedBox(height: 6),
+          _capabilityRow(Icons.bar_chart_outlined, '使用时长感知', '仅读「本机前台 App 名 + 使用分钟数」，读不到任何应用内文字或内容。', cs),
+          const SizedBox(height: 6),
+          _capabilityRow(Icons.chat_bubble_outline, 'AI 提议', '聊天中 AI 可以建议你休息（[rest_suggest] 标记），但最终是否锁屏由这里的规则说了算。', cs),
+          const SizedBox(height: 8),
+          Divider(height: 1, color: cs.outline.withOpacity(0.3)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(Icons.block, size: 14, color: cs.error.withOpacity(0.7)),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '不上传任何数据 · 不读屏 · 不模拟点击 · 不远程控制',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: cs.onSurface.withOpacity(0.5)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _capabilityRow(IconData icon, String title, String desc, ColorScheme cs) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: cs.primary.withOpacity(0.7)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: TextStyle(fontSize: 13, color: cs.onSurface.withOpacity(0.75), height: 1.4),
+              children: [
+                TextSpan(text: '$title  ', style: const TextStyle(fontWeight: FontWeight.w600)),
+                TextSpan(text: desc),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 触发时机说明卡
+  Widget _buildTriggerCard(ColorScheme cs) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('触发时机',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface.withOpacity(0.6))),
+          const SizedBox(height: 8),
+          _triggerRow('📡', '心跳自动检查', 'App 在前台时每 2-5 分钟自动检查一次规则，无需用户操作', cs),
+          const SizedBox(height: 4),
+          _triggerRow('💬', 'AI 对话触发', '聊天中 AI 发出 [rest_suggest] 时立即触发一次规则判断', cs),
+          const SizedBox(height: 4),
+          _triggerRow('🔘', '手动测试', '下方按钮可随时手动触发，验证配置是否生效', cs),
+        ],
+      ),
+    );
+  }
+
+  Widget _triggerRow(String emoji, String title, String desc, ColorScheme cs) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(emoji, style: const TextStyle(fontSize: 14)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.7), height: 1.4),
+              children: [
+                TextSpan(text: '$title  ', style: const TextStyle(fontWeight: FontWeight.w600)),
+                TextSpan(text: desc),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 手动测试区域
+  Widget _buildTestSection(ColorScheme cs) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text('手动测试',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface.withOpacity(0.6))),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: _testingEval
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.rule, size: 18),
+                label: const Text('检查规则'),
+                onPressed: _testingEval ? null : _testEvaluate,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                icon: _testingLock
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.lock, size: 18),
+                label: const Text('立即锁屏'),
+                style: FilledButton.styleFrom(backgroundColor: cs.error),
+                onPressed: (_testingLock || !_adminActive) ? null : _testLockNow,
+              ),
+            ),
+          ],
+        ),
+        if (!_adminActive)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text('需先授予设备管理员权限才能使用立即锁屏',
+                style: TextStyle(fontSize: 12, color: cs.error.withOpacity(0.8))),
+          ),
+        if (_lastEvalResult != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: cs.surfaceVariant.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(_lastEvalResult!,
+                style: TextStyle(
+                    fontSize: 13, height: 1.5, color: cs.onSurface.withOpacity(0.85))),
+          ),
+        ],
+      ],
+    );
   }
 
   @override

@@ -770,6 +770,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         imageDescription: imageDescription,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
+      ).timeout(
+        // 每个 chunk 最多等待 30 秒；若 API 连接挂起但无数据，
+        // 抛出 TimeoutException 进入 catch 块，再由步骤4a 非流式兜底。
+        const Duration(seconds: 30),
+        onTimeout: (sink) => sink.close(),
       )) {
         finalReasoning = chunk.reasoning;
         finalContent = chunk.content;

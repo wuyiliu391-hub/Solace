@@ -4,9 +4,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/chat/chat_bloc.dart';
+import '../../models/ai_character.dart';
 import '../../models/chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
+import '../../utils/avatar_resolver.dart';
 import '../character/create_character_screen.dart';
 import '../character/discover_characters_screen.dart';
 import 'chat_detail_screen.dart';
@@ -98,13 +100,59 @@ class ChatListScreen extends StatelessWidget {
     );
   }
 
+  /// 在线好友行：取 chatSessions 中有最后时间的，以及所有没有 session 但在线的角色（内置角色等）
   Widget _buildOnlineFriendsRow(BuildContext context, List<ChatSession> sessions, bool isDark) {
+    // 从 chat sessions 取有消息的记录
     final activeSessions = sessions
         .where((s) => s.lastMessageTime != null)
         .take(10)
         .toList();
 
-    if (activeSessions.isEmpty) return const SizedBox.shrink();
+    if (activeSessions.isEmpty && sessions.isNotEmpty) {
+      // 如果所有活跃角色都有 session，直接用原来的简化路径
+      return _buildOnlineFriendsRowFromSessions(activeSessions, isDark);
+    }
+
+    return FutureBuilder<List<AICharacter>>(
+      future: RepositoryProvider.of<LocalStorageRepository>(context).getAllAICharacters(),
+      builder: (context, charsSnapshot) {
+        final allCharacters = <AICharacter>[];
+        if (charsSnapshot.hasData) {
+          allCharacters.addAll(charsSnapshot.data as List<AICharacter>);
+        }
+        final characterIdsWithSession = sessions.map((s) => s.aiCharacterId).toSet();
+        final charactersWithoutSession = allCharacters
+            .where((c) => c.isOnline && !characterIdsWithSession.contains(c.id) && !c.isHidden)
+            .toList();
+
+        final allFriends = <Object>[...activeSessions, ...charactersWithoutSession];
+        if (allFriends.isEmpty) return const SizedBox.shrink();
+
+        return Container(
+          height: 90,
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: allFriends.length,
+            itemBuilder: (context, index) {
+              final item = allFriends[index];
+              if (item is ChatSession) {
+                return _buildOnlineFriendItem(context, item, isDark);
+              } else if (item is AICharacter) {
+                return _buildOnlineFriendItemFromCharacter(context, item, isDark);
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  /// 纯 session 版本的在线好友行（用于快速路径）
+  Widget _buildOnlineFriendsRowFromSessions(List<ChatSession> sessions, bool isDark) {
+    if (sessions.isEmpty) return const SizedBox.shrink();
 
     return Container(
       height: 90,
@@ -112,13 +160,155 @@ class ChatListScreen extends StatelessWidget {
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: activeSessions.length,
+        itemCount: sessions.length,
         itemBuilder: (context, index) {
-          final session = activeSessions[index];
+          final session = sessions[index];
           return _buildOnlineFriendItem(context, session, isDark);
         },
       ),
     );
+  }
+
+  /// 从 AICharacter 构建在线好友头像（用于没有 session 的角色）
+  Widget _buildOnlineFriendItemFromCharacter(
+    BuildContext context,
+    AICharacter character,
+    bool isDark,
+  ) {
+    final avatarUrl = character.avatarUrl;
+    final name = character.name;
+
+    return GestureDetector(
+      onTap: () async {
+        final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+        final authBloc = context.read<AuthBloc>();
+        final userId = authBloc.state is AuthAuthenticated
+            ? (authBloc.state as AuthAuthenticated).user.id
+            : 'local_user';
+
+        // 检查是否已有 session
+        final sessions = await storage.getChatSessions(userId);
+        ChatSession? existingSession;
+        for (final s in sessions) {
+          if (s.aiCharacterId == character.id) {
+            existingSession = s;
+            break;
+          }
+        }
+
+        if (existingSession != null) {
+          final targetSession = existingSession;
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => ChatDetailScreen(session: targetSession),
+            ),
+          );
+        } else if (!context.mounted) {
+          return;
+        } else {
+          // 新建 session
+          final now = DateTime.now();
+          final sessionId = 'chat_${character.id}_$userId';
+          final newSession = ChatSession(
+            id: sessionId,
+            userId: userId,
+            aiCharacterId: character.id,
+            aiCharacterName: character.name,
+            aiCharacterAvatar: character.avatarUrl,
+            lastMessage: '',
+            lastMessageTime: now,
+            unreadCount: 0,
+            intimacyLevel: 0,
+            dailyIntimacyCount: 0,
+            lastIntimacyDate: now.toIso8601String().substring(0, 10),
+            createdAt: now,
+            updatedAt: now,
+          );
+          await storage.saveChatSession(newSession);
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => ChatDetailScreen(session: newSession),
+            ),
+          );
+        }
+
+        if (context.mounted) {
+          context.read<ChatBloc>().add(ChatLoadSessions(userId));
+        }
+      },
+      child: Container(
+        width: 64,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          children: [
+            Stack(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isDark ? const Color(0xFF2C2C2C) : const Color(0xFFE8E4EC),
+                  ),
+                  child: ClipOval(
+                    child: avatarUrl != null && avatarUrl.isNotEmpty
+                        ? _buildAvatar(avatarUrl, isDark)
+                        : Center(
+                            child: Text(
+                              name.isNotEmpty ? name.substring(0, 1) : '?',
+                              style: TextStyle(
+                                  color: isDark ? Colors.white : Colors.black,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                  ),
+                ),
+                Positioned(
+                  right: 2,
+                  bottom: 2,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4CAF50),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isDark ? const Color(0xFF000000) : Colors.white,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              name,
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.white.withOpacity(0.8) : Colors.black.withOpacity(0.7),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatar(String avatarUrl, bool isDark) {
+    final image = AvatarResolver.imageWidget(
+      avatarUrl,
+      fit: BoxFit.cover,
+      onError: () => const SizedBox.shrink(),
+    );
+    if (image != null) return image;
+    return const SizedBox.shrink();
   }
 
   Widget _buildOnlineFriendItem(BuildContext context, ChatSession session, bool isDark) {
@@ -157,17 +347,16 @@ class ChatListScreen extends StatelessWidget {
                   ),
                   child: ClipOval(
                     child: avatarUrl != null && avatarUrl.isNotEmpty
-                        ? (avatarUrl.startsWith('/')
-                                ? Image.file(File(avatarUrl), fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Center(
+                        ? (AvatarResolver.imageWidget(avatarUrl,
+                                fit: BoxFit.cover,
+                                onError: () => Center(
                                       child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
                                           style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 20)),
-                                    ))
-                                : Image.network(avatarUrl, fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Center(
-                                      child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
-                                          style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 20)),
-                                    )))
+                                    )) ??
+                            Center(
+                              child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
+                                  style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 20)),
+                            ))
                         : Center(
                             child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
                                 style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 20, fontWeight: FontWeight.w600)),

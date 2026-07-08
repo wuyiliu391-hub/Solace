@@ -52,22 +52,31 @@ class _UpdateDialogState extends State<UpdateDialog> {
           children: [
             Text(
               'v${widget.info.latestVersion}  (Build ${widget.info.buildNumber})',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: colorScheme.primary),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: colorScheme.primary),
             ),
-            const SizedBox(height: 12),
-            const Text('更新内容：', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 6),
-            for (final item in widget.info.changelog)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
+            const SizedBox(height: 10),
+            const Text('更新内容：', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 4),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('• ', style: TextStyle(color: colorScheme.primary, fontSize: 13)),
-                    Expanded(child: Text(item, style: const TextStyle(fontSize: 13))),
+                    for (final item in widget.info.changelog)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('• ', style: TextStyle(color: colorScheme.primary, fontSize: 11.5)),
+                            Expanded(child: Text(item, style: const TextStyle(fontSize: 11.5, height: 1.35))),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
+            ),
             if (_state == _UpdateState.downloading || _state == _UpdateState.installing) ...[
               const SizedBox(height: 16),
               ClipRRect(

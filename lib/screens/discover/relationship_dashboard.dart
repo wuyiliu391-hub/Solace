@@ -8,6 +8,7 @@ import '../../models/intimacy_event.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/emotion_engine.dart';
 import '../../services/growth_data_service.dart';
+import '../../utils/avatar_resolver.dart';
 
 /// 关系温度仪表盘
 class RelationshipDashboard extends StatefulWidget {
@@ -200,10 +201,8 @@ class _RelationshipDashboardState extends State<RelationshipDashboard> {
             label: Text(character.name),
             avatar: CircleAvatar(
               radius: 10,
-              backgroundImage: (character.avatarUrl ?? '').isNotEmpty
-                  ? NetworkImage(character.avatarUrl!)
-                  : null,
-              child: (character.avatarUrl ?? '').isEmpty
+              backgroundImage: AvatarResolver.imageProvider(character.avatarUrl),
+              child: AvatarResolver.imageProvider(character.avatarUrl) == null
                   ? const Icon(Icons.person, size: 12)
                   : null,
             ),
@@ -243,9 +242,10 @@ class _RelationshipDashboardState extends State<RelationshipDashboard> {
               width: 56,
               height: 56,
               child: (_character!.avatarUrl ?? '').isNotEmpty
-                  ? Image.network(_character!.avatarUrl!,
+                  ? (AvatarResolver.imageWidget(_character!.avatarUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _defaultAvatar(cs))
+                      onError: () => _defaultAvatar(cs)) ??
+                      _defaultAvatar(cs))
                   : _defaultAvatar(cs),
             ),
           ),

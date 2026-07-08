@@ -6,6 +6,7 @@ import '../../models/ai_activity_event.dart';
 import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_activity_service.dart';
+import '../../utils/avatar_resolver.dart';
 
 /// AI 活动动态流页面
 class AIActivityFeedScreen extends StatefulWidget {
@@ -95,10 +96,8 @@ class _AIActivityFeedScreenState extends State<AIActivityFeedScreen> {
                 ? const Icon(Icons.groups_rounded, size: 16)
                 : CircleAvatar(
                     radius: 10,
-                    backgroundImage: character!.avatarUrl != null
-                        ? NetworkImage(character.avatarUrl!)
-                        : null,
-                    child: character.avatarUrl == null
+                    backgroundImage: AvatarResolver.imageProvider(character!.avatarUrl),
+                    child: AvatarResolver.imageProvider(character!.avatarUrl) == null
                         ? const Icon(Icons.person, size: 12)
                         : null,
                   ),

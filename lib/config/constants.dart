@@ -229,6 +229,8 @@ class PrefKeys {
   static const String btModeNoticeV1310Shown = 'bt_mode_notice_v1310_shown';
   static const String forceModeConfirmV14 = 'force_mode_confirm_v14';
   static const String versionFeatureAck275 = 'version_feature_ack_v275';
+  static const String versionFeatureAck277 = 'version_feature_ack_v277';
+  static const String versionFeatureAck278 = 'version_feature_ack_v278';
   static const String btYandereMasterEnabled = 'bt_yandere_master_enabled';
   static const String btPermissionContactRemark =
       'bt_permission_contact_remark';
@@ -389,7 +391,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 52;
+  static const int dbVersion = 53;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;
@@ -412,6 +414,30 @@ class DbDefaults {
     'story_segments',
     'story_scenes',
     'story_saves',
+    // v26+ 模块
+    'ai_wallets',
+    'pure_ai_sessions',
+    'pure_ai_messages',
+    'inner_thoughts',
+    'forum_posts',
+    'forum_comments',
+    'shared_album_entries',
+    'virtual_locations',
+    'persona_snapshots',
+    'growth_events',
+    'bt_agent_actions',
+    'ai_letters',
+    // X 推特风格
+    'moment_bookmarks',
+    'moment_notifications',
+    'trending_tags',
+    // 虚拟手机模块
+    'virtual_phones',
+    'vp_contacts',
+    'vp_chats',
+    'vp_chat_messages',
+    'vp_notes',
+    'vp_moments',
   ];
 }
 
@@ -425,8 +451,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-  static const String version = '16.3.0';
-  static const int build = 276;
+static const String version = '17.0.1';
+static const int build = 278;
 }
 
 class NotificationChannels {

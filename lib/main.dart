@@ -27,6 +27,7 @@ import 'screens/discover/growth_track_screen.dart';
 import 'screens/discover/ai_activity_feed_screen.dart';
 import 'screens/discover/relationship_dashboard.dart';
 import 'screens/discover/ai_mailbox_screen.dart';
+import 'screens/discover/entertainment_screen.dart';
 import 'screens/map/map_screen.dart';
 import 'screens/character/create_character_screen.dart';
 import 'screens/character/create_character_screen.dart';
@@ -37,6 +38,7 @@ import 'screens/social/forum_screen.dart';
 import 'screens/map/virtual_map_screen.dart';
 import 'screens/games/lucky_wheel_screen.dart';
 import 'screens/story/story_shelf_screen.dart';
+import 'screens/novel/novel_shelf_screen.dart';
 
 import 'screens/usage/usage_screen.dart';
 import 'blocs/chat/chat_bloc.dart';
@@ -48,7 +50,6 @@ import 'services/workmanager_helper.dart'
     if (dart.library.html) 'services/workmanager_helper_web.dart';
 import 'widgets/age_declaration_screen.dart';
 import 'widgets/update_dialog.dart';
-import 'widgets/version_feature_dialog.dart';
 import 'config/constants.dart';
 import 'config/tts_config.dart';
 import 'services/tts_service.dart';
@@ -268,7 +269,6 @@ class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('更新检查失败: $e');
     }
-    if (mounted) _checkAnnouncements();
   }
 
   /// 版本号比较：v1 > v2 返回 1，v1 < v2 返回 -1，相等返回 0
@@ -282,21 +282,6 @@ class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
       if (a < b) return -1;
     }
     return 0;
-  }
-
-  Future<void> _checkAnnouncements() async {
-    try {
-      final prefs = await SharedPreferences.getInstance()
-          .timeout(const Duration(seconds: 3));
-      const ackKey = PrefKeys.versionFeatureAck275;
-      final hasAcked = prefs.getBool(ackKey) ?? false;
-      if (!hasAcked && mounted) {
-        await VersionFeatureDialog.showIfNeeded(context, ackKey);
-        await prefs.setBool(ackKey, true);
-      }
-    } catch (e) {
-      debugPrint('版本公告弹窗失败: $e');
-    }
   }
 
   @override
@@ -632,6 +617,8 @@ class _MainShellState extends State<_MainShell> {
       case 3:
         return const ProfileScreen();
       case 4:
+        return const NovelShelfScreen();
+      case 5:
         return const UsageScreen();
       default:
         return const SizedBox.shrink();
@@ -721,7 +708,7 @@ class _MainShellState extends State<_MainShell> {
           ),
           Expanded(
             child: Stack(
-              children: List.generate(5, (i) {
+              children: List.generate(6, (i) {
                 // 懒加载：只构建访问过的页面
                 if (i == _currentIndex) {
                   _pageCache[i] ??= _buildPage(i);
@@ -783,6 +770,10 @@ class _MainShellState extends State<_MainShell> {
                 activeIcon: Icon(Icons.person),
                 label: '我'),
             const BottomNavigationBarItem(
+                icon: Icon(Icons.menu_book_outlined),
+                activeIcon: Icon(Icons.menu_book),
+                label: '小说'),
+            const BottomNavigationBarItem(
                 icon: Icon(Icons.donut_large_outlined),
                 activeIcon: Icon(Icons.donut_large),
                 label: '用量'),
@@ -793,33 +784,93 @@ class _MainShellState extends State<_MainShell> {
   }
 }
 
-class _DiscoverPage extends StatelessWidget {
+class _DiscoverPage extends StatefulWidget {
   final Function(String)? onNavigate;
   const _DiscoverPage({this.onNavigate});
+
+  @override
+  State<_DiscoverPage> createState() => _DiscoverPageState();
+}
+
+class _DiscoverPageState extends State<_DiscoverPage>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  late PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _pageController = PageController();
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        _pageController.jumpToPage(_tabController.index);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _pageController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
     return Scaffold(
       appBar: AppBar(
-          title: const Text('发现'), backgroundColor: cs.surface, elevation: 0),
-      body: ListView(children: [
-        _tile(context, Icons.photo_library, '朋友圈', '查看 AI 的动态', '/moments', cs,
-            tt),
-        _tile(context, Icons.psychology, '记忆库', '回顾你们的回忆', '/memory', cs, tt),
-        _tile(context, Icons.mark_email_unread_outlined, '信箱', '查看 AI 写给你的来信',
-            '/mailbox', cs, tt),
-        _tile(context, Icons.auto_stories, '故事书', '与 AI 共创互动故事', '/story', cs,
-            tt),
-        _tile(context, Icons.casino, '幸运转盘', '试试手气', '/lucky_wheel', cs, tt),
-        _tile(context, Icons.auto_fix_high, '塔罗牌', '每日占卜', '/tarot', cs, tt),
-        _tile(context, Icons.trending_up, '成长轨迹', '查看成长记录', '/growth', cs, tt),
-        _tile(context, Icons.auto_awesome, 'AI 动态', '查看 AI 的活动', '/ai_activity',
-            cs, tt),
-        _tile(context, Icons.thermostat, '关系温度', '查看关系仪表盘', '/relationship', cs,
-            tt),
-      ]),
+        backgroundColor: cs.surface,
+        elevation: 0,
+        title: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          labelColor: cs.primary,
+          unselectedLabelColor: cs.onSurfaceVariant,
+          indicatorColor: cs.primary,
+          indicatorSize: TabBarIndicatorSize.label,
+          labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          unselectedLabelStyle: const TextStyle(fontSize: 16),
+          dividerHeight: 0,
+          tabs: const [
+            Tab(text: '功能'),
+            Tab(text: '娱乐互动'),
+          ],
+        ),
+      ),
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: (index) {
+          _tabController.animateTo(index);
+        },
+        children: [
+          _buildFeaturesTab(cs),
+          EntertainmentScreen(onNavigate: widget.onNavigate),
+        ],
+      ),
     );
+  }
+
+  Widget _buildFeaturesTab(ColorScheme cs) {
+    final tt = Theme.of(context).textTheme;
+    return ListView(children: [
+      _tile(context, Icons.photo_library, '朋友圈', '查看 AI 的动态', '/moments', cs,
+          tt),
+      _tile(context, Icons.psychology, '记忆库', '回顾你们的回忆', '/memory', cs, tt),
+      _tile(context, Icons.mark_email_unread_outlined, '信箱', '查看 AI 写给你的来信',
+          '/mailbox', cs, tt),
+      _tile(context, Icons.auto_stories, '故事书', '与 AI 共创互动故事', '/story', cs,
+          tt),
+      _tile(context, Icons.casino, '幸运转盘', '试试手气', '/lucky_wheel', cs, tt),
+      _tile(context, Icons.auto_fix_high, '塔罗牌', '每日占卜', '/tarot', cs, tt),
+      _tile(context, Icons.trending_up, '成长轨迹', '查看成长记录', '/growth', cs, tt),
+      _tile(context, Icons.auto_awesome, 'AI 动态', '查看 AI 的活动', '/ai_activity',
+          cs, tt),
+      _tile(context, Icons.thermostat, '关系温度', '查看关系仪表盘', '/relationship', cs,
+          tt),
+    ]);
   }
 
   Widget _tile(BuildContext ctx, IconData icon, String title, String subtitle,
@@ -837,7 +888,7 @@ class _DiscoverPage extends StatelessWidget {
       subtitle: Text(subtitle,
           style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
       trailing: Icon(Icons.chevron_right, color: cs.onSurfaceVariant, size: 20),
-      onTap: () => onNavigate?.call(route),
+      onTap: () => widget.onNavigate?.call(route),
     );
   }
 }

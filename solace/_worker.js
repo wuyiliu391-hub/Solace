@@ -11,20 +11,26 @@ function versionCompare(v1, v2) {
 }
 
 const VERSION_DATA = {
-  latestVersion: '16.3.0',
-  buildNumber: 276,
+  latestVersion: '17.0.1',
+  buildNumber: 278,
   minSdk: 23,
-  releaseDate: '2026-07-07',
-  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=16.3.0',
+  releaseDate: '2026-07-08',
+  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=17.0.1',
   changelog: [
-    '修复备份文件导入失败问题',
-    '理论修复动态输出思考内容问题',
-    '整体代码结构优化与清理',
+    '修复导入备份失败问题',
+    '底部导航栏新增小说功能',
   ],
   forceUpdate: false,
 };
 
 const ANNOUNCEMENTS = [
+  {
+    id: 'ann_1701',
+    title: 'Solace 17.0.1 更新公告',
+    content: `Solace 17.0.1+278 更新公告\n\n━━━━━━━━━ 本次更新 ━━━━━━━━━\n\n🔧 修复导入备份失败问题\n修复用户导入备份文件时崩溃的问题，数据恢复功能恢复正常。\n\n📚 底部导航栏新增小说功能\n底部导航栏新增小说入口，随时进入小说创作与阅读。`,
+    date: '2026-07-08',
+    type: 'fix',
+  },
   {
     id: 'ann_1630_bugfix',
     title: 'Solace 16.3.0 更新公告',

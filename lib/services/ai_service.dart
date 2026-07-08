@@ -2844,7 +2844,7 @@ $conversation
     required String apiKey,
     required String model,
     required List<Map<String, String>> messages,
-    int maxTokens = 2048,
+    int? maxTokens = 2048,
     AIConfig? config,
   }) async {
     String cleanUrl = baseUrl.trim();
@@ -2858,8 +2858,10 @@ $conversation
     final payload = <String, dynamic>{
       'model': model,
       'messages': messages,
-      'max_tokens': maxTokens,
     };
+    if (maxTokens != null) {
+      payload['max_tokens'] = maxTokens;
+    }
     // GLM-Z1-9B 记忆场景专属参数
     if (config != null) {
       _injectGlmParamsIfneeded(payload, config,
@@ -2962,7 +2964,8 @@ $conversation
       apiKey: config.apiKey,
       model: config.modelName,
       messages: messages,
-      maxTokens: overrideMaxTokens ?? config.maxTokens,
+      // overrideMaxTokens 为 null 时不传 max_tokens，交由上游决定
+      maxTokens: overrideMaxTokens,
       config: config,
     );
   }
@@ -2979,7 +2982,8 @@ $conversation
       apiKey: config.apiKey,
       model: config.modelName,
       messages: messages,
-      maxTokens: overrideMaxTokens ?? config.maxTokens,
+      // overrideMaxTokens 为 null 时不传 max_tokens，完全由上游模型决定输出长度
+      maxTokens: overrideMaxTokens,
       config: config,
     );
   }
@@ -2990,7 +2994,7 @@ $conversation
     required String apiKey,
     required String model,
     required List<Map<String, String>> messages,
-    int maxTokens = 2048,
+    int? maxTokens = 2048,
     AIConfig? config,
   }) async* {
     String cleanUrl = baseUrl.trim();
@@ -3009,9 +3013,11 @@ $conversation
       final payload = <String, dynamic>{
         'model': model,
         'messages': messages,
-        'max_tokens': maxTokens,
         'stream': true,
       };
+      if (maxTokens != null) {
+        payload['max_tokens'] = maxTokens;
+      }
       // GLM-Z1-9B 记忆场景专属参数
       if (config != null) {
         _injectGlmParamsIfneeded(payload, config,
