@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
-import '../../services/persona_evolution_service.dart';
 import '../../services/memory_engine.dart';
 import '../../services/permission_service.dart';
 import '../chat/chat_detail_screen.dart';
@@ -58,7 +57,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
         elevation: 0,
         backgroundColor: Theme.of(context).colorScheme.surface,
         foregroundColor: Theme.of(context).colorScheme.onSurface,
-
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

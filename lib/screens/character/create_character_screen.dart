@@ -10,7 +10,7 @@ import '../../models/chat_session.dart';
 import '../../utils/age_extractor.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/permission_service.dart';
-import '../../services/persona_evolution_service.dart';
+
 
 class CreateCharacterScreen extends StatefulWidget {
   const CreateCharacterScreen({super.key});
@@ -131,9 +131,6 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
       );
 
       await storage.saveAICharacter(character);
-
-      // 初始化人设核心锚点（不可变人格基底）
-      await PersonaEvolutionService.initializeAnchor(character);
 
       if (userId != null) {
         final now = DateTime.now();

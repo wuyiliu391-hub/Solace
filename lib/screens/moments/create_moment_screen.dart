@@ -7,7 +7,7 @@ import '../../blocs/auth/auth_bloc.dart';
 import '../../models/moment.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/permission_service.dart';
-import '../../services/ai_moment_service.dart';
+
 
 class CreateMomentScreen extends StatefulWidget {
   const CreateMomentScreen({super.key});
@@ -582,26 +582,6 @@ class _CreateMomentScreenState extends State<CreateMomentScreen> {
 
   void _triggerAIInteraction(
       Moment moment, LocalStorageRepository storage) async {
-    try {
-      final aiMomentService = AIMomentService(storage);
-      final characters =
-          await aiMomentService.getCharactersWithMomentInteractionEnabled();
-      for (final character in characters) {
-        if (!character.isOnline) continue;
-        final sessions =
-            await storage.getChatSessionsByCharacterId(character.id);
-        final intimacyLevel =
-            sessions.isNotEmpty ? sessions.first.intimacyLevel : 50;
-        if (!aiMomentService.canAISeeMoment(moment, intimacyLevel)) continue;
-        await aiMomentService.aiInteractWithUserMoment(
-          moment: moment,
-          character: character,
-          intimacyLevel: intimacyLevel,
-          forceComment: true,
-        );
-      }
-    } catch (e) {
-      debugPrint('触发 AI 互动失败: $e');
-    }
+    // AI moment service has been removed
   }
 }

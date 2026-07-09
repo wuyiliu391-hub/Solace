@@ -213,14 +213,6 @@ class ProactiveSchedulerRules {
   static const int randomCareDelayRange = 480;
 }
 
-class MoodDiaryRules {
-  MoodDiaryRules._();
-
-  static const double aiDiaryWriteProbability = 0.4;
-  static const List<String> moodNames = ['开心', '愉快', '平静', '低落', '难过'];
-  static const List<String> moodNamesReversed = ['难过', '低落', '平静', '愉快', '开心'];
-}
-
 class MomentRules {
   MomentRules._();
 

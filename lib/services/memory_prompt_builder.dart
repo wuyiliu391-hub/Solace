@@ -4,9 +4,7 @@
 // 按遗忘曲线过滤，按年龄能力限制过滤
 // ============================================================
 
-import '../models/life_profile.dart';
 import '../models/memory.dart';
-import '../models/identity_narrative.dart';
 
 /// 关系快照 — 用于记忆注入的关系摘要
 class RelationshipSnapshot {
@@ -61,38 +59,31 @@ class MemoryPromptBuilder {
 
   /// 构建完整的记忆上下文（注入到 LLM 系统提示词）
   ///
-  /// 包含：身份记忆 + 关系记忆 + 近期事件 + 创伤记忆 + 反思记忆
+  /// 包含：关系记忆 + 近期事件 + 创伤记忆 + 反思记忆
   /// 如提供 [targetPersonId]，还会注入与该交互对象的专属记忆。
   static String buildMemoryContext({
-    required LifeProfile profile,
     required List<Memory> memories,
     required List<RelationshipSnapshot> relationships,
+    required int age,
     String? targetPersonId,
   }) {
-    final age = profile.biologicalAge;
     final filtered = filterByCapability(memories, age);
-
-    // 解析身份叙事
-    final identity = _resolveIdentity(profile);
 
     final buffer = StringBuffer();
 
-    // 1. 身份记忆（永不遗忘）
-    buffer.write(_buildIdentityMemory(identity));
-
-    // 2. 关系记忆
+    // 1. 关系记忆
     buffer.write(_buildRelationshipMemories(relationships));
 
-    // 3. 近期事件记忆（遗忘曲线过滤）
+    // 2. 近期事件记忆（遗忘曲线过滤）
     buffer.write(_buildRecentMemories(filtered, age));
 
-    // 4. 创伤记忆（永不遗忘）
+    // 3. 创伤记忆（永不遗忘）
     buffer.write(_buildTraumaMemories(filtered));
 
-    // 5. 反思记忆
+    // 4. 反思记忆
     buffer.write(_buildReflectionMemories(filtered));
 
-    // 6. 针对特定交互对象的记忆
+    // 5. 针对特定交互对象的记忆
     if (targetPersonId != null && targetPersonId.isNotEmpty) {
       final targetName = _resolveTargetName(relationships, targetPersonId);
       buffer.write(
@@ -101,23 +92,6 @@ class MemoryPromptBuilder {
     }
 
     return buffer.toString();
-  }
-
-  /// 从 LifeProfile.identity Map 解析 IdentityNarrative
-  ///
-  /// 兼容 IdentityNarrative JSON 和裸 Map 两种格式。
-  static IdentityNarrative _resolveIdentity(LifeProfile profile) {
-    final identityMap = profile.identity;
-    if (identityMap.isEmpty) return IdentityNarrative.blank();
-
-    // 如果已是 IdentityNarrative 实例（不应发生，但防御性处理）
-    if (identityMap.containsKey('selfDescription')) {
-      return IdentityNarrative.fromJson(
-        Map<String, dynamic>.from(identityMap),
-      );
-    }
-
-    return IdentityNarrative.blank();
   }
 
   /// 从关系列表中查找目标人物名称
@@ -129,50 +103,6 @@ class MemoryPromptBuilder {
       if (r.personId == targetPersonId) return r.personName;
     }
     return '对方';
-  }
-
-  /// 构建身份记忆（永不遗忘，总是包含）
-  static String _buildIdentityMemory(IdentityNarrative identity) {
-    if (identity.selfDescription.isEmpty) return '';
-
-    final buffer = StringBuffer();
-    buffer.writeln('【我是谁】');
-
-    // 核心自我描述
-    buffer.writeln(identity.selfDescription);
-
-    // 身份标签
-    if (identity.identityTags.isNotEmpty) {
-      buffer.writeln('我的标签：${identity.identityTags.join('、')}');
-    }
-
-    // 核心动机
-    if (identity.coreMotivation.isNotEmpty) {
-      buffer.writeln('我最想要的：${identity.coreMotivation}');
-    }
-
-    // 最大恐惧
-    if (identity.biggestFear.isNotEmpty) {
-      buffer.writeln('我最害怕的：${identity.biggestFear}');
-    }
-
-    // 人生哲学
-    if (identity.lifePhilosophy.isNotEmpty) {
-      buffer.writeln('我的信念：${identity.lifePhilosophy}');
-    }
-
-    // 内在矛盾
-    if (identity.innerConflicts.isNotEmpty) {
-      buffer.writeln('我的矛盾：${identity.innerConflicts.join('；')}');
-    }
-
-    // 临终遗言
-    if (identity.finalWords != null && identity.finalWords!.isNotEmpty) {
-      buffer.writeln('我的遗言：${identity.finalWords}');
-    }
-
-    buffer.writeln();
-    return buffer.toString();
   }
 
   /// 构建关系记忆（按重要性排序，取前5）

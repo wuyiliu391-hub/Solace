@@ -11,12 +11,12 @@ import '../../models/ai_character.dart';
 import '../../models/ai_wallet.dart';
 import '../../models/chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
-import '../../services/persona_evolution_service.dart';
+
 import '../../services/memory_engine.dart';
 import '../../services/voice_clone_service.dart';
 import '../../services/tts_service.dart';
 import 'package:audioplayers/audioplayers.dart';
-import '../../services/ai_status_service.dart';
+
 import '../../services/permission_service.dart';
 import '../../widgets/ai_wallet_card.dart';
 import 'interaction_settings_screen.dart';
@@ -421,14 +421,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   Future<void> _saveAIStatus() async {
     try {
       final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final statusService = AIStatusService(storage);
 
       final statusText = _statusController?.text.trim() ?? '';
-      await statusService.updateCharacterStatus(
-        characterId: widget.session.aiCharacterId,
-        isOnline: _aiIsOnline,
-        currentStatus: statusText.isNotEmpty ? statusText : null,
-      );
 
       final updatedSession = _localSession.copyWith(
         aiIsOnline: _aiIsOnline,
@@ -637,38 +631,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     });
 
     await storage.saveChatSession(updatedSession);
-  }
-
-  Future<void> _navigateToInteractionSettings() async {
-    final currentCharacter = _character ?? widget.character;
-    if (currentCharacter == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('无法加载角色信息')),
-      );
-      return;
-    }
-
-    final result = await Navigator.push<dynamic>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => InteractionSettingsScreen(
-          character: currentCharacter,
-          sessionId: widget.session.id,
-        ),
-      ),
-    );
-
-    if (!mounted) return;
-    if (result is AICharacter) {
-      await _applyCharacterUpdate(result);
-      return;
-    }
-
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    final updated = await storage.getAICharacter(currentCharacter.id);
-    if (updated != null) {
-      await _applyCharacterUpdate(updated);
-    }
   }
 
   @override
@@ -1071,6 +1033,24 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           title: '查看TA的资料',
           onTap: _navigateToCharacterProfile,
         ),
+        _SettingsItem(
+          icon: Icons.settings_applications_outlined,
+          title: '互动设置',
+          subtitle: '问候、主动消息、回复行为等',
+          onTap: () {
+            if (_character != null) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => InteractionSettingsScreen(
+                    character: _character!,
+                    sessionId: _localSession.id,
+                  ),
+                ),
+              );
+            }
+          },
+        ),
         if (_character != null) ...[
           _SettingsItem(
             icon: Icons.badge_outlined,
@@ -1159,12 +1139,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
           ),
         ],
-        _SettingsItem(
-          icon: Icons.tune,
-          title: '互动设置',
-          subtitle: '配置AI主动消息、问候等',
-          onTap: _navigateToInteractionSettings,
-        ),
+        
         _SettingsToggle(
           icon: Icons.notifications_off_outlined,
           title: '消息免打扰',
@@ -2075,95 +2050,23 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
   }
 
   Future<void> _restoreInitialPersona() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('恢复初始人设'),
-        content:
-            const Text('这会清空角色当前的进化风格、成长事件和漂移信号，并恢复到创建时的人设快照。聊天记录不会删除。确定继续吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('确认恢复'),
-          ),
-        ],
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('人设恢复功能暂时不可用'),
+        backgroundColor: Colors.orange,
       ),
     );
-
-    if (confirmed != true || !mounted) return;
-
-    try {
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final evolutionService =
-          PersonaEvolutionService(storage, MemoryEngine(storage));
-      final restored =
-          await evolutionService.restoreInitialSnapshot(_character);
-      if (restored == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('没有找到初始人设快照')),
-          );
-        }
-        return;
-      }
-      if (!mounted) return;
-      setState(() {
-        _character = restored;
-        _initControllers();
-        _evolutionEnabled = restored.evolutionEnabled;
-        _qualitativeEvolutionEnabled = restored.qualitativeEvolutionEnabled;
-        _hasChanges = false;
-        _newAvatarPath = null;
-      });
-      widget.onCharacterUpdated?.call(restored);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已恢复初始人设'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('恢复失败: $e')),
-      );
-    }
   }
 
   Widget _buildEvolutionHistorySection(BuildContext context) {
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    final evolutionService =
-        PersonaEvolutionService(storage, MemoryEngine(storage));
-    final logs = evolutionService.getStoredGrowthEvents(_character.id);
-    if (logs.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: _buildCollapsibleInfoSection(
-          context,
-          '成长记录',
-          Icons.timeline,
-          '暂无成长记录。开启人格进化并长期互动后，这里会显示角色的成长轨迹。',
-        ),
-      );
-    }
-
-    final lines = logs.reversed.take(6).map((e) {
-      final mode = e.evolutionMode == 'qualitative' ? '质变' : '微进化';
-      final deltaSummary = PersonaEvolutionService.formatDeltaSummary(e.deltas);
-      return '【$mode】${e.reason.isEmpty ? '发生了一次人格调整' : e.reason}\n维度变化：$deltaSummary';
-    }).join('\n\n');
-
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: _buildCollapsibleInfoSection(
         context,
         '成长记录',
         Icons.timeline,
-        lines,
+        '成长记录功能暂时不可用。',
       ),
     );
   }

@@ -339,7 +339,7 @@ class PureAIService {
       'content': systemPrompt,
     });
     _lastWebSearchTrace = null;
-    const shouldUseWebSearch = false;
+    final shouldUseWebSearch = enableWebSearch;
     if (shouldUseWebSearch) {
       messages.addAll(await _buildBingSearchContext(cleanUserMessage));
     }
@@ -412,14 +412,81 @@ class PureAIService {
   Future<List<Map<String, String>>> _buildBingSearchContext(
     String userMessage,
   ) async {
-    _lastWebSearchTrace = {
-      'server': BingCnMcpService.serverName,
-      'query': const BingCnMcpService().buildQuery(userMessage),
-      'disabled': true,
-      'reason': 'app_builtin_web_search_disabled',
-      'results': const [],
-    };
-    return const [];
+    try {
+      final response = await http.post(
+        Uri.parse(ApiDefaults.searchApiUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'query': userMessage}),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode != 200) {
+        _lastWebSearchTrace = {
+          'server': 'uapi-pro',
+          'query': userMessage,
+          'error': 'HTTP ${response.statusCode}',
+          'results': const [],
+        };
+        return const [];
+      }
+
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      // UAPI Pro 返回格式为 {"data": {"results": [...]}}，兼容两种格式
+      final responseData =
+          (data['data'] as Map<String, dynamic>?) ?? data;
+      final results = (responseData['results'] as List<dynamic>?)
+              ?.map((r) => {
+                    'title': r['title'] ?? '',
+                    'url': r['url'] ?? '',
+                    'snippet': r['snippet'] ?? '',
+                  })
+              .toList() ??
+          [];
+
+      _lastWebSearchTrace = {
+        'server': 'uapi-pro',
+        'query': userMessage,
+        'searchedAt': DateTime.now().toIso8601String(),
+        'results': results,
+      };
+
+      if (results.isEmpty) return const [];
+
+      final buffer = StringBuffer()
+        ..writeln('【联网搜索结果 — 最高优先级指令】')
+        ..writeln()
+        ..writeln('[WARN] 用户刚刚开启了联网搜索，提出了一个需要实时信息的问题。')
+        ..writeln('[WARN] 你现在必须切换为"信息助手"模式：直接、准确地回答用户的问题。')
+        ..writeln()
+        ..writeln('【必须遵守的规则】')
+        ..writeln('1. 必须依据下方搜索结果回答，不要编造或猜测')
+        ..writeln('2. 用简洁清晰的中文直接回答问题，先给出核心答案')
+        ..writeln('3. 可以在回答末尾简要提到信息来源')
+        ..writeln('4. 如果搜索结果不足以回答，明确说"搜索结果中没有找到相关信息"')
+        ..writeln()
+        ..writeln('用户问题：$userMessage')
+        ..writeln()
+        ..writeln('以下是搜索结果：');
+
+      for (var i = 0; i < results.length; i++) {
+        final item = results[i];
+        buffer.writeln();
+        buffer.writeln('${i + 1}. ${item['title'] ?? ''}');
+        buffer.writeln('摘要：${item['snippet'] ?? '无摘要'}');
+        buffer.writeln('链接：${item['url'] ?? ''}');
+      }
+
+      return [
+        {'role': 'system', 'content': buffer.toString().trim()},
+      ];
+    } catch (e) {
+      _lastWebSearchTrace = {
+        'server': 'uapi-pro',
+        'query': userMessage,
+        'error': e.toString(),
+        'results': const [],
+      };
+      return const [];
+    }
   }
 
   /// 精简版system prompt — 强制标准 AI 助手形态，隔离角色链路/人设缓存

@@ -14,10 +14,12 @@ import '../../models/ai_stream_chunk.dart';
 import '../../models/bt_agent_action.dart';
 import '../../utils/sentiment_analyzer.dart';
 import '../../utils/message_sanitizer.dart';
-import '../bing_cn_mcp_service.dart';
 import '../llm_service.dart';
 import '../../repositories/memory_repository.dart';
 import '../../services/emotion_memory_pool.dart';
+import 'dart:convert';
+import 'dart:io' show HttpClient;
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../../services/memory_engine.dart';
 import '../ai_service.dart';
 import '../prompt_rewriter.dart';
@@ -124,7 +126,8 @@ class AIServiceAdapter {
       });
     }
     _lastWebSearchTrace = null;
-    final shouldUseWebSearch = false;
+    final shouldUseWebSearch = enableWebSearch &&
+        _shouldSearchWeb(userMessage);
     if (shouldUseWebSearch) {
       extraContext.addAll(await _buildBingSearchContext(userMessage));
       extraContext.add({
@@ -505,7 +508,8 @@ class AIServiceAdapter {
 即使用户只发来很短的话，也要承接当前场景，写出动作、表情、环境变化和内心反应。
 建议回复长度为 120-260 字；剧情推进明显时可以更长。
 风格统一为文学小说体，承接历史、人设、记忆和关系发展自然推进。
-【对白格式】所有角色说出口的话，必须用中文双引号“”包裹（例如：“你终于来了。”）；旁白、动作、神态、心理描写一律不加引号，便于区分对白与叙述。''');
+【对白格式】所有角色说出口的话，必须用中文双引号“”包裹（例如：“你终于来了。”）；旁白、动作、神态、心理描写一律不加引号。
+【禁止】身体感受、生理反应、内心体感、异物感、神经感觉、私密部位感觉等一律写在旁白中，不得放入引号内。引号内只能放角色对他人说出口的台词。''');
     } else {
       parts.add('你是${character.name}。');
       if (character.personality.isNotEmpty) {
@@ -604,17 +608,149 @@ class AIServiceAdapter {
     return context;
   }
 
+  /// 意图识别：判断用户消息是否需要联网搜索
+  /// 闲聊、角色扮演、情感交流等不触发搜索
+  static bool _shouldSearchWeb(String userMessage) {
+    final text = userMessage.trim();
+    if (text.length < 4) return false; // 太短的不搜索
+
+    // 联网搜索触发模式（优先判断，搜索意图优先于闲聊过滤）
+    final searchIntentPatterns = [
+      // 直接搜索意图
+      RegExp(r'(联网|上网|搜索|搜一下|查一下|查查|帮我查|帮忙查|搜搜)'),
+      // 实时信息需求
+      RegExp(r'(最新|新闻|热搜|实时|今天|现在|当前|最近|近期|刚刚|刚才)'),
+      // 事实查询
+      RegExp(r'(是什么|是谁|多少钱|什么时候|在哪里|怎么样|为什么|如何|怎么|哪些|哪个|什么叫)'),
+      // 具体实体/事件查询
+      RegExp(r'GPT|OpenAI|Claude|Gemini|AI|模型|版本|发布|更新|价格|股票|天气|汇率|比赛|排名'),
+      // 时间敏感问题
+      RegExp(r'(几点|几号|几月|星期几|农历|日期|时间)'),
+      // 知识/信息获取
+      RegExp(r'(介绍|讲解|科普|百科|定义|含义|意思|解释|说说|讲讲|告诉我|推荐|建议|评测|对比)'),
+      // 事件/动态跟踪
+      RegExp(r'(发生了|进展|动态|情况|状态|现状|走势|行情)'),
+      // 数据/统计
+      RegExp(r'(多少|几个|数据|统计|排行|榜单|第一|冠军)'),
+    ];
+    for (final p in searchIntentPatterns) {
+      if (p.hasMatch(text)) return true;
+    }
+
+    // 纯闲聊/角色扮演拒绝模式（仅对短消息生效，长消息已在上方被搜索意图覆盖）
+    if (text.length > 15) return false; // 超过15字且无搜索关键词，大概率是角色对话
+
+    final casualPatterns = [
+      // 打招呼/寒暄
+      RegExp(r'^(你好|嗨|嘿|哈喽|hello|hi|在吗|在不在|早|晚安|拜拜|再见|88|886)\b'),
+      // 角色询问（你是/你是谁/你叫什么/你多大/你是男是女）
+      RegExp(r'^你(是谁|叫什么|多大|几岁|是男是女|是男生|是女生|是什么|干啥|干嘛|怎么样|咋样|知道啥|会什么|能做什么)'),
+      // 纯情感表达
+      RegExp(r'^(哈哈|嘿嘿|呜呜|嗯嗯|好的|好吧|行吧|可以|OK|ok|谢谢|多谢|辛苦了|抱抱|亲亲|爱你|想你|我喜欢你|讨厌)'),
+      // 角色扮演互动
+      RegExp(r'^(过来|坐下|躺下|站起来|转一圈|伸个懒腰|打个哈欠)'),
+      // 无意义消息
+      RegExp(r'^[。，！？、…\s]+$'),
+    ];
+    for (final p in casualPatterns) {
+      if (p.hasMatch(text)) return false;
+    }
+
+    return false;
+  }
+
   Future<List<Map<String, String>>> _buildBingSearchContext(
     String userMessage,
   ) async {
-    _lastWebSearchTrace = {
-      'server': BingCnMcpService.serverName,
-      'query': const BingCnMcpService().buildQuery(userMessage),
-      'disabled': true,
-      'reason': 'app_builtin_web_search_disabled',
-      'results': const [],
-    };
-    return const [];
+    try {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 30);
+      final request = await client.postUrl(
+        Uri.parse(ApiDefaults.searchApiUrl),
+      );
+      request.headers.set('Content-Type', 'application/json');
+      request.write(jsonEncode({'query': userMessage}));
+
+      final response = await request.close().timeout(
+        const Duration(seconds: 30),
+      );
+
+      if (response.statusCode != 200) {
+        client.close();
+        _lastWebSearchTrace = {
+          'server': 'uapi-pro',
+          'query': userMessage,
+          'error': 'HTTP ${response.statusCode}',
+          'results': const [],
+        };
+        return const [];
+      }
+
+      final bytes = await response.fold<List<int>>(
+        <int>[], (prev, chunk) => [...prev, ...chunk],
+      );
+      client.close();
+
+      final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      // UAPI Pro 返回格式为 {"data": {"results": [...]}}，兼容两种格式
+      final responseData =
+          (data['data'] as Map<String, dynamic>?) ?? data;
+      final results = (responseData['results'] as List<dynamic>?)
+              ?.map((r) => {
+                    'title': r['title'] ?? '',
+                    'url': r['url'] ?? '',
+                    'snippet': r['snippet'] ?? '',
+                  })
+              .toList() ??
+          [];
+
+      _lastWebSearchTrace = {
+        'server': 'uapi-pro',
+        'query': userMessage,
+        'searchedAt': DateTime.now().toIso8601String(),
+        'results': results,
+      };
+
+      if (results.isEmpty) return const [];
+
+      final buffer = StringBuffer()
+        ..writeln('【联网搜索结果 — 你刚刚上网查到的信息】')
+        ..writeln()
+        ..writeln('用户问了你一个问题，你通过联网搜索查到了以下信息。')
+        ..writeln('请用你自己的性格和语气，把这些信息自然地融入回答中。')
+        ..writeln()
+        ..writeln('【规则】')
+        ..writeln('1. 保持你的角色人设和说话风格，不要切换成信息助手')
+        ..writeln('2. 把搜索结果当成"你刚看到的新闻/资讯"来分享给用户')
+        ..writeln('3. 可以加入你的看法、吐槽、感慨，让回答更生动')
+        ..writeln('4. 如果搜索结果不足以回答，用角色的口吻说"我搜了下没找到靠谱的"')
+        ..writeln('5. 不要暴露"搜索结果"这个机制，自然地说"我看到/我刚查到"')
+        ..writeln()
+        ..writeln('用户问：$userMessage')
+        ..writeln()
+        ..writeln('你查到的信息：');
+
+      for (var i = 0; i < results.length; i++) {
+        final item = results[i];
+        buffer.writeln();
+        buffer.writeln('${i + 1}. ${item['title'] ?? ''}');
+        buffer.writeln('摘要：${item['snippet'] ?? '无摘要'}');
+        buffer.writeln('链接：${item['url'] ?? ''}');
+      }
+
+      return [
+        {'role': 'system', 'content': buffer.toString().trim()},
+      ];
+    } catch (e) {
+      debugPrint('[WebSearch] 搜索请求失败: $e');
+      _lastWebSearchTrace = {
+        'server': 'uapi-pro',
+        'query': userMessage,
+        'error': e.toString(),
+        'results': const [],
+      };
+      return const [];
+    }
   }
 
   /// 提取状态标记

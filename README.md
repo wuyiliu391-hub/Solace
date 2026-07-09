@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Dart-%3E%3D3.0.0-blue?logo=dart" alt="Dart">
   <img src="https://img.shields.io/badge/Platform-Android%20%7C%20Web%20%7C%20Windows-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-17.0.0-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-17.1.0-orange" alt="Version">
 </p>
 
 ---

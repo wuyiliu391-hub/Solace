@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../models/moment.dart';
 import '../../repositories/local_storage_repository.dart';
-import '../../services/ai_moment_service.dart';
+
 import '../../services/permission_service.dart';
 import '../../widgets/safe_widget.dart';
 import 'create_moment_screen.dart';
@@ -70,84 +70,8 @@ class _MomentsScreenState extends State<MomentsScreen> {
   }
 
   Future<void> _triggerAIMoments(LocalStorageRepository storage) async {
-    if (_isTriggeringAI || _disposed) return;
-    _isTriggeringAI = true;
-    try {
-      final aiMomentService = AIMomentService(storage);
-      await aiMomentService.scheduleAIMomentsForAllCharacters();
-      if (_disposed) { _isTriggeringAI = false; return; }
-
-      // 前台兜底：AI 互动近期用户动态（WorkManager 可能被系统杀死）
-      await _triggerUserMomentInteraction(aiMomentService, storage);
-      if (_disposed) { _isTriggeringAI = false; return; }
-
-      if (mounted) {
-        final updatedMoments = await storage.getAllMoments();
-        if (_disposed) { _isTriggeringAI = false; return; }
-        setState(() {
-          _moments = updatedMoments;
-          _isTriggeringAI = false;
-        });
-      } else {
-        _isTriggeringAI = false;
-      }
-    } catch (e) {
-      debugPrint('触发 AI 朋友圈失败: $e');
-      if (mounted && !_disposed) {
-        setState(() => _isTriggeringAI = false);
-      } else {
-        _isTriggeringAI = false;
-      }
-    }
-  }
-
-  /// 前台触发 AI 互动用户动态 — WorkManager 兜底
-  Future<void> _triggerUserMomentInteraction(
-    AIMomentService aiMomentService,
-    LocalStorageRepository storage,
-  ) async {
-    try {
-      final characters =
-          await aiMomentService.getCharactersWithMomentInteractionEnabled();
-      if (characters.isEmpty) return;
-
-      final allMoments = await storage.getAllMoments();
-      // 只处理最近 24 小时内的用户动态
-      final recentUserMoments = allMoments
-          .where((m) =>
-              !m.isFromAI &&
-              DateTime.now().difference(m.createdAt).inHours < 24)
-          .toList();
-
-      if (recentUserMoments.isEmpty) return;
-
-      for (final character in characters) {
-        if (!character.isOnline) continue;
-        final sessions =
-            await storage.getChatSessionsByCharacterId(character.id);
-        final intimacyLevel =
-            sessions.isNotEmpty ? sessions.first.intimacyLevel : 50;
-
-        for (final moment in recentUserMoments) {
-          if (!aiMomentService.canAISeeMoment(moment, intimacyLevel)) continue;
-          // 检查是否已经互动过（避免重复）
-          final alreadyLiked =
-              moment.likes.any((l) => l.userId == character.id);
-          final alreadyCommented =
-              moment.comments.any((c) => c.userId == character.id);
-          if (alreadyLiked && alreadyCommented) continue;
-
-          await aiMomentService.aiInteractWithUserMoment(
-            moment: moment,
-            character: character,
-            intimacyLevel: intimacyLevel,
-            forceComment: true,
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('前台 AI 互动用户动态失败: $e');
-    }
+    // AI moment service has been removed
+    _isTriggeringAI = false;
   }
 
   @override
@@ -734,25 +658,6 @@ class _MomentsScreenState extends State<MomentsScreen> {
                         await storage.saveMoment(updatedMoment);
                         if (context.mounted) {
                           Navigator.pop(context);
-                        }
-
-                        if (moment.isFromAI) {
-                          final aiCharacter =
-                              await storage.getAICharacter(moment.userId);
-                          if (aiCharacter != null) {
-                            final sessions = await storage
-                                .getChatSessionsByCharacterId(aiCharacter.id);
-                            final intimacyLevel = sessions.isNotEmpty
-                                ? sessions.first.intimacyLevel
-                                : 70;
-                            final aiMomentService = AIMomentService(storage);
-                            await aiMomentService.scheduleAICommentReply(
-                              moment: updatedMoment,
-                              userComment: comment,
-                              character: aiCharacter,
-                              intimacyLevel: intimacyLevel,
-                            );
-                          }
                         }
 
                         await _loadMoments(triggerAI: false);

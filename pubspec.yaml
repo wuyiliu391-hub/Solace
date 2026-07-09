@@ -1,5 +1,5 @@
 name: solace
-version: 17.0.1+278
+version: 17.1.0+279
 publish_to: none
 description: Solace - AI 陪伴应用，多角色聊天、语音回复、心情日记、从回忆创建角色。纯本地存储，隐私安全。
 

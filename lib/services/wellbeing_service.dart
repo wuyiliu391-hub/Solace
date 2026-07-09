@@ -6,10 +6,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 单个应用在时间窗内的前台使用情况（只含包名 + 时长，无任何应用内内容）
 class AppUsage {
   final String packageName;
+  final String appName;
   final int totalMs;
   final int lastUsed;
 
-  const AppUsage(this.packageName, this.totalMs, this.lastUsed);
+  const AppUsage(this.packageName, this.appName, this.totalMs, this.lastUsed);
 
   Duration get duration => Duration(milliseconds: totalMs);
 }
@@ -95,6 +96,7 @@ class WellbeingService {
       return list
           .map((e) => AppUsage(
                 e['packageName'] as String? ?? '',
+                e['appName'] as String? ?? '',
                 (e['totalMs'] as num?)?.toInt() ?? 0,
                 (e['lastUsed'] as num?)?.toInt() ?? 0,
               ))

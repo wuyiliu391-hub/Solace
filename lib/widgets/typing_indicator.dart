@@ -4,11 +4,14 @@ import '../../utils/avatar_resolver.dart';
 class TypingIndicator extends StatefulWidget {
   final String? avatarUrl;
   final String name;
+  /// 状态文案，不为空时显示文案 + 呼吸动画，为空时显示三个点
+  final String? statusText;
 
   const TypingIndicator({
     super.key,
     this.avatarUrl,
     this.name = 'AI',
+    this.statusText,
   });
 
   @override
@@ -19,6 +22,8 @@ class _TypingIndicatorState extends State<TypingIndicator>
     with TickerProviderStateMixin {
   late List<AnimationController> _controllers;
   late List<Animation<double>> _animations;
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
@@ -36,6 +41,14 @@ class _TypingIndicatorState extends State<TypingIndicator>
       );
     }).toList();
 
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    )..repeat(reverse: true);
+    _fadeAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut),
+    );
+
     for (int i = 1; i < _controllers.length; i++) {
       Future.delayed(Duration(milliseconds: i * 150), () {
         if (mounted) _controllers[i].repeat(reverse: true);
@@ -48,12 +61,14 @@ class _TypingIndicatorState extends State<TypingIndicator>
     for (final c in _controllers) {
       c.dispose();
     }
+    _fadeController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final hasStatus = widget.statusText != null && widget.statusText!.isNotEmpty;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -80,35 +95,55 @@ class _TypingIndicatorState extends State<TypingIndicator>
                 ),
               ],
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(3, (i) {
-                return Padding(
-                  padding: EdgeInsets.only(right: i < 2 ? 4 : 0),
-                  child: AnimatedBuilder(
-                    animation: _animations[i],
-                    builder: (context, child) {
-                      return Transform.translate(
-                        offset: Offset(0, -4 * _animations[i].value),
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: colorScheme.primary.withOpacity(
-                              0.3 + 0.4 * _animations[i].value,
-                            ),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                );
-              }),
-            ),
+            child: hasStatus ? _buildStatusText(colorScheme) : _buildDots(colorScheme),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildStatusText(ColorScheme colorScheme) {
+    return AnimatedBuilder(
+      animation: _fadeAnimation,
+      builder: (context, child) {
+        return Text(
+          widget.statusText!,
+          style: TextStyle(
+            fontSize: 14,
+            color: colorScheme.onSurface.withOpacity(_fadeAnimation.value),
+            fontWeight: FontWeight.w500,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDots(ColorScheme colorScheme) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (i) {
+        return Padding(
+          padding: EdgeInsets.only(right: i < 2 ? 4 : 0),
+          child: AnimatedBuilder(
+            animation: _animations[i],
+            builder: (context, child) {
+              return Transform.translate(
+                offset: Offset(0, -4 * _animations[i].value),
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withOpacity(
+                      0.3 + 0.4 * _animations[i].value,
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }),
     );
   }
 

@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../models/moment.dart';
 import '../../repositories/local_storage_repository.dart';
-import '../../services/ai_moment_service.dart';
+
 
 class MomentDetailScreen extends StatefulWidget {
   final Moment moment;
@@ -158,29 +158,6 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
         comments: [..._moment.comments, comment],
       );
       await storage.saveMoment(updatedMoment);
-
-      if (_moment.isFromAI) {
-        final aiCharacter = await storage.getAICharacter(_moment.userId);
-        if (aiCharacter != null) {
-          final sessions =
-              await storage.getChatSessionsByCharacterId(aiCharacter.id);
-          final intimacyLevel =
-              sessions.isNotEmpty ? sessions.first.intimacyLevel : 70;
-          final aiMomentService = AIMomentService(storage);
-          await aiMomentService.scheduleAICommentReply(
-            moment: updatedMoment,
-            userComment: comment,
-            character: aiCharacter,
-            intimacyLevel: intimacyLevel,
-          );
-          await aiMomentService.replyToUserCommentNow(
-            moment: updatedMoment,
-            userComment: comment,
-            character: aiCharacter,
-            intimacyLevel: intimacyLevel,
-          );
-        }
-      }
 
       await _refresh();
     } catch (e) {

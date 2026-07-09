@@ -4,7 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../models/moment.dart';
 import '../../repositories/local_storage_repository.dart';
-import '../../services/ai_moment_service.dart';
+
 
 // ─── Events ───
 
@@ -229,9 +229,6 @@ class MomentsFeedBloc extends Bloc<MomentsFeedEvent, MomentsFeedState> {
   }
 
   Future<void> _triggerAI() async {
-    try {
-      final service = AIMomentService(_storage);
-      await service.scheduleAIMomentsForAllCharacters();
-    } catch (_) {}
+    // AI moment service has been removed
   }
 }

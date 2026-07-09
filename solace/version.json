@@ -1,13 +1,16 @@
 {
-  "version": "17.0.1",
-  "build": 278,
+  "version": "17.1.0",
+  "build": 279,
   "minSdk": 23,
   "forceUpdate": false,
-  "releaseDate": "2026-07-08",
-  "downloadUrl": "https://solace-auth.pages.dev/api/v1/download?v=17.0.1",
+  "releaseDate": "2026-07-09",
+  "downloadUrl": "https://solace-auth.pages.dev/api/v1/download?v=17.1.0",
   "changelog": [
-    "修复导入备份失败问题",
-    "底部导航栏新增小说功能"
+    "用户可以自由选择字体颜色，入口在单聊页面右上角",
+    "小说模式开关自动开启修复",
+    "气泡三点改为动态状态变化显示（等待中…/思考中…）",
+    "理论修复字体颜色和旁白问题",
+    "恢复并且增强联网搜索能力，实际完全可用"
   ],
-  "announcement": "Solace 17.0.1 更新：修复导入备份失败问题；底部导航栏新增小说功能。"
+  "announcement": "Solace 17.1.0 更新：用户可以自由选择字体颜色，入口在单聊页面右上角；小说模式开关自动开启修复；气泡三点改为动态状态变化显示；理论修复字体颜色和旁白问题；恢复并且增强联网搜索能力，实际完全可用。"
 }

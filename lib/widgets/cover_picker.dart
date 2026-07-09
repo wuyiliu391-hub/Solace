@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import '../services/permission_service.dart';
 
 /// 矩形封面选择器（图库/拍照），用于故事书封面
@@ -143,10 +144,13 @@ class CoverPicker extends StatelessWidget {
 
   Future<String?> _copyToCache(String src) async {
     try {
-      final dir = Directory.systemTemp;
+      // 存到 documents 目录，避免系统清理 temp 后封面丢失
+      final dir = await getApplicationDocumentsDirectory();
+      final coversDir = Directory('${dir.path}/story_covers');
+      if (!await coversDir.exists()) await coversDir.create(recursive: true);
       final ext = src.contains('.') ? src.split('.').last : 'jpg';
       final dest =
-          '${dir.path}/cover_${DateTime.now().millisecondsSinceEpoch}.$ext';
+          '${coversDir.path}/cover_${DateTime.now().millisecondsSinceEpoch}.$ext';
       await File(src).copy(dest);
       return dest;
     } catch (_) {

@@ -14,8 +14,9 @@ import '../../models/memory.dart';
 import '../../models/intimacy_event.dart';
 import '../../models/ai_stream_chunk.dart';
 import '../../repositories/local_storage_repository.dart';
-import '../../services/ai_status_service.dart';
+
 import '../../services/ai_service.dart';
+import '../../services/ai_status_service.dart';
 import '../../services/bt_agent_execution_service.dart';
 import '../../services/core_hub.dart';
 import '../../services/agent/agent_loop.dart';
@@ -26,7 +27,7 @@ import '../../services/bridge/ai_service_adapter.dart';
 import '../../services/builtin_sticker_service.dart';
 import '../../services/memory_engine.dart';
 import '../../services/emotion_engine.dart';
-import '../../services/persona_evolution_service.dart';
+
 import '../../models/character_emotion.dart';
 import '../../utils/sentiment_analyzer.dart';
 import '../../utils/behavior_risk_detector.dart';
@@ -820,6 +821,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         memories: memories,
         intimacyLevel: session.intimacyLevel,
         sentiment: sentiment,
+        enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
       )) {
         finalReasoning = chunk.reasoning;
@@ -857,6 +859,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         memories: memories,
         intimacyLevel: session.intimacyLevel,
         sentiment: sentiment,
+        enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
       )) {
         finalReasoning = chunk.reasoning;
@@ -2302,36 +2305,6 @@ $tail
       } catch (e) {
         LogService.instance.e('Bloc', '_onSendMessage: memory save failed: $e',
             chatId: event.chatId);
-      }
-
-      // ─── 人格进化判断（前台主动触发，不依赖心跳服务）───
-      try {
-        final evolutionService =
-            PersonaEvolutionService(_storage, _memoryEngine);
-        final allMsgsForEvo = await _storage.getChatMessages(event.chatId);
-        final totalMessages = allMsgsForEvo.length;
-
-        // 日常进化：每200条消息触发
-        await evolutionService.checkAndEvolve(
-          character: character,
-          userId: event.userId,
-          totalMessages: totalMessages,
-        );
-
-        // 重大事件质变：检测用户消息中的重大事件
-        await evolutionService.checkMajorEvent(
-          character: character,
-          userId: event.userId,
-          userMessage: event.content,
-          totalMessages: totalMessages,
-          sessionMessageCount: allMsgsForEvo.length,
-          sessionDuration: allMsgsForEvo.isNotEmpty
-              ? DateTime.now().difference(allMsgsForEvo.last.createdAt)
-              : Duration.zero,
-        );
-      } catch (e) {
-        LogService.instance
-            .w('Bloc', '人格进化判断异常（不影响聊天）: $e', chatId: event.chatId);
       }
     } catch (e) {
       final errorText = _formatAiError(e);

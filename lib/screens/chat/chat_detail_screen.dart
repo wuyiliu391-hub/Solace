@@ -17,12 +17,13 @@ import '../../models/ai_character.dart';
 import '../../models/intimacy_event.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
+import '../../services/ai_status_service.dart';
 import '../virtual_phone/virtual_phone_screen.dart';
 import '../../models/virtual_phone/virtual_phone.dart';
 import '../../services/virtual_phone_generator.dart';
 import '../../utils/message_sanitizer.dart';
-import '../../services/ai_status_service.dart';
-import '../../services/heartbeat_service.dart';
+
+
 import '../../services/builtin_sticker_service.dart';
 import '../../services/sticker_pack_service.dart';
 import '../../models/sticker_pack.dart';
@@ -46,14 +47,14 @@ import '../../services/log_service.dart';
 import '../../services/tts_service.dart';
 import '../../services/voice_clone_service.dart';
 import '../../services/audio_transcription_service.dart';
-import '../../services/weather_service.dart';
+
 import '../../services/emotion_engine.dart';
 import '../../models/character_emotion.dart';
 import 'package:record/record.dart';
 import '../../screens/settings/log_viewer_screen.dart';
 import 'chat_settings_screen.dart';
 import 'voice_call_screen.dart';
-import '../../services/scenario_service.dart';
+
 
 class ChatDetailScreen extends StatefulWidget {
   final ChatSession session;
@@ -115,7 +116,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   ChatMessage? _replyToMessage;
   bool _pureAiPanelExpanded = false;
   final ValueNotifier<bool> _modePanelVisible = ValueNotifier<bool>(false);
-  IconData? _weatherIcon;
+  VoidCallback? _onModeSettingsChanged;
+  LocalStorageRepository? _modeSettingsStorage;
+  
   Offset? _pureAiOrbOffset;
   final ValueNotifier<bool> _isAiTypingNotifier = ValueNotifier<bool>(false);
   bool get _isAiTyping => _isAiTypingNotifier.value;
@@ -279,15 +282,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       centerTitle: true,
       actions: [
         IconButton(
-          tooltip: '设置场景',
-          icon: Icon(
-            Icons.landscape_rounded,
-            color: isDark ? Colors.white : Colors.black,
-            size: 22,
-          ),
-          onPressed: () => _showScenarioSheet(context),
-        ),
-        IconButton(
           tooltip: 'TA 的手机',
           icon: Icon(
             Icons.smartphone_rounded,
@@ -295,6 +289,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             size: 22,
           ),
           onPressed: () => _openVirtualPhone(context),
+        ),
+        IconButton(
+          tooltip: '模式与颜色',
+          icon: Icon(
+            Icons.palette_outlined,
+            color: isDark ? Colors.white : Colors.black,
+            size: 22,
+          ),
+          onPressed: () =>
+              _modePanelVisible.value = !_modePanelVisible.value,
         ),
         IconButton(
           icon: Icon(
@@ -307,189 +311,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ],
     );
   }
-
-  /// 场景设置底部弹窗
-  Future<void> _showScenarioSheet(BuildContext context) async {
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    final prefs = storage.sharedPreferences;
-    if (prefs == null) return;
-
-    final user = await storage.getCurrentUser();
-    final userId = user?.id ?? 'default';
-    final characterId = widget.session.aiCharacterId;
-    final svc = ScenarioService(prefs);
-    final current = svc.getScenario(characterId, userId);
-
-    if (!context.mounted) return;
-
-    final whereCtrl =
-        TextEditingController(text: current?.where ?? '');
-    final doingCtrl =
-        TextEditingController(text: current?.doing ?? '');
-    final moodCtrl =
-        TextEditingController(text: current?.mood ?? '');
-    final extraCtrl =
-        TextEditingController(text: current?.extra ?? '');
-    bool withUser = current?.withUser ?? false;
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            final pad = MediaQuery.of(ctx).viewInsets.bottom;
-            return Padding(
-              padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + pad),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.landscape_rounded, size: 20),
-                      const SizedBox(width: 8),
-                      const Text('当前场景',
-                          style: TextStyle(
-                              fontSize: 17, fontWeight: FontWeight.w600)),
-                      const Spacer(),
-                      if (current != null)
-                        TextButton(
-                          onPressed: () async {
-                            await svc.clearScenario(characterId, userId);
-                            if (ctx.mounted) Navigator.pop(ctx);
-                          },
-                          child: const Text('清除',
-                              style: TextStyle(color: Colors.red)),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '让 AI 知道你们现在所处的背景，对话会更有沉浸感',
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(ctx)
-                            .colorScheme
-                            .onSurface
-                            .withAlpha(153)),
-                  ),
-                  const SizedBox(height: 16),
-                  _scenarioField(ctx, whereCtrl, '在哪', '例：星巴克、家里的卧室、雨天的路上'),
-                  const SizedBox(height: 10),
-                  _scenarioField(ctx, doingCtrl, '在做什么', '例：等朋友、刚下班、躺着刷手机'),
-                  const SizedBox(height: 10),
-                  _scenarioField(ctx, moodCtrl, '氛围 / 心境', '例：慵懒的午后、有点烦躁'),
-                  const SizedBox(height: 10),
-                  _scenarioField(ctx, extraCtrl, '补充（选填）', '例：今天下雨、刚发完一条朋友圈'),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Checkbox(
-                        value: withUser,
-                        onChanged: (v) =>
-                            setSheetState(() => withUser = v ?? false),
-                      ),
-                      const Text('对方也在同一场景（你们在一起）'),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // 快选预设
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: _scenarioPresets.map((p) {
-                      return ActionChip(
-                        label: Text(p['label']!,
-                            style: const TextStyle(fontSize: 12)),
-                        onPressed: () {
-                          whereCtrl.text = p['where'] ?? '';
-                          doingCtrl.text = p['doing'] ?? '';
-                          moodCtrl.text = p['mood'] ?? '';
-                        },
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        final newCtx = ScenarioContext(
-                          where: whereCtrl.text.trim().isEmpty
-                              ? null
-                              : whereCtrl.text.trim(),
-                          doing: doingCtrl.text.trim().isEmpty
-                              ? null
-                              : doingCtrl.text.trim(),
-                          mood: moodCtrl.text.trim().isEmpty
-                              ? null
-                              : moodCtrl.text.trim(),
-                          withUser: withUser,
-                          extra: extraCtrl.text.trim().isEmpty
-                              ? null
-                              : extraCtrl.text.trim(),
-                          isManual: true,
-                          setAt: DateTime.now(),
-                        );
-                        if (newCtx.isEmpty) {
-                          await svc.clearScenario(characterId, userId);
-                        } else {
-                          await svc.setScenario(characterId, userId, newCtx);
-                        }
-                        if (ctx.mounted) Navigator.pop(ctx);
-                      },
-                      child: const Text('保存场景'),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _scenarioField(BuildContext ctx, TextEditingController ctrl,
-      String label, String hint) {
-    return TextField(
-      controller: ctrl,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        hintStyle:
-            TextStyle(fontSize: 12, color: Theme.of(ctx).hintColor),
-        border: const OutlineInputBorder(),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        isDense: true,
-      ),
-    );
-  }
-
-  static const List<Map<String, String>> _scenarioPresets = [
-    {'label': '☕ 咖啡厅', 'where': '咖啡厅', 'doing': '喝咖啡', 'mood': '惬意'},
-    {'label': '🏠 在家', 'where': '家里', 'doing': '躺着休息', 'mood': '慵懒'},
-    {'label': '🌙 深夜', 'where': '卧室', 'doing': '睡前聊天', 'mood': '有点困但不想睡'},
-    {
-      'label': '🌧 雨天',
-      'where': '窗边',
-      'doing': '看雨发呆',
-      'mood': '有些伤感'
-    },
-    {'label': '🚶 散步', 'where': '公园', 'doing': '散步', 'mood': '放松'},
-    {
-      'label': '📚 自习',
-      'where': '图书馆',
-      'doing': '看书/学习',
-      'mood': '专注但有点无聊'
-    },
-  ];
 
   Future<void> _openVirtualPhone(BuildContext context) async {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
@@ -1321,12 +1142,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void initState() {
     super.initState();
-    const MethodChannel('com.solace.solace/volume_key')
-        .setMethodCallHandler((call) async {
-      if (call.method == 'volume_up')
-        _modePanelVisible.value = true;
-      else if (call.method == 'volume_down') _modePanelVisible.value = false;
-    });
     _isBlockedByAI =
         widget.session.isBlocked && widget.session.blockedBy == BlockedBy.ai;
     _isBlockedByUser =
@@ -1343,6 +1158,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _initialize();
     BuiltinStickerService.loadDefaultPack();
     _startUsageReminderTimer();
+
+    // 监听模式切换（小说模式等），切换后立即重建所有气泡
+    _modeSettingsStorage =
+        RepositoryProvider.of<LocalStorageRepository>(context);
+    _onModeSettingsChanged = () {
+      if (mounted) setState(() {});
+    };
+    _modeSettingsStorage!.modeSettingsNotifier
+        .addListener(_onModeSettingsChanged!);
   }
 
   void _startUsageReminderTimer() {
@@ -1396,7 +1220,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     try {
       await _loadSessionFromDatabase();
       await _loadIntimacyEvents();
-      _loadWeather();
     } catch (e) {
       debugPrint('初始化失败: $e');
     }
@@ -1597,40 +1420,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
-  Future<void> _loadWeather() async {
-    try {
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final emotionEngine = EmotionEngine(storage);
-      final weatherService = WeatherService(storage, emotionEngine);
-      final weather = await weatherService.getCurrentWeather();
-      if (!mounted) return;
-      setState(() {
-        _weatherIcon = _weatherTypeToIcon(weather.type);
-      });
-    } catch (_) {}
-  }
-
-  IconData _weatherTypeToIcon(WeatherType type) {
-    switch (type) {
-      case WeatherType.sunny:
-        return Icons.wb_sunny;
-      case WeatherType.cloudy:
-        return Icons.cloud;
-      case WeatherType.rainy:
-        return Icons.water_drop;
-      case WeatherType.snowy:
-        return Icons.ac_unit;
-      case WeatherType.windy:
-        return Icons.air;
-      case WeatherType.foggy:
-        return Icons.foggy;
-      case WeatherType.stormy:
-        return Icons.thunderstorm;
-      case WeatherType.unknown:
-        return Icons.help_outline;
-    }
-  }
-
   Future<void> _loadSessionFromDatabase() async {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
     var updatedSession = await storage.getChatSession(widget.session.id);
@@ -1677,6 +1466,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _isAiTypingNotifier.dispose();
     _canSendNotifier.dispose();
     _showNewMessageBannerNotifier.dispose();
+
+    // 移除模式切换监听
+    if (_onModeSettingsChanged != null &&
+        _modeSettingsStorage != null) {
+      _modeSettingsStorage!.modeSettingsNotifier
+          .removeListener(_onModeSettingsChanged!);
+    }
+
     super.dispose();
   }
 
@@ -2069,12 +1866,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     tapHaptic();
     final content = _messageController.text.trim();
     final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
-
-    // 性能优化：通知心跳服务用户活跃
-    try {
-      RepositoryProvider.of<HeartbeatService>(context, listen: false)
-          .notifyUserInteraction();
-    } catch (_) {}
 
     Map<String, dynamic>? replyMetadata;
     if (_replyToMessage != null) {
@@ -3034,6 +2825,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             return TypingIndicator(
               avatarUrl: currentAvatar,
               name: currentName,
+              statusText: '等待中...',
             );
           }
 
@@ -3076,10 +2868,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       aiAvatarUrl: currentAvatar,
                       userAvatarUrl: userAvatarUrl,
                       aiName: currentName,
-                      weatherIcon: message.isFromAI ? _weatherIcon : null,
                       novelMode: RepositoryProvider.of<LocalStorageRepository>(
                               context)
                           .isChatStyleNovelModeEnabled(),
+                      dialogueColorLight: RepositoryProvider.of<
+                              LocalStorageRepository>(context)
+                          .getNovelDialogueColor(),
+                      dialogueColorDark: RepositoryProvider.of<
+                              LocalStorageRepository>(context)
+                          .getNovelDialogueColor(),
                       hasBackgroundImage:
                           _currentSession?.backgroundImage != null &&
                               _currentSession!.backgroundImage!.isNotEmpty,
@@ -3663,9 +3460,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           // index 0 = 流式输出气泡（因为reverse: true，显示在最底部）
           if (index == 0) {
             if (streamingText.isEmpty) {
+              final statusText = reasoning.isNotEmpty ? '思考中...' : '等待中...';
               return TypingIndicator(
                 avatarUrl: currentAvatar,
                 name: currentName,
+                statusText: statusText,
               );
             }
             return _StreamingBubble(
@@ -3675,6 +3474,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               name: currentName,
               novelMode: RepositoryProvider.of<LocalStorageRepository>(context)
                   .isChatStyleNovelModeEnabled(),
+              dialogueColorLight:
+                  RepositoryProvider.of<LocalStorageRepository>(context)
+                      .getNovelDialogueColor(),
+              dialogueColorDark:
+                  RepositoryProvider.of<LocalStorageRepository>(context)
+                      .getNovelDialogueColor(),
             );
           }
 
@@ -3707,6 +3512,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               novelMode:
                   RepositoryProvider.of<LocalStorageRepository>(context)
                       .isChatStyleNovelModeEnabled(),
+              dialogueColorLight:
+                  RepositoryProvider.of<LocalStorageRepository>(context)
+                      .getNovelDialogueColor(),
+              dialogueColorDark:
+                  RepositoryProvider.of<LocalStorageRepository>(context)
+                      .getNovelDialogueColor(),
               hasBackgroundImage: _currentSession?.backgroundImage != null &&
                   _currentSession!.backgroundImage!.isNotEmpty,
               onImageTap: message.type == MessageType.image ? () {} : null,
@@ -4525,6 +4336,12 @@ class _MessageBubble extends StatelessWidget {
   /// 小说模式下，把 AI 文本里的对白（引号包裹）着蓝色，旁白保持默认色。
   final bool novelMode;
 
+  /// 小说模式对白颜色（亮色主题）。null 时使用默认蓝色。
+  final Color? dialogueColorLight;
+
+  /// 小说模式对白颜色（暗色主题）。null 时使用默认蓝色。
+  final Color? dialogueColorDark;
+
   const _MessageBubble({
     required this.message,
     this.aiAvatarUrl,
@@ -4534,6 +4351,8 @@ class _MessageBubble extends StatelessWidget {
     this.hasBackgroundImage = false,
     this.weatherIcon,
     this.novelMode = false,
+    this.dialogueColorLight,
+    this.dialogueColorDark,
   });
 
   // 抖音风格配色
@@ -4555,6 +4374,23 @@ class _MessageBubble extends StatelessWidget {
 
   /// 把一段文本按「引号内=对白（蓝色）/引号外=旁白（默认色）」拆成富文本片段。
   /// 若文本里没有任何对白引号，返回 null（外层回退到普通 Text）。
+  /// 单个引号对内字符超过此长度时，视为旁白被误包，跳过对白着色。
+  static const int _maxDialogueLen = 30;
+
+  /// 身体感受/内心体感关键词，命中表示引号内内容大概率是内心感受而非口头台词
+  static final RegExp _bodySensationRe = RegExp(
+    r'身体|体内|脊椎|神经|四肢|胸口|腹部|皮肤|肌肉|骨骼|喉咙|眼眶|鼻腔|舌尖|指尖|掌心|脚底|'
+    r'异物感|发麻|酸麻|酸痛|酥麻|刺痒|痉挛|颤抖|发烫|发热|发冷|冷汗|燥热|'
+    r'生理|私密|深处|内部|器官|分泌|'
+    r'心跳|呼吸急促|呼吸紊乱|呼吸困难|窒息|眩晕|发软|乏力|瘫软|'
+    r'感觉.*蠕动|感觉.*触感|感觉.*电流|感觉.*划过|感觉.*侵入|感觉.*进入|感觉.*涌入|'
+    r'蔓延|肿胀|抽搐|收缩|扩张|紧绷|松弛|湿润|干燥|黏腻|'
+    r'脑子|大脑|意识|神经末梢|敏感|滚烫|冰凉');
+
+  /// 典型对话标记：短句 + 口语语气词，大概率是口头台词
+  static final RegExp _dialogueMarkerRe = RegExp(
+    r'[？！?！～~]|[啦吧呢吗啊呀哦嗯嘿哈呵哎哟]|^.{1,8}$');
+
   static List<InlineSpan>? _buildDialogueSpans(
       String text, TextStyle baseStyle, Color dialogueColor) {
     final matches = _dialogueRe.allMatches(text).toList();
@@ -4566,10 +4402,14 @@ class _MessageBubble extends StatelessWidget {
         spans.add(TextSpan(
             text: text.substring(cursor, m.start), style: baseStyle));
       }
+      final inner = text.substring(m.start, m.end);
+      final isDialogue = _isSpokenDialogue(inner);
       spans.add(TextSpan(
-        text: text.substring(m.start, m.end),
-        style: baseStyle.copyWith(
-            color: dialogueColor, fontWeight: FontWeight.w600),
+        text: inner,
+        style: isDialogue
+            ? baseStyle.copyWith(
+                color: dialogueColor, fontWeight: FontWeight.w600)
+            : baseStyle,
       ));
       cursor = m.end;
     }
@@ -4577,6 +4417,33 @@ class _MessageBubble extends StatelessWidget {
       spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
     }
     return spans;
+  }
+
+  /// 判断引号内文本是否为真正的口头台词（说出口的话）
+  /// 返回 false 表示大概率是内心感受/旁白，应降级为旁白颜色
+  static bool _isSpokenDialogue(String inner) {
+    // 去掉引号符号本身
+    final content = inner.replaceAll(RegExp(r'[""「」『』]'), '').trim();
+    if (content.isEmpty) return false;
+
+    // 规则1：超过长度阈值，大概率是旁白
+    if (content.length > _maxDialogueLen) return false;
+
+    // 规则2：有对话标记（？、！、口语语气词）且很短，大概率是台词
+    final hasDialogueMarker = _dialogueMarkerRe.hasMatch(content);
+    if (hasDialogueMarker && content.length <= 12) return true;
+
+    // 规则3：命中身体感受关键词，且没有对话标记 → 内心体感
+    if (_bodySensationRe.hasMatch(content) && !hasDialogueMarker) return false;
+
+    // 规则4：命中身体感受关键词，但有对话标记 → 仍需判断
+    // 如果身体感受关键词占比高（连续身体描述），仍视为旁白
+    if (_bodySensationRe.hasMatch(content) && hasDialogueMarker) {
+      final sensationMatches = _bodySensationRe.allMatches(content).length;
+      if (sensationMatches >= 2 && content.length > 12) return false;
+    }
+
+    return true;
   }
 
   @override
@@ -4919,8 +4786,8 @@ class _MessageBubble extends StatelessWidget {
                               if (!isRecalled && isAI && novelMode) {
                                 final dialogueColor =
                                     brightness == Brightness.dark
-                                        ? _douyinBlueDark
-                                        : _douyinBlue;
+                                        ? (dialogueColorDark ?? _douyinBlueDark)
+                                        : (dialogueColorLight ?? _douyinBlue);
                                 final spans = _buildDialogueSpans(
                                     displayText, baseStyle, dialogueColor);
                                 if (spans != null) {
@@ -5510,12 +5377,18 @@ class _StreamingBubble extends StatelessWidget {
   final String name;
   final bool novelMode;
 
+  /// 小说模式对白颜色（亮色/暗色）。null 时使用默认蓝色。
+  final Color? dialogueColorLight;
+  final Color? dialogueColorDark;
+
   const _StreamingBubble({
     required this.text,
     this.reasoning,
     this.avatarUrl,
     this.name = 'AI',
     this.novelMode = false,
+    this.dialogueColorLight,
+    this.dialogueColorDark,
   });
 
   @override
@@ -5580,8 +5453,10 @@ class _StreamingBubble extends StatelessWidget {
                       );
                       if (novelMode) {
                         final dialogueColor = brightness == Brightness.dark
-                            ? _MessageBubble._douyinBlueDark
-                            : _MessageBubble._douyinBlue;
+                            ? (dialogueColorDark ??
+                                _MessageBubble._douyinBlueDark)
+                            : (dialogueColorLight ??
+                                _MessageBubble._douyinBlue);
                         final spans = _MessageBubble._buildDialogueSpans(
                             cleanText, baseStyle, dialogueColor);
                         if (spans != null) {
@@ -5591,7 +5466,7 @@ class _StreamingBubble extends StatelessWidget {
                       return SelectableText(cleanText, style: baseStyle);
                     }),
                   ],
-                  if (!hasReasoning && text.isEmpty) TypingIndicator(),
+                  if (!hasReasoning && text.isEmpty) TypingIndicator(statusText: '等待中...'),
                 ],
               ),
             ),

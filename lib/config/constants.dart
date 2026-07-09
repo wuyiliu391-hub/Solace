@@ -35,6 +35,10 @@ class ApiDefaults {
   static const String versionCheckUrl = '/api/v1/version';
   static const String announcementsUrl = '/api/v1/announcements';
 
+  /// 联网搜索 API（UAPI Pro 免费搜索，无需 API Key）
+  /// 文档: https://uapis.cn
+  static const String searchApiUrl = 'https://uapis.cn/api/v1/search/aggregate';
+
   // ─── Default Model Params ───
   static const double defaultTemperature = 0.7;
   static const int defaultMaxTokens = 2000;
@@ -42,14 +46,6 @@ class ApiDefaults {
   static const int reflectiveMaxTokens = 200;
   static const double proactiveTemp = 0.8;
   static const int proactiveMaxTokens = 200;
-  static const double momentTemp = 0.9;
-  static const int momentMaxTokens = 150;
-  static const double momentCommentTemp = 0.85;
-  static const int momentCommentMaxTokens = 80;
-  static const double backgroundTemp = 0.9;
-  static const int backgroundMaxTokens = 80;
-  static const double moodDiaryTemp = 0.9;
-  static const int moodDiaryMaxTokens = 200;
 }
 
 class BuiltInAIProviders {
@@ -102,34 +98,6 @@ class GlmModeParams {
   static const int novelThinkingBudget = 4096;
   static const int novelMaxTokens = 131072;
 
-  // ─── 朋友圈模式 ───
-  static const double momentTemperature = 0.88;
-  static const int momentTopK = 40;
-  static const double momentFrequencyPenalty = 1.0;
-  static const int momentThinkingBudget = 256;
-  static const int momentMaxTokens = 131072;
-
-  // ─── 写信模式 ───
-  static const double letterTemperature = 0.80;
-  static const int letterTopK = 40;
-  static const double letterFrequencyPenalty = 0.9;
-  static const int letterThinkingBudget = 4096;
-  static const int letterMaxTokens = 131072;
-
-  // ─── 反思模式 ───
-  static const double reflectionTemperature = 0.65;
-  static const int reflectionTopK = 25;
-  static const double reflectionFrequencyPenalty = 0.5;
-  static const int reflectionThinkingBudget = 2048;
-  static const int reflectionMaxTokens = 131072;
-
-  // ─── 主动消息模式 ───
-  static const double proactiveTemperature = 0.78;
-  static const int proactiveTopK = 35;
-  static const double proactiveFrequencyPenalty = 1.1;
-  static const int proactiveThinkingBudget = 512;
-  static const int proactiveMaxTokens = 131072;
-
   // ─── 语音通话模式 ───
   static const double voiceTemperature = 0.75;
   static const int voiceTopK = 35;
@@ -144,40 +112,19 @@ class GlmModeParams {
   static const int pureAiThinkingBudget = 2048;
   static const int pureAiMaxTokens = 131072;
 
-  // ─── 记忆场景模式 ───
-  static const double memoryTemperature = 0.80;
-  static const int memoryTopK = 40;
-  static const double memoryFrequencyPenalty = 0.9;
-  static const int memoryThinkingBudget = 2048;
-  static const int memoryMaxTokens = 131072;
-
-  // ─── 论坛模式 ───
-  static const double forumTemperature = 0.85;
-  static const int forumTopK = 40;
-  static const double forumFrequencyPenalty = 1.0;
-  static const int forumThinkingBudget = 512;
-  static const int forumMaxTokens = 131072;
-
-  // ─── 关系描述 ───
-  static const double relationshipTemperature = 0.75;
-  static const int relationshipTopK = 35;
-  static const double relationshipFrequencyPenalty = 0.8;
-  static const int relationshipThinkingBudget = 1024;
-  static const int relationshipMaxTokens = 131072;
-
-  // ─── 人格进化 ───
-  static const double personaTemperature = 0.50;
-  static const int personaTopK = 20;
-  static const double personaFrequencyPenalty = 0.5;
-  static const int personaThinkingBudget = 2048;
-  static const int personaMaxTokens = 131072;
-
   // ─── 原谅判断 ───
   static const double forgiveTemperature = 0.75;
   static const int forgiveTopK = 35;
   static const double forgiveFrequencyPenalty = 0.5;
   static const int forgiveThinkingBudget = 1024;
   static const int forgiveMaxTokens = 131072;
+
+  // ─── 人格演化 ───
+  static const double personaTemperature = 0.5;
+  static const int personaTopK = 30;
+  static const double personaFrequencyPenalty = 0.3;
+  static const int personaThinkingBudget = 512;
+  static const int personaMaxTokens = 260;
 
   /// 构建 GLM-Z1-9B 的额外请求参数（top_p, top_k, frequency_penalty, thinking_budget）
   static Map<String, dynamic> buildExtraParams({
@@ -212,12 +159,14 @@ class PrefKeys {
   static const String faVerified = 'fa_verified';
   static const String daoModeEnabled = 'dao_mode_enabled';
   static const String chatStyleMode = 'chat_style_mode';
+  static const String novelDialogueColor = 'novel_dialogue_color';
+  static const String appUsageAwareness = 'app_usage_awareness';
   static const String pureAiModeEnabled = 'pure_ai_mode_enabled';
   static const String idCardChangeCount = 'id_card_change_count';
   static const String lastCheckInDate = 'last_check_in_date';
   static const String latestAvailableBuild = 'latest_available_build';
-  static const String pendingBackgroundMessages = 'pending_background_messages';
   static const String momentsBackgroundImage = 'moments_background_image';
+  static const String pendingBackgroundMessages = 'pending_background_messages';
   static const String lastMomentsViewTime = 'last_moments_view_time';
   static const String diaryEntriesV2 = 'diary_entries_v2';
   static const String diaryEntries = 'diary_entries';
@@ -290,17 +239,14 @@ class PrefKeys {
   ];
 
   // ─── Core Hub 中层 ───
-  static const String coreHubNewWorldEnabled = 'core_hub_new_world_enabled';
-  static const String coreHubNewWorldActivatedAt =
-      'core_hub_new_world_activated_at';
-  static const String coreHubNewWorldTokenConsumed =
-      'core_hub_new_world_token_consumed';
-  static const String coreHubNewWorldTokenResetAt =
-      'core_hub_new_world_token_reset_at';
   static const String coreHubPersonaRules = 'core_hub_persona_rules';
   static const String coreHubTaskQueuePending = 'core_hub_task_queue_pending';
   static const String coreHubTaskQueueCompleted =
       'core_hub_task_queue_completed';
+  static const String coreHubNewWorldEnabled = 'core_hub_new_world_enabled';
+  static const String coreHubNewWorldTokenConsumed = 'core_hub_new_world_token_consumed';
+  static const String coreHubNewWorldActivatedAt = 'core_hub_new_world_activated_at';
+  static const String coreHubNewWorldTokenResetAt = 'core_hub_new_world_token_reset_at';
 
   static const String siliconeApiKey = 'siliconflow_api_key';
   static const String ttsApiKey = 'tts_api_key';
@@ -451,8 +397,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-static const String version = '17.0.1';
-static const int build = 278;
+static const String version = '17.1.0';
+static const int build = 279;
 }
 
 class NotificationChannels {

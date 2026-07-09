@@ -4,6 +4,8 @@ import '../../blocs/story/story_play_bloc.dart';
 import '../../models/story_book.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
+import '../../utils/avatar_resolver.dart';
+import '../../widgets/typing_indicator.dart';
 import 'story_saves_screen.dart';
 import 'widgets/story_scene_panel.dart';
 
@@ -63,7 +65,6 @@ class _StoryReadViewState extends State<_StoryReadView> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return BlocConsumer<StoryPlayBloc, StoryPlayState>(
       listenWhen: (p, c) =>
           p.segments.length != c.segments.length ||
@@ -72,8 +73,6 @@ class _StoryReadViewState extends State<_StoryReadView> {
       builder: (context, state) {
         final book = state.book;
         return Scaffold(
-          backgroundColor:
-              isDark ? const Color(0xFF0B0B0B) : const Color(0xFFF7F3EC),
           appBar: AppBar(
             title: Text(book?.title ?? '故事',
                 maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -127,7 +126,9 @@ class _StoryReadViewState extends State<_StoryReadView> {
         : NarratorRole.protagonist;
     context.read<StoryPlayBloc>().add(StoryPlaySwitchNarrator(next));
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已切换为「${next.label}」视角'), duration: const Duration(seconds: 1)),
+      SnackBar(
+          content: Text('已切换为「${next.label}」视角'),
+          duration: const Duration(seconds: 1)),
     );
   }
 
@@ -146,6 +147,7 @@ class _StoryReadViewState extends State<_StoryReadView> {
 
   Widget _buildStoryList(BuildContext context, StoryPlayState state) {
     final cs = Theme.of(context).colorScheme;
+    final book = state.book;
     final showStreaming = state.isGenerating && state.streamingText.isNotEmpty;
     final itemCount = state.segments.length + (showStreaming ? 1 : 0);
 
@@ -159,25 +161,29 @@ class _StoryReadViewState extends State<_StoryReadView> {
       );
     }
 
+    // 故事书封面（AI）的头像：优先用参与角色第一个，其次用书本封面
+    final aiAvatarUrl = book?.coverUrl;
+    final aiName = book?.title ?? '叙事者';
+
     return ListView.builder(
       controller: _scrollCtrl,
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-      // 长文本优化：懒加载 + 固定不缓存过多
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
       cacheExtent: 600,
       itemCount: itemCount,
       itemBuilder: (context, index) {
         if (showStreaming && index == state.segments.length) {
-          return _StorySegmentView(
+          return _StoryStreamingBubble(
             text: state.streamingText,
-            isUser: false,
-            streaming: true,
+            avatarUrl: aiAvatarUrl,
+            name: aiName,
           );
         }
         final seg = state.segments[index];
-        return _StorySegmentView(
+        return _StoryBubble(
           text: seg.content,
           isUser: seg.isUser,
-          streaming: false,
+          aiAvatarUrl: aiAvatarUrl,
+          aiName: aiName,
         );
       },
     );
@@ -236,7 +242,9 @@ class _StoryReadViewState extends State<_StoryReadView> {
                 ? const Padding(
                     padding: EdgeInsets.all(10),
                     child: SizedBox(
-                        width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
                   )
                 : IconButton.filled(
                     icon: const Icon(Icons.send),
@@ -249,55 +257,228 @@ class _StoryReadViewState extends State<_StoryReadView> {
   }
 }
 
-/// 单条剧情段落渲染（长文本优化：SelectableText + 分角色样式）
-class _StorySegmentView extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────────────────────
+// 故事段落气泡 — 与聊天页 _MessageBubble 一致的视觉规范
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 匹配对白：中文弯引号 "…" 及直角引号 「」/『』
+final RegExp _dialogueRe = RegExp(r'"[^"]*"|「[^」]*」|『[^』]*』');
+
+/// 引号对内字符超过此长度时，视为旁白被模型误包，跳过对白着色（与聊天页保持一致）。
+const int _maxDialogueLen = 40;
+
+/// 把文本按对白/旁白拆成富文本片段（与聊天页逻辑相同）
+List<InlineSpan>? _buildDialogueSpans(
+    String text, TextStyle baseStyle, Color dialogueColor) {
+  final matches = _dialogueRe.allMatches(text).toList();
+  if (matches.isEmpty) return null;
+  final spans = <InlineSpan>[];
+  var cursor = 0;
+  for (final m in matches) {
+    if (m.start > cursor) {
+      spans.add(TextSpan(text: text.substring(cursor, m.start), style: baseStyle));
+    }
+    final inner = text.substring(m.start, m.end);
+    final isLikelyNarration = inner.length > _maxDialogueLen;
+    spans.add(TextSpan(
+      text: inner,
+      style: isLikelyNarration
+          ? baseStyle
+          : baseStyle.copyWith(color: dialogueColor, fontWeight: FontWeight.w600),
+    ));
+    cursor = m.end;
+  }
+  if (cursor < text.length) {
+    spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
+  }
+  return spans;
+}
+
+// 与聊天页保持一致的颜色常量
+const Color _douyinBlue = Color(0xFF2B7BF5);
+const Color _douyinBlueDark = Color(0xFF4A90F7);
+const Color _bubbleLight = Color(0xFFFFFFFF);
+const Color _bubbleDark = Color(0xFF2C2C2C);
+const Color _textOnBlue = Colors.white;
+const Color _textOnWhite = Color(0xFF1A1A1A);
+const Color _textOnDark = Color(0xFFE8EAED);
+const double _avatarSize = 32.0;
+const double _bubbleRadius = 12.0;
+const double _hPad = 16.0;
+
+class _StoryBubble extends StatelessWidget {
   final String text;
   final bool isUser;
-  final bool streaming;
+  final String? aiAvatarUrl;
+  final String aiName;
 
-  const _StorySegmentView({
+  const _StoryBubble({
     required this.text,
     required this.isUser,
-    required this.streaming,
+    this.aiAvatarUrl,
+    this.aiName = '叙事者',
   });
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    if (isUser) {
-      return Container(
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: cs.primaryContainer.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.person_outline, size: 16, color: cs.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(text,
-                  style: TextStyle(
-                      fontSize: 14.5,
-                      height: 1.5,
-                      color: cs.onSurface.withOpacity(0.85))),
-            ),
-          ],
-        ),
-      );
-    }
+    final brightness = Theme.of(context).brightness;
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = brightness == Brightness.dark;
+
+    final userBubbleColor = isDark ? _douyinBlueDark : _douyinBlue;
+    final aiBubbleColor = isDark ? _bubbleDark : _bubbleLight;
+    final userTextColor = _textOnBlue;
+    final aiTextColor = isDark ? _textOnDark : _textOnWhite;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: SelectableText(
-        text,
-        style: TextStyle(
-          fontSize: 16,
-          height: 1.85,
-          color: cs.onSurface.withOpacity(streaming ? 0.6 : 0.92),
-          letterSpacing: 0.2,
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: _hPad, vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisAlignment:
+            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        children: [
+          if (!isUser) ...[
+            _buildAvatar(isDark, colorScheme),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: isUser ? userBubbleColor : aiBubbleColor,
+                borderRadius: BorderRadius.circular(_bubbleRadius),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: _buildText(
+                  brightness, isUser ? userTextColor : aiTextColor),
+            ),
+          ),
+          if (isUser) ...[
+            const SizedBox(width: 8),
+            _buildUserAvatar(colorScheme),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildText(Brightness brightness, Color textColor) {
+    final baseStyle = TextStyle(
+      fontSize: 15,
+      height: 1.6,
+      color: textColor,
+    );
+    // AI 叙事文字使用对白高亮（故事书天然是小说模式）
+    if (!isUser) {
+      final dialogueColor = brightness == Brightness.dark
+          ? _douyinBlueDark
+          : _douyinBlue;
+      final spans = _buildDialogueSpans(text, baseStyle, dialogueColor);
+      if (spans != null) {
+        return SelectableText.rich(TextSpan(children: spans));
+      }
+    }
+    return SelectableText(text, style: baseStyle);
+  }
+
+  Widget _buildAvatar(bool isDark, ColorScheme cs) {
+    final imgProvider = AvatarResolver.imageProvider(aiAvatarUrl);
+    return CircleAvatar(
+      radius: _avatarSize / 2,
+      backgroundColor: cs.primary.withOpacity(0.12),
+      backgroundImage: imgProvider,
+      child: imgProvider == null
+          ? Icon(Icons.auto_stories, size: 16, color: cs.primary)
+          : null,
+    );
+  }
+
+  Widget _buildUserAvatar(ColorScheme cs) {
+    return CircleAvatar(
+      radius: _avatarSize / 2,
+      backgroundColor: cs.primaryContainer,
+      child: Icon(Icons.person_outline, size: 16, color: cs.primary),
+    );
+  }
+}
+
+/// 流式生成中的叙事气泡（打字效果）
+class _StoryStreamingBubble extends StatelessWidget {
+  final String text;
+  final String? avatarUrl;
+  final String name;
+
+  const _StoryStreamingBubble({
+    required this.text,
+    this.avatarUrl,
+    this.name = '叙事者',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
+    final imgProvider = AvatarResolver.imageProvider(avatarUrl);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(_hPad, 4, _hPad, 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: _avatarSize / 2,
+            backgroundColor: colorScheme.primary.withOpacity(0.12),
+            backgroundImage: imgProvider,
+            child: imgProvider == null
+                ? Icon(Icons.auto_stories,
+                    size: 16, color: colorScheme.primary)
+                : null,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: brightness == Brightness.dark ? _bubbleDark : _bubbleLight,
+                borderRadius: BorderRadius.circular(_bubbleRadius),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: text.isEmpty
+                  ? TypingIndicator()
+                  : Builder(builder: (ctx) {
+                      final isDark = brightness == Brightness.dark;
+                      final textColor = isDark ? _textOnDark : _textOnWhite;
+                      final dialogueColor =
+                          isDark ? _douyinBlueDark : _douyinBlue;
+                      final baseStyle = TextStyle(
+                        fontSize: 15,
+                        height: 1.6,
+                        color: textColor.withOpacity(0.75),
+                      );
+                      final spans =
+                          _buildDialogueSpans(text, baseStyle, dialogueColor);
+                      if (spans != null) {
+                        return Text.rich(TextSpan(children: spans));
+                      }
+                      return Text(text, style: baseStyle);
+                    }),
+            ),
+          ),
+        ],
       ),
     );
   }

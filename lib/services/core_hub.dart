@@ -12,7 +12,6 @@ import 'persona_rule_registry.dart';
 import 'admin_guard.dart';
 import 'bt_agent_execution_service.dart';
 import 'bt_operation_lock_service.dart';
-import 'social_action_executor.dart';
 import 'token_budget_service.dart';
 import 'audit_service.dart';
 
@@ -35,7 +34,6 @@ class CoreHub {
   late final TokenBudgetService _tokenBudget;
   late final AuditService _audit;
   BtAgentExecutionService? Function()? _btExecutionServiceFactory;
-  SocialActionExecutor? Function()? _socialExecutorFactory;
   bool _newWorldMode = false;
   int _tokenConsumed = 0;
   String? _currentUserId;
@@ -50,12 +48,10 @@ class CoreHub {
   static Future<CoreHub> init(
     SharedPreferences prefs, {
     BtAgentExecutionService? Function()? btExecutionServiceFactory,
-    SocialActionExecutor? Function()? socialExecutorFactory,
   }) async {
     final hub = CoreHub._(prefs);
 
     hub._btExecutionServiceFactory = btExecutionServiceFactory;
-    hub._socialExecutorFactory = socialExecutorFactory;
 
     hub._newWorldMode =
         prefs.getBool(PrefKeys.coreHubNewWorldEnabled) ?? false;
@@ -209,14 +205,14 @@ class CoreHub {
 
   /// 实际执行单个任务。
   ///
-  /// BT 类型动作委托给 [BtAgentExecutionService]；
-  /// 社交类型动作委托给 [SocialActionExecutor]。
+  /// BT 类型动作委托给 [BtAgentExecutionService]。
   Future<void> _executeTask(TaskRequest task) async {
     try {
       if (_isBtActionType(task.actionType)) {
         await _executeBtAction(task);
       } else {
-        await _executeSocialAction(task);
+        task.status = 'failed';
+        task.result = 'SocialActionExecutor 未绑定';
       }
 
       if (task.tokenUsage != null && task.tokenUsage! > 0) {
@@ -272,22 +268,6 @@ class CoreHub {
     );
   }
 
-  /// 执行社交动作：委托给 [SocialActionExecutor]。
-  Future<void> _executeSocialAction(TaskRequest task) async {
-    if (_socialExecutorFactory == null) {
-      task.status = 'failed';
-      task.result = 'SocialActionExecutor 工厂未绑定';
-      return;
-    }
-    final executor = _socialExecutorFactory!();
-    if (executor == null) {
-      task.status = 'failed';
-      task.result = 'SocialActionExecutor 未绑定';
-      return;
-    }
-    await executor.execute(task);
-  }
-
   /// 判断动作类型是否属于 BT 操作枚举。
   static bool _isBtActionType(String actionType) {
     return BtActionType.values.any((bt) => bt.name == actionType);
@@ -300,13 +280,6 @@ class CoreHub {
     BtAgentExecutionService? Function() factory,
   ) {
     _btExecutionServiceFactory = factory;
-  }
-
-  /// 绑定社交执行服务工厂。可在 [init] 之后调用，用于延迟注入。
-  void bindSocialExecutorFactory(
-    SocialActionExecutor? Function() factory,
-  ) {
-    _socialExecutorFactory = factory;
   }
 
   // ────────────────────── Rule management ──────────────────────

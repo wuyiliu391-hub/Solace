@@ -214,10 +214,11 @@ class MainActivity : FlutterActivity() {
 
     /**
      * 汇总最近 windowMinutes 分钟内各前台应用的使用时长。
-     * 只返回 {packageName, totalMs}，不读取任何应用内文字/内容。
+     * 返回 {packageName, appName, totalMs, lastUsed}，不读取任何应用内文字/内容。
      */
     private fun queryForegroundUsage(windowMinutes: Int): String {
         val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val pm = packageManager
         val end = System.currentTimeMillis()
         val begin = end - windowMinutes * 60_000L
         val stats = usm.queryUsageStats(
@@ -226,8 +227,15 @@ class MainActivity : FlutterActivity() {
         val arr = JSONArray()
         for (s in stats) {
             if (s.totalTimeInForeground <= 0) continue
+            val appName = try {
+                val ai = pm.getApplicationInfo(s.packageName, 0)
+                pm.getApplicationLabel(ai).toString()
+            } catch (_: Exception) {
+                s.packageName
+            }
             arr.put(JSONObject().apply {
                 put("packageName", s.packageName)
+                put("appName", appName)
                 put("totalMs", s.totalTimeInForeground)
                 put("lastUsed", s.lastTimeUsed)
             })

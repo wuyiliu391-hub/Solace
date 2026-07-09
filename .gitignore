@@ -18,97 +18,11 @@ pubspec.lock
 **/windows/flutter/ephemeral/
 **/windows/flutter/generated_plugin_registrant.cc
 **/windows/flutter/generated_plugin_registrant.h
-**/windows/flutter/generated_plugins.cmake
 
-# Generated files (DO NOT COMMIT)
-.flutter-plugins
-.flutter-plugins-dependencies
-.metadata
-
-# Android
-**/.gradle/
-**/.idea/
-**/android/app/build/
-**/android/.gradle/
-**/android/gradlew.bat
-*.iml
-*.hprof
-
-# iOS
-**/ios/Flutter/Debug.xcconfig
-**/ios/Flutter/Release.xcconfig
-
-# VS Code
+# IDE / workspace
+.workbuddy/
 .vscode/
-*.code-workspace
-
-# Trae
-.trae/
-
-# Build artifacts
-debug_symbols/
-node_modules/
-.wrangler/
-
-# Temporary files
-*.log
-*.tmp
-*.temp
-*~
-.DS_Store
-Thumbs.db
-
-# Deployment (keep source only)
-solace/*.apk
-solace/app-release.apk
-deploy/
-
-# Secrets and credentials
-.env
-.env.local
-*.env
-**/secrets/
-**/keys/
-docs/deployment/cloudflare.md
-
-# AI 工具痕迹（开源前必须排除）
-.specstory/
-.orbit/
-.choccy/
-AGENTS.md
-CLAUDE.md
-HEARTBEAT.md
-IDENTITY.md
-SOUL.md
-TOOLS.md
-USER.md
-.cursorignore
-.cursorindexingignore
-.trae/
-
-# 部署脚本（含 token）
-deploy.sh
-
-# 本地配置
-android/local.properties
-
-# APK 文件
-*.apk
-*.apk.gz
-*.apk.sha1
-*.sha1
-
-# 数据库文件
-*.db
-
-# 服务器快照
-*.heapsnapshot
-
-# Test coverage
-coverage/
-
-# IDE
 .idea/
+*.iml
 *.swp
 *.swo
-*~

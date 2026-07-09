@@ -8,7 +8,7 @@ import '../../models/chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
 import 'order_tracking_screen.dart';
 import '../../models/shop_order.dart';
-import '../../services/delivery_simulator.dart';
+
 import '../../utils/avatar_resolver.dart';
 
 /// AI小商店 - 主界面
@@ -284,11 +284,6 @@ class _ShopScreenState extends State<ShopScreen>
           _loadUserCoins();
           // 通知聊天页面触发AI回复
           widget.onGiftSent?.call(state.lastPlacedOrder!);
-          // 启动配送模拟
-          try {
-            final simulator = context.read<DeliverySimulator>();
-            simulator.startDelivery(state.lastPlacedOrder!);
-          } catch (_) {}
         }
         if (state.error != null) {
           ScaffoldMessenger.of(context).showSnackBar(

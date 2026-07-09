@@ -11,19 +11,29 @@ function versionCompare(v1, v2) {
 }
 
 const VERSION_DATA = {
-  latestVersion: '17.0.1',
-  buildNumber: 278,
+  latestVersion: '17.1.0',
+  buildNumber: 279,
   minSdk: 23,
-  releaseDate: '2026-07-08',
-  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=17.0.1',
+  releaseDate: '2026-07-09',
+  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=17.1.0',
   changelog: [
-    '修复导入备份失败问题',
-    '底部导航栏新增小说功能',
+    '用户可以自由选择字体颜色，入口在单聊页面右上角',
+    '小说模式开关自动开启修复',
+    '气泡三点改为动态状态变化显示（等待中…/思考中…）',
+    '理论修复字体颜色和旁白问题',
+    '恢复并且增强联网搜索能力，实际完全可用',
   ],
   forceUpdate: false,
 };
 
 const ANNOUNCEMENTS = [
+  {
+    id: 'ann_1710',
+    title: 'Solace 17.1.0 更新公告',
+    content: `Solace 17.1.0+279 更新公告\n\n━━━━━━━━━ 本次更新 ━━━━━━━━━\n\n🎨 自定义字体颜色\n用户现在可以自由选择对白字体颜色，入口在单聊页面右上角调色板按钮，点击即可打开模式与颜色面板。\n\n🔄 小说模式开关修复\n修复全新安装后小说模式默认为关闭导致对白全部显示为白色的问题，切换模式后立即生效。\n\n💬 气泡三点动态状态\n气泡下方的三点等待指示器改为动态状态文字显示：等待中…（请求发送中）→ 思考中…（AI正在思考）→ 流式输出。\n\n📝 字体颜色与旁白修复\n理论修复对白/旁白字体颜色异常问题，对白着蓝色、旁白保持白色，自定义颜色同步生效。\n\n🌐 联网搜索增强\n恢复并增强联网搜索能力，实际完全可用。修复搜索结果显示0结果、搜索意图识别不准确、部分角色不触发搜索等多个问题。`,
+    date: '2026-07-09',
+    type: 'feature',
+  },
   {
     id: 'ann_1701',
     title: 'Solace 17.0.1 更新公告',

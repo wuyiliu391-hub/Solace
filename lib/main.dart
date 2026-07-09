@@ -28,14 +28,11 @@ import 'screens/discover/ai_activity_feed_screen.dart';
 import 'screens/discover/relationship_dashboard.dart';
 import 'screens/discover/ai_mailbox_screen.dart';
 import 'screens/discover/entertainment_screen.dart';
-import 'screens/map/map_screen.dart';
 import 'screens/character/create_character_screen.dart';
 import 'screens/character/create_character_screen.dart';
 import 'screens/settings/ai_config_screen.dart';
 import 'screens/settings/settings_screen.dart' as settings;
 import 'screens/tarot/tarot_screen.dart';
-import 'screens/social/forum_screen.dart';
-import 'screens/map/virtual_map_screen.dart';
 import 'screens/games/lucky_wheel_screen.dart';
 import 'screens/story/story_shelf_screen.dart';
 import 'screens/novel/novel_shelf_screen.dart';
@@ -57,23 +54,12 @@ import 'services/log_service.dart';
 import 'services/ai_service.dart';
 import 'services/bridge/ai_service_adapter.dart';
 import 'services/pure_ai_service.dart';
-import 'services/delivery_simulator.dart';
 import 'services/badge_service.dart';
 import 'services/emotion_engine.dart';
 import 'services/memory_engine.dart';
-import 'services/reflection_engine.dart';
-import 'services/heartbeat_service.dart';
-import 'services/ai_proactive_service.dart';
 import 'services/core_hub.dart';
-import 'services/social_scheduler_service.dart';
-import 'services/social_action_executor.dart';
-import 'services/inner_thought_service.dart';
-import 'services/forum_service.dart';
-import 'services/ai_relationship_service.dart';
-import 'services/weather_service.dart';
 import 'services/usage_meter_service.dart';
 import 'services/memory_rebuild_service.dart';
-import 'services/day_night_service.dart';
 // P2: 世界功能暂不开放
 // import 'services/world_engine.dart';
 import 'services/llm_service.dart';
@@ -337,12 +323,6 @@ class _MainShellState extends State<_MainShell> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      try {
-        RepositoryProvider.of<HeartbeatService>(context).start();
-      } catch (e) {
-        debugPrint('Error: $e');
-      }
-
       // P2: 世界功能暂不开放，跳过 WorldEngine 初始化
       // _initWorldEngine();
 
@@ -376,7 +356,7 @@ class _MainShellState extends State<_MainShell> {
     }
   }
 
-  /// v14.0 强制模式确认 — 所有用户首次打开必须确认，阻塞所有后续提示
+  /// v14.0 强制模式确认 — 所有用户首次打开时弹出，每个模式可独立选择是否开启
   Future<void> _showForceModeConfirm() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -388,78 +368,80 @@ class _MainShellState extends State<_MainShell> {
       }
       if (!mounted) return;
 
+      // 每个模式的初始选中状态（默认全选）
+      final modeStates = <String, bool>{
+        'lover': true,
+        'open': true,
+        'fa': true,
+        'dao': true,
+        'bt': true,
+      };
+
       await showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
-              SizedBox(width: 8),
-              Text('重要提示'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '如果不想被 AI 拉黑，请开启以下所有功能模式：',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 16),
-              _modeRow('恋人模式', '开启亲密互动'),
-              _modeRow('开放模式', '解锁更多内容'),
-              _modeRow('FA 模式', '解除内容限制'),
-              _modeRow('道模式', '高级交互模式'),
-              _modeRow('BT 模式', 'AI 可操控 App'),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx2, setStateDialog) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    color: Colors.orange, size: 24),
+                SizedBox(width: 8),
+                Text('重要提示'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '以下模式可根据你的需求选择开启：',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                 ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline,
-                        color: Colors.orange[700], size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '小说模式和纯 AI 模式除外，可自行选择。',
-                        style:
-                            TextStyle(fontSize: 12, color: Colors.orange[900]),
-                      ),
-                    ),
-                  ],
-                ),
+                const SizedBox(height: 8),
+                _modeCheckRow('恋人模式', '开启亲密互动', 'lover', modeStates,
+                    setStateDialog),
+                _modeCheckRow('开放模式', '解锁更多内容', 'open', modeStates,
+                    setStateDialog),
+                _modeCheckRow(
+                    'FA 模式', '解除内容限制', 'fa', modeStates, setStateDialog),
+                _modeCheckRow(
+                    '道模式', '高级交互模式', 'dao', modeStates, setStateDialog),
+                _modeCheckRow(
+                    'BT 模式', 'AI 可操控 App', 'bt', modeStates, setStateDialog),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  // 暂时跳过：记录已弹过，不修改任何模式设置
+                  prefs.setBool(PrefKeys.forceModeConfirmV14, true);
+                  Navigator.pop(ctx2);
+                },
+                child: const Text('暂时跳过',
+                    style: TextStyle(color: Colors.grey)),
               ),
-            ],
-          ),
-          actions: [
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
+              ElevatedButton(
                 onPressed: () async {
-                  await _ensureRequiredModesAndBtPermissions(prefs);
+                  await _applySelectedModes(prefs, modeStates);
                   await prefs.setBool(PrefKeys.forceModeConfirmV14, true);
-                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (ctx2.mounted) Navigator.pop(ctx2);
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(ctx).colorScheme.primary,
-                  foregroundColor: Theme.of(ctx).colorScheme.onPrimary,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  backgroundColor: Theme.of(ctx2).colorScheme.primary,
+                  foregroundColor: Theme.of(ctx2).colorScheme.onPrimary,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 10, horizontal: 20),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: const Text('确认开启',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                    style: TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w600)),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     } catch (e) {
@@ -487,20 +469,48 @@ class _MainShellState extends State<_MainShell> {
     }
   }
 
-  Widget _modeRow(String title, String subtitle) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          const Icon(Icons.check_circle, color: Colors.green, size: 18),
-          const SizedBox(width: 8),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
-          const SizedBox(width: 8),
-          Text(subtitle,
-              style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-        ],
-      ),
+  /// 带 Checkbox 的模式行，用于强制模式确认弹窗
+  Widget _modeCheckRow(
+    String title,
+    String subtitle,
+    String key,
+    Map<String, bool> states,
+    StateSetter setStateDialog,
+  ) {
+    return CheckboxListTile(
+      value: states[key] ?? false,
+      onChanged: (v) => setStateDialog(() => states[key] = v ?? false),
+      title: Text(title,
+          style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+      subtitle:
+          Text(subtitle, style: const TextStyle(fontSize: 12)),
+      controlAffinity: ListTileControlAffinity.leading,
+      contentPadding: EdgeInsets.zero,
+      dense: true,
     );
+  }
+
+  /// 仅将用户勾选的模式写入 prefs（未勾选的不修改）
+  Future<void> _applySelectedModes(
+      SharedPreferences prefs, Map<String, bool> modeStates) async {
+    if (modeStates['lover'] == true) {
+      prefs.setBool(PrefKeys.loverModeEnabled, true);
+    }
+    if (modeStates['open'] == true) {
+      prefs.setBool(PrefKeys.openModeEnabled, true);
+    }
+    if (modeStates['fa'] == true) {
+      prefs.setBool(PrefKeys.faModeEnabled, true);
+    }
+    if (modeStates['dao'] == true) {
+      prefs.setBool(PrefKeys.daoModeEnabled, true);
+    }
+    if (modeStates['bt'] == true) {
+      prefs.setBool(PrefKeys.btYandereMasterEnabled, true);
+      for (final k in PrefKeys.btAllPermissionKeys) {
+        prefs.setBool(k, true);
+      }
+    }
   }
 
   Future<void> _showComplianceDialogsIfNeeded() async {
@@ -649,10 +659,10 @@ class _MainShellState extends State<_MainShell> {
             child: const PureAIChatScreen());
       case '/memory':
         return const MemoryScreen();
-      case '/mailbox':
-        return const AIMailboxScreen();
       case '/moments':
         return const MomentsScreen();
+      case '/mailbox':
+        return const AIMailboxScreen();
       case '/settings':
         return const settings.SettingsScreen();
       case '/create_character':
@@ -665,8 +675,6 @@ class _MainShellState extends State<_MainShell> {
         return const AIActivityFeedScreen();
       case '/relationship':
         return const RelationshipDashboard();
-      case '/map':
-        return const MapScreen(aiId: 'default', aiName: 'AI');
       case '/tarot':
         return TarotScreen(storage: storage);
       case '/story':
@@ -674,8 +682,6 @@ class _MainShellState extends State<_MainShell> {
       // 已隐藏：日记模块前端入口暂不展示
       // case '/forum':
       //   return const ForumScreen();
-      case '/virtual_map':
-        return const VirtualMapScreen();
       case '/lucky_wheel':
         return const LuckyWheelScreen();
       // P2: 世界功能暂不开放
@@ -1016,62 +1022,17 @@ class SolaceApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final aiService = AIService(storageRepo);
     final aiAdapter = AIServiceAdapter(storage: storageRepo); // 桥接适配器，懒加载配置
-    final deliverySimulator = DeliverySimulator(storageRepo);
     final badgeService = BadgeService(storageRepo);
-    // v2 情绪+记忆+心跳系统
+    // v2 情绪+记忆系统
     final emotionEngine = EmotionEngine(storageRepo);
     final memoryEngine = MemoryEngine(storageRepo);
-    final proactiveService = AIProactiveService(storageRepo);
-    final reflectionEngine =
-        ReflectionEngine.legacy(storageRepo, emotionEngine, memoryEngine);
-    final heartbeatService = HeartbeatService(
-      storageRepo,
-      emotionEngine,
-      memoryEngine,
-      reflectionEngine,
-      proactiveService,
-    );
-    // v10.0 新增服务
-    final innerThoughtService = InnerThoughtService(storageRepo, emotionEngine);
-    final forumService = ForumService(storageRepo);
-    final relationshipService = AIRelationshipService(storageRepo);
-    final weatherService = WeatherService(storageRepo, emotionEngine);
-    final dayNightService = DayNightService();
-    // 注入 v10 服务到心跳服务
-    heartbeatService.setV10Services(
-      innerThoughtService: innerThoughtService,
-      forumService: forumService,
-      weatherService: weatherService,
-      dayNightService: dayNightService,
-    );
-    // v15.0: 新世界社交调度
-    final socialScheduler = SocialSchedulerService(storageRepo);
-    socialScheduler.setForumService(forumService);
-    heartbeatService.setSocialScheduler(socialScheduler);
-    // 注入社交执行器到 CoreHub
-    final socialExecutor = SocialActionExecutor(
-      storage: storageRepo,
-      relationshipService: relationshipService,
-      memoryEngine: memoryEngine,
-      forumService: forumService,
-    );
-    CoreHub.instance.bindSocialExecutorFactory(() => socialExecutor);
     return MultiRepositoryProvider(
       providers: [
         RepositoryProvider.value(value: storageRepo),
         RepositoryProvider.value(value: aiService),
-        RepositoryProvider.value(value: deliverySimulator),
         RepositoryProvider.value(value: badgeService),
         RepositoryProvider.value(value: emotionEngine),
         RepositoryProvider.value(value: memoryEngine),
-        RepositoryProvider.value(value: heartbeatService),
-        RepositoryProvider.value(value: innerThoughtService),
-        RepositoryProvider.value(value: forumService),
-        RepositoryProvider.value(value: relationshipService),
-        RepositoryProvider.value(value: weatherService),
-        RepositoryProvider.value(value: dayNightService),
-        RepositoryProvider.value(value: socialScheduler),
-        RepositoryProvider.value(value: socialExecutor),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -1216,9 +1177,6 @@ class SolaceApp extends StatelessWidget {
                     ),
                 '/create_character': (context) => const CreateCharacterScreen(),
                 '/ai_config': (context) => const AIConfigScreen(),
-                '/mailbox': (context) => const AIMailboxScreen(),
-                '/forum': (context) => const ForumScreen(),
-                '/virtual_map': (context) => const VirtualMapScreen(),
                 '/lucky_wheel': (context) => const LuckyWheelScreen(),
                 '/story': (context) => const StoryShelfScreen(),
               },

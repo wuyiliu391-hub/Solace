@@ -13,7 +13,7 @@ import '../models/virtual_phone/vp_note.dart';
 import '../models/virtual_phone/vp_moment.dart';
 import '../repositories/local_storage_repository.dart';
 import 'ai_service.dart';
-import 'growth_data_service.dart' show relationshipStage;
+
 import 'memory_engine.dart';
 
 /// 虚拟手机生成器
@@ -402,9 +402,8 @@ class VirtualPhoneGenerator {
         // 取亲密度最高（关系最主线）的一段会话
         mine.sort((a, b) => b.intimacyLevel.compareTo(a.intimacyLevel));
         final main = mine.first;
-        final stage = relationshipStage(main.intimacyLevel);
         b.writeln('== 关系状态 ==');
-        b.writeln('当前关系阶段：$stage（亲密度 ${main.intimacyLevel}/100）');
+        b.writeln('亲密度 ${main.intimacyLevel}/100');
         b.writeln();
 
         final excerpt = await _recentDialogueExcerpt(main, nick, c.name);

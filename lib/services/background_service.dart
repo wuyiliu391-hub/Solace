@@ -14,7 +14,7 @@ import '../config/business_rules.dart';
 import '../utils/message_sanitizer.dart';
 import '../utils/response_decoder.dart';
 import 'ai_service.dart';
-import 'persona_evolution_service.dart';
+
 
 const String bgTaskName = 'proactiveChatMessage';
 const String bgTaskMomentPost = 'aiMomentPost';
@@ -2212,9 +2212,7 @@ Future<bool> _handleMomentInteract(Map<String, dynamic>? inputData) async {
       final evolvedStyle =
           character['evolvedStyle'] as String? ?? languageStyle;
       final immutableAnchor = character['immutableAnchor'] as String? ?? '';
-      final traitSummary = PersonaEvolutionService.buildTraitSummaryFromAnchor(
-        character['currentAnchor'] as String?,
-      );
+      final traitSummary = character['currentAnchor'] as String? ?? '';
       final userNickname = character['userNickname'] as String? ?? '';
       final catchphrases = character['catchphrases'] as String? ?? '';
 
@@ -2325,9 +2323,7 @@ Future<String> _generateBgContent(
   final languageStyle = character['languageStyle'] as String? ?? '自然亲切';
   final evolvedStyle = character['evolvedStyle'] as String? ?? languageStyle;
   final immutableAnchor = character['immutableAnchor'] as String? ?? '';
-  final traitSummary = PersonaEvolutionService.buildTraitSummaryFromAnchor(
-    character['currentAnchor'] as String?,
-  );
+  final traitSummary = character['currentAnchor'] as String? ?? '';
   final userNickname = character['userNickname'] as String? ?? '';
   final backgroundStory = character['backgroundStory'] as String? ?? '';
   final currentStatus = character['currentStatus'] as String? ?? '';
