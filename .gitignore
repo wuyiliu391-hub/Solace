@@ -19,10 +19,62 @@ pubspec.lock
 **/windows/flutter/generated_plugin_registrant.cc
 **/windows/flutter/generated_plugin_registrant.h
 
-# IDE / workspace
+# IDE / workspace / agent tools
 .workbuddy/
 .vscode/
 .idea/
+.agnes/
+.claude/
+.mimocode/
+.joycode/
+.agents/
+.wrangler/
 *.iml
 *.swp
 *.swo
+
+# Android local / build cache (must not commit)
+android/.gradle/
+android/local.properties
+android/app/build/
+**/.gradle/
+
+# Local DBs & logs (large / machine-specific)
+*.db
+*.db-journal
+solace.db
+solace_backup.db
+solace_raw.db
+*.log
+adb_err.txt
+analyze_out.txt
+build_log.txt
+build_log_release.txt
+diff_detail.txt
+C:UsersAdministratorDesktoplog.txt
+
+# Reference / third-party checkouts (not part of Solace app)
+Operit/
+music-api/
+
+# Local scripts / one-off tools
+_fix_bloc.py
+check_db.py
+generate_ai_frame.py
+generate_avatar_frames.py
+generate_avatar_frames_v2.py
+process_doubao_frames.py
+process_doubao_frames_v2.py
+process_doubao_frames_v4.py
+process_ezremove_frames.py
+tools/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
