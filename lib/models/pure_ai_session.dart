@@ -57,19 +57,22 @@ class PureAISession extends Equatable {
   }
 
   factory PureAISession.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
+    final createdAt = tryParseDateTime(map['createdAt']);
     return PureAISession(
-      id: map['id'] as String,
-      userId: map['userId'] as String,
-      title: map['title'] as String? ?? 'AI助手',
+      id: (map['id'] as String?) ?? '',
+      userId: (map['userId'] as String?) ?? '',
+      title: (map['title'] as String?) ?? 'AI助手',
       lastMessage: map['lastMessage'] as String?,
-      lastMessageTime: map['lastMessageTime'] != null
-          ? DateTime.parse(map['lastMessageTime'] as String)
-          : null,
+      lastMessageTime: tryParseDateTime(map['lastMessageTime']),
       isPinned: (map['isPinned'] as int?) == 1,
-      createdAt: DateTime.parse(map['createdAt'] as String),
-      updatedAt: map['updatedAt'] != null
-          ? DateTime.parse(map['updatedAt'] as String)
-          : null,
+      createdAt: createdAt ?? DateTime.now(),
+      updatedAt: tryParseDateTime(map['updatedAt']),
     );
   }
 

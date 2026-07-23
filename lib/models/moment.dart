@@ -47,10 +47,16 @@ class MomentLike extends Equatable {
   }
 
   factory MomentLike.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return MomentLike(
-      userId: map['userId'] as String,
-      userName: map['userName'] as String,
-      createdAt: DateTime.parse(map['createdAt'] as String),
+      userId: (map['userId'] as String?) ?? '',
+      userName: (map['userName'] as String?) ?? '',
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
     );
   }
 
@@ -90,14 +96,20 @@ class MomentComment extends Equatable {
   }
 
   factory MomentComment.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return MomentComment(
-      id: map['id'] as String,
-      userId: map['userId'] as String,
-      userName: map['userName'] as String,
+      id: (map['id'] as String?) ?? '',
+      userId: (map['userId'] as String?) ?? '',
+      userName: (map['userName'] as String?) ?? '',
       replyToUserId: map['replyToUserId'] as String?,
       replyToUserName: map['replyToUserName'] as String?,
-      content: map['content'] as String,
-      createdAt: DateTime.parse(map['createdAt'] as String),
+      content: (map['content'] as String?) ?? '',
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
     );
   }
 
@@ -341,18 +353,20 @@ class Moment extends Equatable {
     }
 
     return Moment(
-      id: map['id'] as String,
-      userId: map['userId'] as String,
-      userName: map['userName'] as String,
+      id: (map['id'] as String?) ?? '',
+      userId: (map['userId'] as String?) ?? '',
+      userName: (map['userName'] as String?) ?? '',
       userAvatar: map['userAvatar'] as String?,
-      content: map['content'] as String,
+      content: (map['content'] as String?) ?? '',
       images: parseImages(map['images'] as String?),
       type: MomentType.values[(map['type'] as int?) ?? 0],
       likes: parseLikes(map['likes']),
       comments: parseComments(map['comments']),
-      createdAt: DateTime.parse(map['createdAt'] as String),
+      createdAt: map['createdAt'] != null
+          ? DateTime.tryParse(map['createdAt'] as String) ?? DateTime.now()
+          : DateTime.now(),
       updatedAt: map['updatedAt'] != null
-          ? DateTime.parse(map['updatedAt'] as String)
+          ? DateTime.tryParse(map['updatedAt'] as String)
           : null,
       isFromAI: map['isFromAI'] == 1 || map['isFromAI'] == true,
       visibility: MomentVisibility.values[(map['visibility'] as int?) ?? 0],

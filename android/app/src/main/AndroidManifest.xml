@@ -37,6 +37,29 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
             </intent-filter>
         </receiver>
+        <!-- 无障碍服务 — 角色"看屏幕、点按、滑动"的基础能力 -->
+        <service
+            android:name=".accessibility.SolaceAccessibilityService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- 通知监听 — 角色感知手机通知，用户主动在系统设置中授予 -->
+        <service
+            android:name=".notification.SolaceNotificationListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- 作息陪伴 — 设备管理员（仅锁屏 force-lock），用户主动授予、可随时撤销 -->
         <receiver
             android:name=".WellbeingAdminReceiver"
@@ -49,6 +72,65 @@
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
+
+        <!-- 屏幕截图 — 透明 Activity 请求 MediaProjection 权限 -->
+        <activity
+            android:name=".capture.ScreenCaptureActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:exported="false" />
+
+        <!-- 屏幕截图前台服务 — Android 14+ mediaProjection FGS 要求 -->
+        <service
+            android:name=".capture.ScreenCaptureService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- ═══ Live2D 崽崽桌面悬浮窗 — TYPE_APPLICATION_OVERLAY ═══ -->
+        <!-- 注册为 FGS（specialUse），Android 14+ 后台保活 + 用户可见通知 -->
+        <service
+            android:name=".live2d.Live2DOverlayService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="displays_the_companion_character_overlay_on_top_of_other_apps_this_is_a_core_feature_of_solace_companion_app" />
+        </service>
+
+        <!-- ═══ 无障碍保活增强 — 前台服务 ═══ -->
+        <service
+            android:name=".accessibility.AccessibilityKeepAliveService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="keeps_the_critical_accessibility_service_process_alive_so_that_ai_characters_can_perceive_and_interact_with_your_screen_this_is_a_core_feature_of_the_solace_companion_app" />
+        </service>
+
+        <!-- ═══ 无障碍保活增强 — 开机自启 + 状态监控接收器 ═══ -->
+        <receiver
+            android:name=".accessibility.AccessibilityBootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.huawei.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.solace.solace.ACCESSIBILITY_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ═══ Shizuku Provider — ADB提权服务 ═══ -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     </application>
 
     <!-- ─── 权限声明 ─── -->
@@ -56,22 +138,22 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
-    
+
     <!-- Android 12 及以下版本 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>
-    
+
     <!-- Android 11+ 管理全部文件权限（模型下载到外部存储） -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
-    
+
     <!-- Android 13+ 媒体权限 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
-    
+
     <!-- 安装 APK 所需权限 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
-    
+
     <!-- 通知权限 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
@@ -84,4 +166,23 @@
          系统级权限，靠用户在 设置→特殊访问权限→使用情况访问 中手动授予。 -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions"/>
+
+    <!-- 悬浮窗权限 — 音乐播放器小窗 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+
+    <!-- ═══ 无障碍保活增强权限 ═══ -->
+    <!-- 前台服务 dataSync 类型 — 保活服务使用 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- 前台服务 specialUse 类型 — Android 14+ 需要说明前台服务用途 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <!-- 忽略电池优化 — 用户主动授权后免除后台限制 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- 唤醒锁 — 防止 CPU 深度休眠 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
+    <!-- ═══ Shizuku ADB 提权 — 设备操控核心 ═══ -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 </manifest>

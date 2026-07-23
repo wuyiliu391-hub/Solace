@@ -22,6 +22,8 @@ class ChatSession extends Equatable {
   final bool isHidden;
   final bool aiIsOnline;
   final String? aiCurrentStatus;
+  /// 角色最后上线时间（用于在线状态判断）
+  final DateTime? lastOnlineAt;
   final int syncSeq;
   final bool isBlocked;
   final BlockedBy blockedBy;
@@ -32,6 +34,8 @@ class ChatSession extends Equatable {
   final int streakDays;
   final bool isInFriction;
   final int frictionDaysLeft;
+  /// 小说模式：-1=跟随全局设置，0=关闭，1=开启
+  final int novelMode;
 
   const ChatSession({
     required this.id,
@@ -53,6 +57,7 @@ class ChatSession extends Equatable {
     this.isHidden = false,
     this.aiIsOnline = true,
     this.aiCurrentStatus,
+    this.lastOnlineAt,
     this.syncSeq = 0,
     this.isBlocked = false,
     this.blockedBy = BlockedBy.none,
@@ -63,6 +68,7 @@ class ChatSession extends Equatable {
     this.streakDays = 0,
     this.isInFriction = false,
     this.frictionDaysLeft = 0,
+    this.novelMode = -1,
   });
 
   ChatSession copyWith({
@@ -85,6 +91,7 @@ class ChatSession extends Equatable {
     bool? isHidden,
     bool? aiIsOnline,
     String? aiCurrentStatus,
+    DateTime? lastOnlineAt,
     int? syncSeq,
     bool? isBlocked,
     BlockedBy? blockedBy,
@@ -96,6 +103,7 @@ class ChatSession extends Equatable {
     int? streakDays,
     bool? isInFriction,
     int? frictionDaysLeft,
+    int? novelMode,
   }) {
     return ChatSession(
       id: id ?? this.id,
@@ -117,6 +125,7 @@ class ChatSession extends Equatable {
       isHidden: isHidden ?? this.isHidden,
       aiIsOnline: aiIsOnline ?? this.aiIsOnline,
       aiCurrentStatus: aiCurrentStatus ?? this.aiCurrentStatus,
+      lastOnlineAt: lastOnlineAt ?? this.lastOnlineAt,
       syncSeq: syncSeq ?? this.syncSeq,
       isBlocked: clearBlock ? false : (isBlocked ?? this.isBlocked),
       blockedBy: clearBlock ? BlockedBy.none : (blockedBy ?? this.blockedBy),
@@ -127,6 +136,7 @@ class ChatSession extends Equatable {
       streakDays: streakDays ?? this.streakDays,
       isInFriction: isInFriction ?? this.isInFriction,
       frictionDaysLeft: frictionDaysLeft ?? this.frictionDaysLeft,
+      novelMode: novelMode ?? this.novelMode,
     );
   }
 
@@ -151,6 +161,7 @@ class ChatSession extends Equatable {
       'isHidden': isHidden ? 1 : 0,
       'aiIsOnline': aiIsOnline ? 1 : 0,
       'aiCurrentStatus': aiCurrentStatus,
+      'lastOnlineAt': lastOnlineAt?.toIso8601String(),
       'sync_seq': syncSeq,
       'isBlocked': isBlocked ? 1 : 0,
       'blockedBy': blockedBy.index,
@@ -161,11 +172,46 @@ class ChatSession extends Equatable {
       'streakDays': streakDays,
       'isInFriction': isInFriction ? 1 : 0,
       'frictionDaysLeft': frictionDaysLeft,
+      'novelMode': novelMode,
     };
   }
 
   factory ChatSession.fromMap(Map<String, dynamic> map) {
     final blockedByIndex = map['blockedBy'] as int? ?? 0;
+    
+    // 处理 lastMessageTime：可能是 String、int 或 null
+    DateTime? parsedLastMessageTime;
+    final lastMsgTimeVal = map['lastMessageTime'];
+    if (lastMsgTimeVal != null) {
+      if (lastMsgTimeVal is String) {
+        parsedLastMessageTime = DateTime.tryParse(lastMsgTimeVal);
+      } else if (lastMsgTimeVal is int) {
+        parsedLastMessageTime = DateTime.fromMillisecondsSinceEpoch(lastMsgTimeVal);
+      }
+    }
+    
+    // 处理 createdAt：可能是 String、int 或 null
+    DateTime? parsedCreatedAt;
+    final createdAtVal = map['createdAt'];
+    if (createdAtVal != null) {
+      if (createdAtVal is String) {
+        parsedCreatedAt = DateTime.tryParse(createdAtVal);
+      } else if (createdAtVal is int) {
+        parsedCreatedAt = DateTime.fromMillisecondsSinceEpoch(createdAtVal);
+      }
+    }
+    
+    // 处理 updatedAt
+    DateTime? parsedUpdatedAt;
+    final updatedAtVal = map['updatedAt'];
+    if (updatedAtVal != null) {
+      if (updatedAtVal is String) {
+        parsedUpdatedAt = DateTime.tryParse(updatedAtVal);
+      } else if (updatedAtVal is int) {
+        parsedUpdatedAt = DateTime.fromMillisecondsSinceEpoch(updatedAtVal);
+      }
+    }
+    
     return ChatSession(
       id: map['id'] as String,
       userId: map['userId'] as String,
@@ -173,23 +219,22 @@ class ChatSession extends Equatable {
       aiCharacterName: map['aiCharacterName'] as String,
       aiCharacterAvatar: map['aiCharacterAvatar'] as String?,
       lastMessage: map['lastMessage'] as String?,
-      lastMessageTime: map['lastMessageTime'] != null
-          ? DateTime.tryParse(map['lastMessageTime'] as String? ?? '')
-          : null,
+      lastMessageTime: parsedLastMessageTime,
       unreadCount: map['unreadCount'] as int? ?? 0,
       intimacyLevel: map['intimacyLevel'] as int? ?? 0,
       dailyIntimacyCount: map['dailyIntimacyCount'] as int? ?? 0,
       lastIntimacyDate: map['lastIntimacyDate'] as String?,
-      createdAt: DateTime.tryParse(map['createdAt'] as String? ?? '') ?? DateTime.now(),
-      updatedAt: map['updatedAt'] != null
-          ? DateTime.tryParse(map['updatedAt'] as String? ?? '')
-          : null,
+      createdAt: parsedCreatedAt ?? DateTime.now(),
+      updatedAt: parsedUpdatedAt,
       isMuted: map['isMuted'] == 1 || map['isMuted'] == true,
       isPinned: map['isPinned'] == 1 || map['isPinned'] == true,
       backgroundImage: map['backgroundImage'] as String?,
       isHidden: map['isHidden'] == 1 || map['isHidden'] == true,
       aiIsOnline: map['aiIsOnline'] == 1 || map['aiIsOnline'] == true,
       aiCurrentStatus: map['aiCurrentStatus'] as String?,
+      lastOnlineAt: map['lastOnlineAt'] != null
+          ? DateTime.tryParse(map['lastOnlineAt'] as String? ?? '')
+          : null,
       syncSeq: (map['sync_seq'] ?? map['syncSeq']) as int? ?? 0,
       isBlocked: map['isBlocked'] == 1 || map['isBlocked'] == true,
       blockedBy: blockedByIndex < BlockedBy.values.length
@@ -204,6 +249,7 @@ class ChatSession extends Equatable {
       streakDays: map['streakDays'] as int? ?? 0,
       isInFriction: map['isInFriction'] == 1 || map['isInFriction'] == true,
       frictionDaysLeft: map['frictionDaysLeft'] as int? ?? 0,
+      novelMode: map['novelMode'] as int? ?? -1,
     );
   }
 
@@ -228,6 +274,7 @@ class ChatSession extends Equatable {
         isHidden,
         aiIsOnline,
         aiCurrentStatus,
+        lastOnlineAt,
         syncSeq,
         isBlocked,
         blockedBy,
@@ -238,5 +285,6 @@ class ChatSession extends Equatable {
         streakDays,
         isInFriction,
         frictionDaysLeft,
+        novelMode,
       ];
 }

@@ -2,6 +2,8 @@
 import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,17 +29,24 @@ import 'screens/discover/growth_track_screen.dart';
 import 'screens/discover/ai_activity_feed_screen.dart';
 import 'screens/discover/relationship_dashboard.dart';
 import 'screens/discover/ai_mailbox_screen.dart';
+import 'screens/discover/ai_diary_screen.dart';
 import 'screens/discover/entertainment_screen.dart';
+import 'screens/discover/bookmark_list_screen.dart';
 import 'screens/character/create_character_screen.dart';
 import 'screens/character/create_character_screen.dart';
 import 'screens/settings/ai_config_screen.dart';
-import 'screens/settings/settings_screen.dart' as settings;
+import 'screens/profile/settings_screen.dart';
 import 'screens/tarot/tarot_screen.dart';
 import 'screens/games/lucky_wheel_screen.dart';
+import 'screens/games/music_companion_screen.dart';
 import 'screens/story/story_shelf_screen.dart';
 import 'screens/novel/novel_shelf_screen.dart';
 
+import 'screens/group_chat/group_chat_list_screen.dart';
+import 'blocs/group_chat/group_chat_bloc.dart';
+
 import 'screens/usage/usage_screen.dart';
+import 'screens/operit/operit_home_screen.dart';
 import 'blocs/chat/chat_bloc.dart';
 import 'blocs/pure_ai/pure_ai_chat_bloc.dart';
 import 'services/permission_service.dart';
@@ -54,7 +63,6 @@ import 'services/log_service.dart';
 import 'services/ai_service.dart';
 import 'services/bridge/ai_service_adapter.dart';
 import 'services/pure_ai_service.dart';
-import 'services/badge_service.dart';
 import 'services/emotion_engine.dart';
 import 'services/memory_engine.dart';
 import 'services/core_hub.dart';
@@ -74,8 +82,22 @@ void main() async {
         .e('FlutterError', '${details.exception}\n${details.stack}');
   };
   ErrorWidget.builder = (FlutterErrorDetails details) {
-    LogService.instance.e('ErrorWidget', '${details.exception}');
-    // 返回一个小占位而非大块文字，避免部分组件异常时整页看着像全崩
+    LogService.instance.e('ErrorWidget', '${details.exception}\n${details.stack}');
+    // debug 模式显示错误详情，release 模式显示极简占位
+    if (kDebugMode) {
+      return Material(
+        color: Colors.red.withOpacity(0.05),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Text(
+            'Build Error: ${details.exception}',
+            style: const TextStyle(fontSize: 10, color: Colors.red),
+            maxLines: 5,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      );
+    }
     return const _MiniFallback();
   };
 
@@ -181,6 +203,7 @@ class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _lockPortrait();
     _check();
   }
 
@@ -188,6 +211,25 @@ class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// 锁定屏幕方向为竖屏。在设备操控（Shizuku shell 命令）后，
+  /// Activity 可能经历 onPause→onResume 导致 Flutter 引擎丢失方向设定，
+  /// 因此在每次 App 回到前台时重新锁定。
+  void _lockPortrait() {
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App 从后台回到前台 — 重新锁定竖屏，
+      // 防止 Shizuku 设备操控（input keyevent 等）引起的方向配置丢失
+      _lockPortrait();
+    }
   }
 
   Future<void> _check() async {
@@ -317,7 +359,10 @@ class _MainShellState extends State<_MainShell> {
   int _currentIndex = 0;
   int _contactsKeyCounter = 0;
   final Map<int, Widget> _pageCache = {};
-  StreamSubscription<void>? _badgeSub;
+  
+  // 修复：复用 ChatBloc 实例，避免每次切换 Tab 都重建导致状态丢失
+  ChatBloc? _chatBloc;
+  AIService? _aiService;
 
   @override
   void initState() {
@@ -326,34 +371,48 @@ class _MainShellState extends State<_MainShell> {
       // P2: 世界功能暂不开放，跳过 WorldEngine 初始化
       // _initWorldEngine();
 
+      // 初始化 ChatBloc（修复：避免每次切换 Tab 都重建）
+      _initChatBloc();
+
       // 强制模式确认 — 必须在所有其他提示之前，阻塞直到用户确认
       await _showForceModeConfirm();
       _showComplianceDialogsIfNeeded();
       _showBtNoticeIfNeeded();
       _checkPendingMemoryRebuild();
     });
-    _loadBadges();
+  }
+  
+  /// 初始化 ChatBloc，确保 userId 正确获取
+  void _initChatBloc() {
+    final storage = context.read<LocalStorageRepository>();
+    _aiService ??= context.read<AIService>();
+    final aiAdapter = AIServiceAdapter(storage: storage);
+    
+    // 从 AuthBloc 状态获取 userId，而不是直接从 storage 读取
+    // 这样可以确保用户登录状态正确同步
+    final authState = context.read<AuthBloc>().state;
+    String userId;
+    if (authState is AuthAuthenticated) {
+      userId = authState.user.id;
+    } else {
+      // 回退到 storage 获取，但确保不为空
+      userId = storage.getString(PrefKeys.currentUserId) ?? 'local_user';
+    }
+    
+    // 复用已存在的 ChatBloc，只在首次创建
+    _chatBloc ??= ChatBloc(storage, _aiService!, aiAdapter: aiAdapter);
+    
+    // 如果 ChatBloc 还未加载会话，则触发加载
+    if (_chatBloc!.state is ChatInitial) {
+      _chatBloc!.add(ChatLoadSessions(userId));
+    }
   }
 
   @override
   void dispose() {
-    _badgeSub?.cancel();
+    // 修复：释放 ChatBloc 实例
+    _chatBloc?.close();
     super.dispose();
-  }
-
-  void _loadBadges() {
-    try {
-      final badgeService = RepositoryProvider.of<BadgeService>(context);
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final userId = storage.getString(PrefKeys.currentUserId) ?? 'default';
-      badgeService.loadAll(userId);
-      _badgeSub?.cancel();
-      _badgeSub = badgeService.onBadgeChanged.listen((_) {
-        if (mounted) setState(() {});
-      });
-    } catch (e) {
-      debugPrint('Error: $e');
-    }
   }
 
   /// v14.0 强制模式确认 — 所有用户首次打开时弹出，每个模式可独立选择是否开启
@@ -609,17 +668,20 @@ class _MainShellState extends State<_MainShell> {
   }
 
   Widget _buildPage(int index) {
-    final storage = context.read<LocalStorageRepository>();
-    final aiService = context.read<AIService>();
-    final aiAdapter = AIServiceAdapter(storage: storage);
-    final userId = storage.getString(PrefKeys.currentUserId) ?? '';
+    // 确保 ChatBloc 已初始化（可能在 initState 还未执行时调用）
+    if (_chatBloc == null) {
+      _initChatBloc();
+    }
+    debugPrint('[MainShell] _buildPage index=$index');
+    
     switch (index) {
       case 0:
-        return MultiBlocProvider(providers: [
-          BlocProvider(
-              create: (_) => ChatBloc(storage, aiService, aiAdapter: aiAdapter)
-                ..add(ChatLoadSessions(userId))),
-        ], child: const ChatListScreen());
+        // 修复：复用已存在的 ChatBloc 实例，避免状态丢失
+        // 使用 BlocProvider.value 而非 create，确保实例被复用
+        return BlocProvider.value(
+          value: _chatBloc!,
+          child: const ChatListScreen(),
+        );
       case 1:
         return ContactsScreen(key: ValueKey('contacts_$_contactsKeyCounter'));
       case 2:
@@ -630,6 +692,13 @@ class _MainShellState extends State<_MainShell> {
         return const NovelShelfScreen();
       case 5:
         return const UsageScreen();
+      case 6:
+        return MultiBlocProvider(
+          providers: [
+            BlocProvider.value(value: _chatBloc!),
+          ],
+          child: const OperitHomeScreen(),
+        );
       default:
         return const SizedBox.shrink();
     }
@@ -663,8 +732,12 @@ class _MainShellState extends State<_MainShell> {
         return const MomentsScreen();
       case '/mailbox':
         return const AIMailboxScreen();
+      case '/diary':
+        return const AIDiaryScreen();
+      case '/bookmarks':
+        return const BookmarkListScreen();
       case '/settings':
-        return const settings.SettingsScreen();
+        return const SettingsScreen();
       case '/create_character':
         return const CreateCharacterScreen();
       case '/ai_config':
@@ -684,6 +757,10 @@ class _MainShellState extends State<_MainShell> {
       //   return const ForumScreen();
       case '/lucky_wheel':
         return const LuckyWheelScreen();
+      case '/group_chat':
+        return const GroupChatListScreen();
+      case '/music_companion':
+        return const MusicCompanionScreen();
       // P2: 世界功能暂不开放
       // case '/world':
       //   return const WorldHomeScreen();
@@ -695,8 +772,6 @@ class _MainShellState extends State<_MainShell> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final badgeService = RepositoryProvider.of<BadgeService>(context);
-    final chatBadge = badgeService.getBadge('chat') ?? 0;
     return Scaffold(
       body: Column(
         children: [
@@ -714,7 +789,7 @@ class _MainShellState extends State<_MainShell> {
           ),
           Expanded(
             child: Stack(
-              children: List.generate(6, (i) {
+              children: List.generate(7, (i) {
                 // 懒加载：只构建访问过的页面
                 if (i == _currentIndex) {
                   _pageCache[i] ??= _buildPage(i);
@@ -728,38 +803,42 @@ class _MainShellState extends State<_MainShell> {
           ),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-            border: Border(
-                top: BorderSide(
-                    color: cs.outline.withOpacity(0.3), width: 0.5))),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (i) {
-            if (i == _currentIndex) return;
-            setState(() {
-              _currentIndex = i;
-              // 切到通讯录 tab 时清除缓存强制重建
-              if (i == 1) {
-                _contactsKeyCounter++;
-                _pageCache.remove(1);
-              }
-            });
-          },
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: cs.surface,
-          selectedItemColor: cs.primary,
-          unselectedItemColor: cs.onSurfaceVariant,
-          selectedFontSize: 11,
-          unselectedFontSize: 11,
-          elevation: 0,
+      bottomNavigationBar: Builder(
+        builder: (context) {
+          final isModernist = context.read<ThemeBloc>().state.isModernist;
+          return Container(
+            decoration: BoxDecoration(
+                border: Border(
+                    top: BorderSide(
+                        color: isModernist
+                            ? Colors.white.withOpacity(0.1)
+                            : cs.outline.withOpacity(0.3),
+                        width: 0.5))),
+            child: BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (i) {
+                if (i == _currentIndex) return;
+                setState(() {
+                  _currentIndex = i;
+                  // 切到通讯录 tab 时清除缓存强制重建
+                  if (i == 1) {
+                    _contactsKeyCounter++;
+                    _pageCache.remove(1);
+                  }
+                });
+              },
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: isModernist ? Colors.black : cs.surface,
+              selectedItemColor: isModernist ? Colors.white : cs.primary,
+              unselectedItemColor: isModernist
+                  ? Colors.white.withOpacity(0.6)
+                  : cs.onSurfaceVariant,
+              selectedFontSize: 10,
+              unselectedFontSize: 10,
+              elevation: 0,
           items: [
             BottomNavigationBarItem(
-              icon: Badge(
-                  isLabelVisible: chatBadge > 0,
-                  label:
-                      Text('$chatBadge', style: const TextStyle(fontSize: 10)),
-                  child: const Icon(Icons.chat_bubble_outline)),
+              icon: const Icon(Icons.chat_bubble_outline),
               activeIcon: const Icon(Icons.chat_bubble),
               label: '消息',
             ),
@@ -783,8 +862,14 @@ class _MainShellState extends State<_MainShell> {
                 icon: Icon(Icons.donut_large_outlined),
                 activeIcon: Icon(Icons.donut_large),
                 label: '用量'),
+            const BottomNavigationBarItem(
+                icon: Icon(Icons.phone_android_outlined),
+                activeIcon: Icon(Icons.phone_android),
+                label: 'Operit'),
           ],
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -867,6 +952,10 @@ class _DiscoverPageState extends State<_DiscoverPage>
       _tile(context, Icons.psychology, '记忆库', '回顾你们的回忆', '/memory', cs, tt),
       _tile(context, Icons.mark_email_unread_outlined, '信箱', '查看 AI 写给你的来信',
           '/mailbox', cs, tt),
+      _tile(context, Icons.book_rounded, '角色日记', 'TA 的内心独白',
+          '/diary', cs, tt),
+      _tile(context, Icons.bookmark_rounded, '收藏消息', '回顾收藏的聊天记录',
+          '/bookmarks', cs, tt),
       _tile(context, Icons.auto_stories, '故事书', '与 AI 共创互动故事', '/story', cs,
           tt),
       _tile(context, Icons.casino, '幸运转盘', '试试手气', '/lucky_wheel', cs, tt),
@@ -876,6 +965,7 @@ class _DiscoverPageState extends State<_DiscoverPage>
           cs, tt),
       _tile(context, Icons.thermostat, '关系温度', '查看关系仪表盘', '/relationship', cs,
           tt),
+      _tile(context, Icons.groups, '群聊', 'AI 角色群聊互动', '/group_chat', cs, tt),
     ]);
   }
 
@@ -1018,11 +1108,84 @@ class SolaceApp extends StatelessWidget {
     surfaceTint: const Color(0xFF8AB4F8),
   );
 
+  // 现代主义浅色配色方案
+  static final modernistLightColorScheme = ColorScheme(
+    brightness: Brightness.light,
+    primary: const Color(0xFF1A73E8),
+    onPrimary: Colors.white,
+    primaryContainer: const Color(0xFFD2E3FC),
+    onPrimaryContainer: const Color(0xFF041E49),
+    secondary: const Color(0xFF5F6368),
+    onSecondary: Colors.white,
+    secondaryContainer: const Color(0xFFF1F3F4),
+    onSecondaryContainer: const Color(0xFF202124),
+    tertiary: const Color(0xFF1A73E8),
+    onTertiary: Colors.white,
+    tertiaryContainer: const Color(0xFFD2E3FC),
+    onTertiaryContainer: const Color(0xFF041E49),
+    error: const Color(0xFFD93025),
+    onError: Colors.white,
+    errorContainer: const Color(0xFFFCDCD8),
+    onErrorContainer: const Color(0xFF410002),
+    surface: const Color(0xFFFFFFFF),
+    onSurface: const Color(0xFF1F1F1F),
+    surfaceContainerLowest: const Color(0xFFFFFFFF),
+    surfaceContainerLow: const Color(0xFFF8F9FA),
+    surfaceContainer: const Color(0xFFF1F3F4),
+    surfaceContainerHigh: const Color(0xFFE8EAED),
+    surfaceContainerHighest: const Color(0xFFDFE1E5),
+    onSurfaceVariant: const Color(0xFF5F6368),
+    outline: const Color(0xFFDADCE0),
+    outlineVariant: const Color(0xFFE8EAED),
+    shadow: const Color(0xFF000000),
+    scrim: const Color(0xFF000000),
+    inverseSurface: const Color(0xFF303134),
+    onInverseSurface: const Color(0xFFF1F3F4),
+    inversePrimary: const Color(0xFF8AB4F8),
+    surfaceTint: const Color(0xFF1A73E8),
+  );
+
+  // 现代主义深色配色方案
+  static final modernistDarkColorScheme = ColorScheme(
+    brightness: Brightness.dark,
+    primary: const Color(0xFF8AB4F8),
+    onPrimary: const Color(0xFF041E49),
+    primaryContainer: const Color(0xFF1A73E8),
+    onPrimaryContainer: const Color(0xFFD2E3FC),
+    secondary: const Color(0xFF9AA0A6),
+    onSecondary: const Color(0xFF202124),
+    secondaryContainer: const Color(0xFF303134),
+    onSecondaryContainer: const Color(0xFFE8EAED),
+    tertiary: const Color(0xFF8AB4F8),
+    onTertiary: const Color(0xFF041E49),
+    tertiaryContainer: const Color(0xFF1A73E8),
+    onTertiaryContainer: const Color(0xFFD2E3FC),
+    error: const Color(0xFFF28B82),
+    onError: const Color(0xFF601410),
+    errorContainer: const Color(0xFF8C1D18),
+    onErrorContainer: const Color(0xFFF28B82),
+    surface: const Color(0xFF121212),
+    onSurface: const Color(0xFFE8EAED),
+    surfaceContainerLowest: const Color(0xFF0D0D0D),
+    surfaceContainerLow: const Color(0xFF1E1E1E),
+    surfaceContainer: const Color(0xFF252525),
+    surfaceContainerHigh: const Color(0xFF303134),
+    surfaceContainerHighest: const Color(0xFF3C3C3C),
+    onSurfaceVariant: const Color(0xFF9AA0A6),
+    outline: const Color(0xFF5F6368),
+    outlineVariant: const Color(0xFF3C3C3C),
+    shadow: const Color(0xFF000000),
+    scrim: const Color(0xFF000000),
+    inverseSurface: const Color(0xFFE8EAED),
+    onInverseSurface: const Color(0xFF303134),
+    inversePrimary: const Color(0xFF1A73E8),
+    surfaceTint: const Color(0xFF8AB4F8),
+  );
+
   @override
   Widget build(BuildContext context) {
     final aiService = AIService(storageRepo);
     final aiAdapter = AIServiceAdapter(storage: storageRepo); // 桥接适配器，懒加载配置
-    final badgeService = BadgeService(storageRepo);
     // v2 情绪+记忆系统
     final emotionEngine = EmotionEngine(storageRepo);
     final memoryEngine = MemoryEngine(storageRepo);
@@ -1030,7 +1193,6 @@ class SolaceApp extends StatelessWidget {
       providers: [
         RepositoryProvider.value(value: storageRepo),
         RepositoryProvider.value(value: aiService),
-        RepositoryProvider.value(value: badgeService),
         RepositoryProvider.value(value: emotionEngine),
         RepositoryProvider.value(value: memoryEngine),
       ],
@@ -1042,14 +1204,23 @@ class SolaceApp extends StatelessWidget {
           BlocProvider(
             create: (_) => AuthBloc(storageRepo)..add(AuthCheckRequested()),
           ),
+          BlocProvider(
+            create: (_) => GroupChatBloc(storageRepo),
+          ),
         ],
         child: BlocBuilder<ThemeBloc, ThemeState>(
           builder: (context, themeState) {
+            final isModernist = themeState.isModernist;
+            final lightScheme =
+                isModernist ? modernistLightColorScheme : defaultLightColorScheme;
+            final darkScheme =
+                isModernist ? modernistDarkColorScheme : defaultDarkColorScheme;
+
             return MaterialApp(
               title: 'Solace',
               debugShowCheckedModeBanner: false,
               theme: ThemeData(
-                colorScheme: defaultLightColorScheme,
+                colorScheme: lightScheme,
                 useMaterial3: true,
                 fontFamily: 'Roboto',
                 textTheme: Typography.material2021().black.apply(
@@ -1059,11 +1230,11 @@ class SolaceApp extends StatelessWidget {
                     'sans-serif'
                   ],
                 ),
-                canvasColor: defaultLightColorScheme.surface,
-                scaffoldBackgroundColor: defaultLightColorScheme.surface,
-                dialogBackgroundColor: defaultLightColorScheme.surface,
-                cardColor: defaultLightColorScheme.surfaceContainerLow,
-                dividerColor: defaultLightColorScheme.outlineVariant,
+                canvasColor: lightScheme.surface,
+                scaffoldBackgroundColor: lightScheme.surface,
+                dialogBackgroundColor: lightScheme.surface,
+                cardColor: lightScheme.surfaceContainerLow,
+                dividerColor: lightScheme.outlineVariant,
                 splashColor: Colors.transparent,
                 highlightColor: Colors.transparent,
                 hoverColor: Colors.transparent,
@@ -1078,7 +1249,7 @@ class SolaceApp extends StatelessWidget {
                 ),
               ),
               darkTheme: ThemeData(
-                colorScheme: defaultDarkColorScheme,
+                colorScheme: darkScheme,
                 useMaterial3: true,
                 fontFamily: 'Roboto',
                 textTheme: Typography.material2021().white.apply(
@@ -1088,11 +1259,11 @@ class SolaceApp extends StatelessWidget {
                     'sans-serif'
                   ],
                 ),
-                canvasColor: defaultDarkColorScheme.surface,
-                scaffoldBackgroundColor: defaultDarkColorScheme.surface,
-                dialogBackgroundColor: defaultDarkColorScheme.surface,
-                cardColor: defaultDarkColorScheme.surfaceContainerLow,
-                dividerColor: defaultDarkColorScheme.outlineVariant,
+                canvasColor: darkScheme.surface,
+                scaffoldBackgroundColor: darkScheme.surface,
+                dialogBackgroundColor: darkScheme.surface,
+                cardColor: darkScheme.surfaceContainerLow,
+                dividerColor: darkScheme.outlineVariant,
                 splashColor: Colors.transparent,
                 highlightColor: Colors.transparent,
                 hoverColor: Colors.transparent,

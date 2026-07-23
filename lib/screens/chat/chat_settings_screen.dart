@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../config/business_rules.dart';
 import '../../config/tts_config.dart';
 import '../../models/ai_character.dart';
 import '../../models/ai_wallet.dart';
@@ -20,6 +21,8 @@ import 'package:audioplayers/audioplayers.dart';
 import '../../services/permission_service.dart';
 import '../../widgets/ai_wallet_card.dart';
 import 'interaction_settings_screen.dart';
+import '../../blocs/auth/auth_bloc.dart';
+import '../../blocs/chat/chat_bloc.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final ChatSession session;
@@ -193,6 +196,96 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         );
       }
     }
+  }
+
+  void _showTransferToUserDialog() {
+    final amountController = TextEditingController();
+    final messageController = TextEditingController();
+    final minAmount = CoinRules.aiMinTransferAmount;
+    final maxAmount = CoinRules.aiMaxTransferPerDay;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('角色转给用户'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '当前余额：${_aiWallet!.balance} 枚',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '转账限制：$minAmount - $maxAmount 枚/天',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[500],
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: '转账金额',
+                hintText: '请输入数量',
+                border: OutlineInputBorder(),
+                suffixText: '枚',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: messageController,
+              decoration: const InputDecoration(
+                labelText: '留言（可选）',
+                hintText: '说点什么...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              final amount = int.tryParse(amountController.text) ?? 0;
+              if (amount < minAmount || amount > maxAmount) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('转账金额必须在 $minAmount-$maxAmount 枚之间')),
+                );
+                return;
+              }
+              Navigator.pop(context);
+              _executeTransferOut(amount, messageController.text.trim());
+            },
+            child: const Text('转出'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _executeTransferOut(int amount, String message) async {
+    if (!mounted) return;
+    final authState = context.read<AuthBloc>().state;
+    final userId = authState is AuthAuthenticated ? authState.user.id : null;
+    if (userId == null) return;
+
+    context.read<ChatBloc>().add(ChatAISendCoins(
+      chatId: _localSession.id,
+      characterId: widget.session.aiCharacterId,
+      amount: amount.toDouble(),
+      message: message.isNotEmpty ? message : null,
+    ));
   }
 
   void _showClearChatConfirm() {
@@ -925,13 +1018,24 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         const SizedBox(height: 8),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SizedBox(
-            width: double.infinity,
-            child: FilledButton.tonalIcon(
-              onPressed: _aiWallet != null ? _showTransferToAIDialog : null,
-              icon: const Icon(Icons.send_rounded, size: 18),
-              label: const Text('转账给TA'),
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: _aiWallet != null ? _showTransferToAIDialog : null,
+                  icon: const Icon(Icons.send_rounded, size: 18),
+                  label: const Text('转账给TA'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _aiWallet != null ? _showTransferToUserDialog : null,
+                  icon: const Icon(Icons.redeem, size: 18),
+                  label: const Text('角色转给用户'),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 8),

@@ -133,6 +133,37 @@ class ChatAICoinsSent extends ChatState {
 }
 
 /// AI 正在生成图片（显示在消息列表中，类似 TypingIndicator）
+
+/// ??????????? Operit InputProcessingState
+enum ChatProcessingState {
+  idle,
+  preparing,
+  connecting,
+  receiving,
+  executingTool,
+  processingToolResult,
+  completed,
+  error,
+}
+
+/// AI ???????????????
+class ChatAIProcessing extends ChatState {
+  final List<ChatMessage> messages;
+  final String statusText;
+  final String characterName;
+  final ChatProcessingState processingState;
+
+  const ChatAIProcessing(
+    this.messages,
+    this.statusText,
+    this.characterName, {
+    this.processingState = ChatProcessingState.preparing,
+  });
+
+  @override
+  List<Object?> get props => [messages, statusText, characterName, processingState];
+}
+
 class ChatBlockedByAI extends ChatState {
   final String chatId;
   final String reason;
@@ -297,4 +328,44 @@ class ChatContextCleared extends ChatState {
 
   @override
   List<Object?> get props => [chatId];
+}
+
+// ── AutoGLM 自动化状态 ──
+
+/// AutoGLM 正在执行中
+class ChatAutoGlmRunning extends ChatState {
+  final List<ChatMessage> messages;
+  final int currentStep;
+  final int maxSteps;
+  final String? currentAction;
+  final String? thinking;
+
+  const ChatAutoGlmRunning({
+    required this.messages,
+    required this.currentStep,
+    required this.maxSteps,
+    this.currentAction,
+    this.thinking,
+  });
+
+  @override
+  List<Object?> get props => [messages, currentStep, maxSteps, currentAction, thinking];
+}
+
+/// AutoGLM 执行完成
+class ChatAutoGlmCompleted extends ChatState {
+  final List<ChatMessage> messages;
+  final bool success;
+  final String resultMessage;
+  final int totalSteps;
+
+  const ChatAutoGlmCompleted({
+    required this.messages,
+    required this.success,
+    required this.resultMessage,
+    required this.totalSteps,
+  });
+
+  @override
+  List<Object?> get props => [messages, success, resultMessage, totalSteps];
 }

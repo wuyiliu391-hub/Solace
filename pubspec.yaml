@@ -1,5 +1,5 @@
 name: solace
-version: 17.1.0+279
+version: 17.4.0+283
 publish_to: none
 description: Solace - AI 陪伴应用，多角色聊天、语音回复、心情日记、从回忆创建角色。纯本地存储，隐私安全。
 
@@ -43,6 +43,7 @@ dependencies:
   flutter_remix: ^0.0.3
   hive_flutter: ^1.1.0
   yaml: ^3.1.2
+  webview_flutter: ^4.10.0
 
 dev_dependencies:
   flutter_test:
@@ -50,14 +51,21 @@ dev_dependencies:
   flutter_lints: ^3.0.0
   mocktail: ^1.0.0
   bloc_test: ^9.1.0
+  build_runner: ^2.15.1
+  json_serializable: ^6.14.0
 
 flutter:
   uses-material-design: true
   assets:
+    - assets/live2d/
+    - assets/live2d/_frame_previews_doubao/
+    - assets/live2d/variants/
     - assets/stickers/default_pack/
     - assets/stickers/default_pack/metadata.json
     - assets/sky.mp3
     - assets/avatar_author.png
+    - assets/graph/index.html
+    - assets/graph/d3.min.js
   fonts:
     - family: TwitterIcon
       fonts:

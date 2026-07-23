@@ -23,11 +23,17 @@ class MomentBookmark extends Equatable {
   }
 
   factory MomentBookmark.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return MomentBookmark(
-      id: map['id'] as String,
-      momentId: map['momentId'] as String,
-      userId: map['userId'] as String,
-      createdAt: DateTime.parse(map['createdAt'] as String),
+      id: (map['id'] as String?) ?? '',
+      momentId: (map['momentId'] as String?) ?? '',
+      userId: (map['userId'] as String?) ?? '',
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
     );
   }
 

@@ -181,6 +181,7 @@ class ChatMessage {
         'status': status.name,
         'readAt': readAt?.toIso8601String(),
         'reasoning': reasoning,
+        'isBookmark': isBookmark ? 1 : 0,
         'metadata': metadata != null ? _encodeMetadata(metadata!) : null,
       };
 
@@ -193,6 +194,26 @@ class ChatMessage {
   }
 
   factory ChatMessage.fromMap(Map<String, dynamic> map) {
+    // 处理 timestamp/createdAt：可能是 String、int 或 null
+    DateTime parsedTimestamp;
+    final timestampVal = map['timestamp'] ?? map['createdAt'];
+    if (timestampVal is String) {
+      parsedTimestamp = DateTime.tryParse(timestampVal) ?? DateTime.now();
+    } else if (timestampVal is int) {
+      parsedTimestamp = DateTime.fromMillisecondsSinceEpoch(timestampVal);
+    } else {
+      parsedTimestamp = DateTime.now();
+    }
+
+    // 处理 readAt：可能是 String、int 或 null
+    DateTime? parsedReadAt;
+    final readAtVal = map['readAt'];
+    if (readAtVal is String) {
+      parsedReadAt = DateTime.tryParse(readAtVal);
+    } else if (readAtVal is int) {
+      parsedReadAt = DateTime.fromMillisecondsSinceEpoch(readAtVal);
+    }
+
     return ChatMessage(
       id: (map['id'] as String?) ?? '',
       chatId: (map['chatId'] as String?) ?? '',
@@ -209,17 +230,17 @@ class ChatMessage {
               orElse: () => MessageType.text,
             )
           : MessageType.text,
-      timestamp: (map['timestamp'] ?? map['createdAt']) != null
-          ? DateTime.parse((map['timestamp'] ?? map['createdAt']) as String)
-          : DateTime.now(),
+      timestamp: parsedTimestamp,
       generationTime: map['generationTime'] as int?,
       tokenCount: map['tokenCount'] as int?,
       attachmentPath: map['attachmentPath'] as String?,
       swipeHistory: map['swipeHistory'] != null
-          ? (map['swipeHistory'] as String)
-              .split('||')
-              .where((s) => s.isNotEmpty)
-              .toList()
+          ? (map['swipeHistory'] is String
+              ? (map['swipeHistory'] as String)
+                  .split('||')
+                  .where((s) => s.isNotEmpty)
+                  .toList()
+              : <String>[])
           : [],
       swipeIndex: (map['swipeIndex'] as int?) ?? 0,
       isBookmark: _parseBool(map['isBookmark']),
@@ -230,11 +251,9 @@ class ChatMessage {
               orElse: () => MessageStatus.sent,
             )
           : MessageStatus.sent,
-      readAt: map['readAt'] != null
-          ? DateTime.tryParse(map['readAt'] as String? ?? '')
-          : null,
+      readAt: parsedReadAt,
       metadata: map['metadata'] != null
-          ? _decodeMetadata(map['metadata'] as String)
+          ? _decodeMetadata(map['metadata']?.toString() ?? '{}')
           : null,
     );
   }

@@ -147,17 +147,23 @@ class VirtualPhoneBloc extends Bloc<VirtualPhoneEvent, VirtualPhoneState> {
 
     final byChat = <String, List<VpChatMessage>>{};
     for (final c in chats) {
-      byChat[c.id] = await _storage.getVpChatMessages(c.id);
+      final msgs = await _storage.getVpChatMessages(c.id);
+      byChat[c.id] = msgs.reversed.toList(); // 倒序：新消息在上
     }
+
+    // 倒序：新的在上，旧的在下
+    final reversedChats = [...chats].reversed.toList();
+    final reversedNotes = [...notes].reversed.toList();
+    final reversedMoments = [...moments].reversed.toList();
 
     emit(state.copyWith(
       status: VpStatus.ready,
       phone: phone,
-      contacts: contacts,
-      chats: chats,
+      contacts: contacts, // 通讯录保持原序（按 orderIndex）
+      chats: reversedChats,
       messagesByChat: byChat,
-      notes: notes,
-      moments: moments,
+      notes: reversedNotes,
+      moments: reversedMoments,
     ));
   }
 }

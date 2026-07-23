@@ -8,6 +8,7 @@ import '../../utils/message_sanitizer.dart';
 import '../../config/constants.dart';
 import '../memory_engine.dart';
 import '../emotion_engine.dart';
+import '../dialogue_strategy.dart';
 import '../prompt_rewriter.dart';
 import '../weather_service.dart';
 import '../../utils/sentiment_analyzer.dart';
@@ -20,8 +21,10 @@ class PromptBuilder {
   final LocalStorageRepository _storage;
   final MemoryEngine _memoryEngine;
   final EmotionEngine _emotionEngine;
+  final DialogueStrategy _dialogueStrategy;
 
-  PromptBuilder(this._storage, this._memoryEngine, this._emotionEngine);
+  PromptBuilder(this._storage, this._memoryEngine, this._emotionEngine,
+      this._dialogueStrategy);
 
   String buildGlobalModePrompt({String scope = 'AI回复'}) {
     return _storage.buildGlobalModePrompt(scope: scope);
@@ -177,6 +180,10 @@ String? imageDescription,
 bool isBlockedByAI = false,
 
 String? blockReason,
+
+int messageCount = 0,
+
+bool isFirstMessage = false,
 
 }) async {
 
@@ -903,36 +910,47 @@ try {
   }
 
 } catch (e) {
-
   debugPrint(
-
       '===== AIService._buildSystemPrompt: emotion prompt failed: $e =====');
-
 }
 
-
-
-// 场景引擎 — 对话背景锚点（让 AI 知道它"在哪、在做什么"）
-
+// v3：情绪→语气基调（情绪引擎不直接说"你开心"，而是描述怎么说话）
 try {
-
-  final scenarioPrompt =
-
-      ScenarioService(_storage.sharedPreferences!)
-
-          .buildScenarioPrompt(character.id, userId);
-
-  if (scenarioPrompt.isNotEmpty) {
-
-    buffer.writeln(scenarioPrompt);
-
+  final toneGuide = await _emotionEngine.buildEmotionToneGuide(
+    character: character,
+    userId: userId,
+    intimacyLevel: intimacyLevel,
+  );
+  if (toneGuide.isNotEmpty) {
+    buffer.writeln(toneGuide);
   }
-
 } catch (e) {
-
-  debugPrint('AIService: 场景注入失败 — $e');
-
+  debugPrint('emotion tone guide failed: $e');
 }
+
+// v3：对话策略引擎 — 动态控制语气/节奏/停顿/回复长度
+try {
+  final dialogueDirective = _dialogueStrategy.buildDialogueDirective(
+    character: character,
+    emotion: await _emotionEngine.getCurrentEmotion(
+        character: character, userId: userId),
+    intimacyLevel: intimacyLevel,
+    currentTopic: currentTopic,
+    messageCount: messageCount,
+    hour: hour,
+    isFirstMessage: isFirstMessage,
+    isDaoMode: daoMode,
+    isNovelMode: novelMode,
+    isLoverMode: loverMode,
+  );
+  if (dialogueDirective.isNotEmpty) {
+    buffer.writeln(dialogueDirective);
+  }
+} catch (e) {
+  debugPrint('dialogue directive failed: $e');
+}
+
+// 场景引擎已移除（ScenarioService 不存在）
 
 
 
@@ -970,25 +988,7 @@ try {
 
       }
 
-      // 缓存为空则即时生成今天的轨迹点（用本地时间表）
-
-      if (placeName.isEmpty) {
-
-        try {
-
-          final loc = AILocationEngine.generateCurrentLocation(character.id);
-
-          placeName = loc.placeName ?? '';
-
-          activity = loc.activity ?? '';
-
-          mood = loc.emotion ?? '';
-
-          await prefs.setString(todayKey, '$placeName\x00$activity\x00$mood');
-
-        } catch (_) {}
-
-      }
+      // AILocationEngine 已移除，缓存为空时跳过位置生成
 
       if (placeName.isNotEmpty) {
 
@@ -1137,11 +1137,26 @@ try {
       buffer.writeln(memoryPrompt);
 
     } else {
-
       debugPrint('AIService: 记忆为空，mode=$memoryMode');
-
     }
 
+    // v3：记忆→情绪反向通路
+    if (memoryPrompt.isNotEmpty) {
+      try {
+        final recalledContents = memories
+            .where((m) => m.content.isNotEmpty)
+            .map((m) => m.content)
+            .toList();
+        await _emotionEngine.triggerEmotionFromMemories(
+          character: character,
+          userId: userId,
+          recalledContents: recalledContents,
+          currentTopic: currentTopic,
+        );
+      } catch (e) {
+        debugPrint('memory→emotion reverse pathway failed: $e');
+      }
+    }
   }
 
 } catch (e) {

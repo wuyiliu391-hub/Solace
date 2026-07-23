@@ -124,12 +124,27 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>
                             : [const Color(0xFF80CBC4), const Color(0xFF4DB6AC)],
                         onTap: () => _openImpressionCard(context),
                       ),
+                      _GameCard(
+                        icon: Icons.book_rounded,
+                        title: '角色日记',
+                        subtitle: 'TA 的内心独白',
+                        gradientColors: isDark
+                            ? [const Color(0xFFFF6F00), const Color(0xFFBF360C)]
+                            : [const Color(0xFFFFAB91), const Color(0xFFFF8A65)],
+                        onTap: () => widget.onNavigate?.call('/diary'),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 24),
                   // ── 快捷娱乐入口 ──
                   Text('更多娱乐', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 12),
+                  _QuickEntryTile(
+                    icon: Icons.headphones_rounded,
+                    title: '音乐共情',
+                    subtitle: '和角色一起听歌，共享情绪共鸣',
+                    color: const Color(0xFFE91E63),
+                    onTap: () => widget.onNavigate?.call('/music_companion'),
+                  ),
                   _QuickEntryTile(
                     icon: Icons.casino,
                     title: '幸运转盘',
@@ -272,7 +287,7 @@ class _CharacterPickerCard extends StatelessWidget {
               height: 64,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isDark ? const Color(0xFF2C2C2C) : const Color(0xFFE8E4EC),
+                color: cs.surfaceContainerHigh,
                 border: Border.all(
                   color: character.isOnline ? Colors.green : cs.outline,
                   width: 2,
@@ -336,7 +351,7 @@ class _CharacterDetailSheet extends StatelessWidget {
                   height: 96,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isDark ? const Color(0xFF2C2C2C) : const Color(0xFFE8E4EC),
+                    color: cs.surfaceContainerHigh,
                   ),
                   child: ClipOval(
                     child: AvatarResolver.imageWidget(character.avatarUrl,
@@ -616,8 +631,11 @@ class _CharacterPickerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    // 限制底部弹窗最大高度为屏幕 60%
+    final maxH = MediaQuery.of(context).size.height * 0.6;
     return Container(
-      padding: const EdgeInsets.only(top: 12, bottom: 32),
+      constraints: BoxConstraints(maxHeight: maxH),
+      padding: const EdgeInsets.only(top: 12, bottom: 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -633,22 +651,29 @@ class _CharacterPickerSheet extends StatelessWidget {
             fontSize: 16, fontWeight: FontWeight.w600, color: cs.onSurface,
           )),
           const SizedBox(height: 12),
-          ...characters.map((c) {
-            final name = c.userAlias ?? c.name;
-            return ListTile(
-              leading: CircleAvatar(
-                backgroundImage: AvatarResolver.imageProvider(c.avatarUrl),
-                child: AvatarResolver.imageProvider(c.avatarUrl) == null
-                    ? Text(name.isNotEmpty ? name[0] : '?')
-                    : null,
-              ),
-              title: Text(name),
-              subtitle: Text(c.personality.length > 30
-                  ? '${c.personality.substring(0, 30)}...'
-                  : c.personality),
-              onTap: () => Navigator.pop(context, c),
-            );
-          }),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: characters.length,
+              itemBuilder: (context, index) {
+                final c = characters[index];
+                final name = c.userAlias ?? c.name;
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundImage: AvatarResolver.imageProvider(c.avatarUrl),
+                    child: AvatarResolver.imageProvider(c.avatarUrl) == null
+                        ? Text(name.isNotEmpty ? name[0] : '?')
+                        : null,
+                  ),
+                  title: Text(name),
+                  subtitle: Text(c.personality.length > 30
+                      ? '${c.personality.substring(0, 30)}...'
+                      : c.personality),
+                  onTap: () => Navigator.pop(context, c),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );

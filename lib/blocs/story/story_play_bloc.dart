@@ -252,6 +252,29 @@ class StoryPlayBloc extends Bloc<StoryPlayEvent, StoryPlayState> {
       sys.writeln(mem.trim());
     }
 
+    // 情绪引擎注入：根据故事当前情绪状态调整语气
+    if (state.scene.storyId.isNotEmpty) {
+      final scene = state.scene;
+      if (scene.emotionLabel.isNotEmpty) {
+        sys.writeln('【当前情绪氛围】${scene.emotionLabel}');
+        final emotionGuide = _buildStoryEmotionGuide(scene);
+        if (emotionGuide.isNotEmpty) sys.writeln(emotionGuide);
+      }
+      if (scene.atmosphere.isNotEmpty) {
+        sys.writeln('【场景氛围】${scene.atmosphere}');
+      }
+    }
+
+    // 节奏控制：根据已读段落数调整回复节奏
+    final segCount = state.segments.length;
+    if (segCount < 3) {
+      sys.writeln('【节奏指引】故事刚开始，保持节奏明快，每段控制在80字以内，快速建立场景和悬念。');
+    } else if (segCount < 15) {
+      sys.writeln('【节奏指引】故事进入发展期，可以适当展开描写，每段100-150字，注意情节推进和人物互动。');
+    } else {
+      sys.writeln('【节奏指引】故事已深入，可以穿插内心独白和环境描写，每段100-200字，保持张弛有度。');
+    }
+
     sys.writeln(StoryProtocol.outputInstruction);
 
     final messages = <Map<String, String>>[
@@ -271,6 +294,25 @@ class StoryPlayBloc extends Bloc<StoryPlayEvent, StoryPlayState> {
     }
     messages.add({'role': 'user', 'content': input});
     return messages;
+  }
+
+  /// 根据故事场景情绪状态构建语气指引
+  String _buildStoryEmotionGuide(StoryScene scene) {
+    final emotion = scene.emotionLabel.toLowerCase();
+    if (emotion.contains('开心') || emotion.contains('兴奋')) {
+      return '叙事基调积极明亮，描写可以多用暖色调意象，节奏轻快。';
+    } else if (emotion.contains('难过') || emotion.contains('悲伤')) {
+      return '叙事基调偏沉，适当放慢节奏，多用细腻的内心描写和环境渲染。';
+    } else if (emotion.contains('紧张') || emotion.contains('焦虑')) {
+      return '叙事节奏加快，多用短句和动作描写，营造紧迫感。';
+    } else if (emotion.contains('温柔') || emotion.contains('感动')) {
+      return '叙事风格柔和，注重情感细节和人物互动，节奏舒缓。';
+    } else if (emotion.contains('愤怒') || emotion.contains('生气')) {
+      return '叙事张力增强，人物内心冲突外化，语气更直接有力。';
+    } else if (emotion.contains('害怕') || emotion.contains('恐惧')) {
+      return '叙事氛围偏暗，多用环境暗示和心理描写营造悬疑感。';
+    }
+    return '';
   }
 
   /// 记忆写回：提取记忆 + 滚动摘要

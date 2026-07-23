@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 /// DNS-over-HTTPS 解析器
 ///
-/// 绕过系统 DNS 拦截（如国内网络无法解析 .cd 域名），
+/// 绕过系统 DNS 拦截（如国内网络无法解析境外域名），
 /// 通过 Cloudflare 的 DoH 接口直接解析域名。
 class DohResolver {
   DohResolver._();

@@ -36,25 +36,19 @@ mixin ChatBlocIntimacy {
       dailyCount = 0;
     }
 
-    // 2. 超过 48 小时未聊天，亲密度衰减
+    // 2. 超过 7 天未聊天才衰减
     if (session.lastMessageTime != null) {
       final hoursSince = now.difference(session.lastMessageTime!).inHours;
-      if (hoursSince > 48) {
-        final decay =
-            ((hoursSince ~/ 24) - 1).clamp(0, IntimacyRules.maxDecaySteps);
+      if (hoursSince > IntimacyRules.decayAfterHours) {
+        final weeks = (hoursSince ~/ 24) ~/ 7;
+        final decay = weeks.clamp(0, IntimacyRules.maxDecaySteps);
         level = (level - decay).clamp(0, 100);
       }
     }
 
-    // 3. 情绪影响亲密度；法模式下不因成人/角色扮演语境里的负面词误扣分
-    if (!faModeActive && sentiment.score < 0) {
-      level = (level + sentiment.score).clamp(0, 100);
-      return (
-        newLevel: level,
-        dailyCount: dailyCount,
-        date: lastDate ?? todayStr,
-      );
-    }
+    // 3. 负面情绪不再跳过亲密度计算；反而带情绪的消息意味着交心
+    //    FA 模式下额外跳过负面词误判保护
+    //    （移除旧逻辑：负面情绪直接 return）
 
     // 4. 太短的消息不算有意义对话
     if (messageContent.trim().length < IntimacyRules.minMessageLength) {
@@ -74,16 +68,31 @@ mixin ChatBlocIntimacy {
       );
     }
 
-    // 6. 高级别减速
+    // 6. 基础加分：高级别减速
     final key = '${session.id}_$todayStr';
     final msgsToday = (_dailyMsgCount[key] ?? 0) + 1;
     _dailyMsgCount[key] = msgsToday;
 
+    int pointsToAdd = 0;
     final msgsPerPoint = IntimacyRules.msgsPerPoint(level);
-
     if ((msgsToday - 1) % msgsPerPoint == 0) {
-      level = (level + 1).clamp(0, 100);
-      dailyCount += 1;
+      pointsToAdd += 1;
+    }
+
+    // 7. 深度对话额外加分：消息超过 50 字 +2
+    if (messageContent.trim().length >= IntimacyRules.deepTalkThreshold) {
+      pointsToAdd += IntimacyRules.deepTalkBonus;
+    }
+
+    // 8. 强情绪额外加分：正面或负面情绪很重 = 交心了 +1
+    final absScore = sentiment.score.abs();
+    if (absScore >= EmotionEngineRules.strongEmotionThreshold) {
+      pointsToAdd += IntimacyRules.emotionalBonus;
+    }
+
+    if (pointsToAdd > 0) {
+      level = (level + pointsToAdd).clamp(0, 100);
+      dailyCount += 1; // 只计一次 dailyCount，不管加了多少分
     }
 
     return (newLevel: level, dailyCount: dailyCount, date: todayStr);

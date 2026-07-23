@@ -49,7 +49,11 @@ class PermissionService {
         // 4. Android 11+ 管理全部文件（模型下载）
         await _safeRequest(Permission.manageExternalStorage);
 
+        // 5. 通知权限（强制申请）
         await _requestNotificationPermission();
+
+        // 6. 悬浮窗权限
+        await _requestOverlayPermission();
       } else {
         await _safeRequest(Permission.camera);
         await _safeRequest(Permission.photos);
@@ -58,6 +62,18 @@ class PermissionService {
       debugPrint('权限申请完成');
     } catch (e) {
       debugPrint('权限申请出错: $e');
+    }
+  }
+
+  /// 请求悬浮窗权限（SYSTEM_ALERT_WINDOW）
+  static Future<void> _requestOverlayPermission() async {
+    try {
+      final status = await Permission.systemAlertWindow.status;
+      if (status.isGranted) return;
+      if (status.isPermanentlyDenied) return;
+      await Permission.systemAlertWindow.request();
+    } catch (e) {
+      debugPrint('请求悬浮窗权限出错: $e');
     }
   }
 

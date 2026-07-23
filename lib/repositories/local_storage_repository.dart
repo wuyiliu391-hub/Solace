@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Directory, File, gzip;
 import 'dart:typed_data';
+import 'dart:ui' show Color;
 import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 import 'package:encrypt/encrypt.dart' as enc;
@@ -42,7 +43,10 @@ import '../models/virtual_phone/vp_note.dart';
 import '../models/virtual_phone/vp_moment.dart';
 import '../models/pure_ai_message.dart';
 import '../models/bt_agent_action.dart';
+import '../models/device_agent_action.dart';
 import '../models/novel.dart';
+import '../models/group_chat_session.dart';
+import '../models/group_chat_message.dart';
 import '../services/bt_operation_lock_service.dart';
 import '../config/business_rules.dart';
 import '../config/constants.dart';
@@ -443,6 +447,7 @@ class LocalStorageRepository {
       'isHidden': 'INTEGER NOT NULL DEFAULT 0',
       'aiIsOnline': 'INTEGER NOT NULL DEFAULT 1',
       'aiCurrentStatus': 'TEXT',
+      'lastOnlineAt': 'TEXT',
       'isBlocked': 'INTEGER NOT NULL DEFAULT 0',
       'blockedBy': 'INTEGER NOT NULL DEFAULT 0',
       'blockedAt': 'TEXT',
@@ -471,6 +476,7 @@ class LocalStorageRepository {
       'pokeSuffix': 'TEXT',
       'stickerId': 'TEXT',
       'stickerPath': 'TEXT',
+      'isBookmark': 'INTEGER NOT NULL DEFAULT 0',
     },
     'intimacy_events': {
       'chatId': 'TEXT NOT NULL DEFAULT ""',
@@ -492,7 +498,15 @@ class LocalStorageRepository {
       'type': 'INTEGER NOT NULL DEFAULT 0',
       'content': 'TEXT NOT NULL DEFAULT ""',
       'importance': 'INTEGER NOT NULL DEFAULT 1',
+      'keywords': 'TEXT',
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'lastAccessedAt': 'TEXT',
+      'accessCount': 'INTEGER NOT NULL DEFAULT 0',
+      'sync_seq': 'INTEGER NOT NULL DEFAULT 0',
+      'weight': 'REAL NOT NULL DEFAULT 1.0',
+      'pinned': 'INTEGER NOT NULL DEFAULT 0',
+      'lastRecalledAt': 'TEXT',
+      'summary': 'TEXT',
       'updatedAt': 'TEXT',
     },
     'moments': {
@@ -873,6 +887,34 @@ class LocalStorageRepository {
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'updatedAt': 'TEXT NOT NULL DEFAULT ""',
     },
+    'group_chat_sessions': {
+      'name': 'TEXT NOT NULL DEFAULT ""',
+      'avatarUrl': 'TEXT',
+      'memberIds': 'TEXT NOT NULL DEFAULT "[]"',
+      'aiCharacterIds': 'TEXT NOT NULL DEFAULT "[]"',
+      'creatorId': 'TEXT NOT NULL DEFAULT ""',
+      'lastMessage': 'TEXT',
+      'lastMessageTime': 'TEXT',
+      'unreadCount': 'INTEGER NOT NULL DEFAULT 0',
+      'isMuted': 'INTEGER NOT NULL DEFAULT 0',
+      'isPinned': 'INTEGER NOT NULL DEFAULT 0',
+      'backgroundImage': 'TEXT',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'updatedAt': 'TEXT',
+      'sync_seq': 'INTEGER NOT NULL DEFAULT 0',
+    },
+    'group_chat_messages': {
+      'groupId': 'TEXT NOT NULL DEFAULT ""',
+      'senderId': 'TEXT NOT NULL DEFAULT ""',
+      'senderName': 'TEXT',
+      'content': 'TEXT NOT NULL DEFAULT ""',
+      'isUser': 'INTEGER NOT NULL DEFAULT 0',
+      'isSystem': 'INTEGER NOT NULL DEFAULT 0',
+      'type': 'TEXT NOT NULL DEFAULT "text"',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'status': 'TEXT NOT NULL DEFAULT "sent"',
+      'metadata': 'TEXT',
+    },
   };
 
   /// 修复 isUser 字段：根据 senderId 修正因迁移导致的默认值错误
@@ -1038,6 +1080,51 @@ class LocalStorageRepository {
       case 'novels':
       case 'novel_chapters':
         await _createNovelTables(db);
+        break;
+      case 'group_chat_sessions':
+        await db.execute(''' CREATE TABLE IF NOT EXISTS group_chat_sessions (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL DEFAULT '',
+          avatarUrl TEXT,
+          memberIds TEXT NOT NULL DEFAULT '[]',
+          aiCharacterIds TEXT NOT NULL DEFAULT '[]',
+          creatorId TEXT NOT NULL DEFAULT '',
+          lastMessage TEXT,
+          lastMessageTime TEXT,
+          unreadCount INTEGER NOT NULL DEFAULT 0,
+          isMuted INTEGER NOT NULL DEFAULT 0,
+          isPinned INTEGER NOT NULL DEFAULT 0,
+          backgroundImage TEXT,
+          createdAt TEXT NOT NULL DEFAULT '',
+          updatedAt TEXT,
+          sync_seq INTEGER NOT NULL DEFAULT 0
+        ) ''');
+        // 兼容旧表缺少 creatorId 列的情况（v56 之前创建的旧表无此列）
+        await _addColumnIfNotExists(
+            db, 'group_chat_sessions', 'creatorId', 'TEXT NOT NULL DEFAULT ""');
+        await _addColumnIfNotExists(
+            db, 'group_chat_sessions', 'sync_seq', 'INTEGER NOT NULL DEFAULT 0');
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_gc_sessions_creator ON group_chat_sessions(creatorId)');
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_gc_sessions_updatedAt ON group_chat_sessions(updatedAt DESC)');
+        break;
+      case 'group_chat_messages':
+        await db.execute(''' CREATE TABLE IF NOT EXISTS group_chat_messages (
+          id TEXT PRIMARY KEY,
+          groupId TEXT NOT NULL DEFAULT '',
+          senderId TEXT NOT NULL DEFAULT '',
+          senderName TEXT,
+          content TEXT NOT NULL DEFAULT '',
+          isUser INTEGER NOT NULL DEFAULT 0,
+          isSystem INTEGER NOT NULL DEFAULT 0,
+          type TEXT NOT NULL DEFAULT 'text',
+          createdAt TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'sent',
+          metadata TEXT
+        ) ''');
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_gc_msgs_group ON group_chat_messages(groupId, createdAt DESC)');
         break;
     }
   }
@@ -1529,6 +1616,46 @@ class LocalStorageRepository {
       // 小说模块
       await _createNovelTables(db);
     }
+    if (oldVersion < 54) {
+      // 记忆摘要等列：旧库缺列会导致 saveMemory 写库失败
+      await _addColumnIfNotExists(db, 'memories', 'summary', 'TEXT');
+      await _addColumnIfNotExists(db, 'memories', 'keywords', 'TEXT');
+      await _addColumnIfNotExists(db, 'memories', 'lastAccessedAt', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'memories', 'accessCount', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'memories', 'weight', 'REAL NOT NULL DEFAULT 1.0');
+      await _addColumnIfNotExists(
+          db, 'memories', 'pinned', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'memories', 'lastRecalledAt', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'userAlias', 'TEXT');
+    }
+    if (oldVersion < 55) {
+      // v55: 商店功能初始化 - 检查并填充商品种子数据
+      final count = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM shop_items'),
+      );
+      if (count == null || count == 0) {
+        final items = _seedShopItems();
+        for (final item in items) {
+          await db.insert('shop_items', item.toMap(),
+              conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        debugPrint(' v55 迁移: 已填充 ${items.length} 个商品到 shop_items 表');
+      }
+    }
+    if (oldVersion < 56) {
+      // v56: AI 群聊模块 -- group_chat_sessions + group_chat_messages 表
+      await createMissingTable(db, 'group_chat_sessions');
+      await createMissingTable(db, 'group_chat_messages');
+      debugPrint(' v56 迁移: 群聊表已创建/校验');
+    }
+    if (oldVersion < 57) {
+      // v57: chat_sessions 增加 lastOnlineAt 字段（在线状态最后活跃时间）
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'lastOnlineAt', 'TEXT');
+      debugPrint(' v57 迁移: chat_sessions.lastOnlineAt 已添加');
+    }
   }
 
   /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
@@ -1592,22 +1719,22 @@ class LocalStorageRepository {
     await db.execute(
         ''' CREATE TABLE users ( id TEXT PRIMARY KEY, nickname TEXT NOT NULL, avatarUrl TEXT, createdAt TEXT NOT NULL, lastLoginAt TEXT, signature TEXT, gender TEXT, birthday TEXT, location TEXT, bio TEXT, status TEXT, backgroundImage TEXT, coins INTEGER NOT NULL DEFAULT 100, totalCoinsEarned INTEGER NOT NULL DEFAULT 100, totalCoinsSpent INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
-        ''' CREATE TABLE ai_characters ( id TEXT PRIMARY KEY, name TEXT NOT NULL, avatarUrl TEXT, personality TEXT NOT NULL, coreDesire TEXT NOT NULL, moralBoundary TEXT NOT NULL, backgroundStory TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, worldSetting TEXT, languageStyle TEXT, tabooTopics TEXT, userNickname TEXT, catchphrases TEXT, openingLine TEXT, dialogueExamples TEXT, interactionConfig TEXT, gender TEXT, isHidden INTEGER NOT NULL DEFAULT 0, isOnline INTEGER NOT NULL DEFAULT 1, currentStatus TEXT, lastOnlineAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, immutableAnchor TEXT, deviationRadius REAL NOT NULL DEFAULT 0.4, evolutionEnabled INTEGER NOT NULL DEFAULT 1, qualitativeEvolutionEnabled INTEGER NOT NULL DEFAULT 0, currentAnchor TEXT, referenceImg TEXT, fixedSeed INTEGER NOT NULL DEFAULT -1, characterTag TEXT, styleLock TEXT NOT NULL DEFAULT "anime", age INTEGER, structuredTraits TEXT ) ''');
+        ''' CREATE TABLE ai_characters ( id TEXT PRIMARY KEY, name TEXT NOT NULL, avatarUrl TEXT, personality TEXT NOT NULL, coreDesire TEXT NOT NULL, moralBoundary TEXT NOT NULL, backgroundStory TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, worldSetting TEXT, languageStyle TEXT, tabooTopics TEXT, userNickname TEXT, userAlias TEXT, userPersona TEXT, catchphrases TEXT, openingLine TEXT, dialogueExamples TEXT, interactionConfig TEXT, gender TEXT, isHidden INTEGER NOT NULL DEFAULT 0, isOnline INTEGER NOT NULL DEFAULT 1, currentStatus TEXT, lastOnlineAt TEXT, avatarGif TEXT, autoReplyStickers INTEGER NOT NULL DEFAULT 0, translatedSettings TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, immutableAnchor TEXT, deviationRadius REAL NOT NULL DEFAULT 0.4, evolutionEnabled INTEGER NOT NULL DEFAULT 1, qualitativeEvolutionEnabled INTEGER NOT NULL DEFAULT 0, currentAnchor TEXT, referenceImg TEXT, fixedSeed INTEGER NOT NULL DEFAULT -1, characterTag TEXT, styleLock TEXT NOT NULL DEFAULT "anime", age INTEGER, structuredTraits TEXT ) ''');
     await db.execute(
         ''' CREATE TABLE ai_configs ( id TEXT PRIMARY KEY, providerName TEXT NOT NULL, baseUrl TEXT NOT NULL, apiKey TEXT NOT NULL, extraApiKeys TEXT NOT NULL DEFAULT '', modelName TEXT NOT NULL, temperature REAL NOT NULL, maxTokens INTEGER NOT NULL, isActive INTEGER NOT NULL DEFAULT 1, isThinkingModel INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, updatedAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
-        ''' CREATE TABLE chat_sessions ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, aiCharacterId TEXT NOT NULL, aiCharacterName TEXT NOT NULL, aiCharacterAvatar TEXT, lastMessage TEXT, lastMessageTime TEXT, unreadCount INTEGER NOT NULL DEFAULT 0, intimacyLevel INTEGER NOT NULL DEFAULT 0, dailyIntimacyCount INTEGER NOT NULL DEFAULT 0, lastIntimacyDate TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, isMuted INTEGER NOT NULL DEFAULT 0, isPinned INTEGER NOT NULL DEFAULT 0, backgroundImage TEXT, isHidden INTEGER NOT NULL DEFAULT 0, aiIsOnline INTEGER NOT NULL DEFAULT 1, aiCurrentStatus TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, isBlocked INTEGER NOT NULL DEFAULT 0, blockedBy INTEGER NOT NULL DEFAULT 0, blockedAt TEXT, blockReason TEXT ) ''');
+        ''' CREATE TABLE chat_sessions ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, aiCharacterId TEXT NOT NULL, aiCharacterName TEXT NOT NULL, aiCharacterAvatar TEXT, lastMessage TEXT, lastMessageTime TEXT, unreadCount INTEGER NOT NULL DEFAULT 0, intimacyLevel INTEGER NOT NULL DEFAULT 0, dailyIntimacyCount INTEGER NOT NULL DEFAULT 0, lastIntimacyDate TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, isMuted INTEGER NOT NULL DEFAULT 0, isPinned INTEGER NOT NULL DEFAULT 0, backgroundImage TEXT, isHidden INTEGER NOT NULL DEFAULT 0, aiIsOnline INTEGER NOT NULL DEFAULT 1, aiCurrentStatus TEXT, lastOnlineAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, isBlocked INTEGER NOT NULL DEFAULT 0, blockedBy INTEGER NOT NULL DEFAULT 0, blockedAt TEXT, blockReason TEXT, sessionType TEXT DEFAULT "private", intimacyMode TEXT DEFAULT "quick", streakDays INTEGER NOT NULL DEFAULT 0, isInFriction INTEGER NOT NULL DEFAULT 0, frictionDaysLeft INTEGER NOT NULL DEFAULT 0, novelMode INTEGER NOT NULL DEFAULT -1 ) ''');
     await db.execute(
         ''' CREATE INDEX idx_sessions_userId ON chat_sessions(userId) ''');
     await db.execute(
         ''' CREATE INDEX idx_sessions_characterId ON chat_sessions(aiCharacterId) ''');
     await db.execute(
-        ''' CREATE TABLE chat_messages ( id TEXT PRIMARY KEY, chatId TEXT NOT NULL, senderId TEXT NOT NULL, senderName TEXT, content TEXT NOT NULL, isUser INTEGER NOT NULL DEFAULT 0, isSystem INTEGER NOT NULL DEFAULT 0, isHidden INTEGER NOT NULL DEFAULT 0, isGhost INTEGER NOT NULL DEFAULT 0, type TEXT NOT NULL DEFAULT 'text', status TEXT NOT NULL DEFAULT 'sent', createdAt TEXT NOT NULL, readAt TEXT, reasoning TEXT, metadata TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+        ''' CREATE TABLE chat_messages ( id TEXT PRIMARY KEY, chatId TEXT NOT NULL, senderId TEXT NOT NULL, senderName TEXT, content TEXT NOT NULL, isUser INTEGER NOT NULL DEFAULT 0, isSystem INTEGER NOT NULL DEFAULT 0, isHidden INTEGER NOT NULL DEFAULT 0, isGhost INTEGER NOT NULL DEFAULT 0, type TEXT NOT NULL DEFAULT 'text', status TEXT NOT NULL DEFAULT 'sent', createdAt TEXT NOT NULL, readAt TEXT, reasoning TEXT, metadata TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, pokeSuffix TEXT, stickerId TEXT, stickerPath TEXT, isBookmark INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
         ''' CREATE INDEX idx_messages_chatId ON chat_messages(chatId) ''');
     await createIntimacyEventsTable(db);
     await db.execute(
-        ''' CREATE TABLE memories ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, userId TEXT NOT NULL, type INTEGER NOT NULL, content TEXT NOT NULL, importance INTEGER NOT NULL DEFAULT 1, keywords TEXT, createdAt TEXT NOT NULL, lastAccessedAt TEXT, accessCount INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, weight REAL NOT NULL DEFAULT 1.0, pinned INTEGER NOT NULL DEFAULT 0, lastRecalledAt TEXT ) ''');
+        ''' CREATE TABLE memories ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, userId TEXT NOT NULL, type INTEGER NOT NULL, content TEXT NOT NULL, importance INTEGER NOT NULL DEFAULT 1, keywords TEXT, createdAt TEXT NOT NULL, lastAccessedAt TEXT, accessCount INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, weight REAL NOT NULL DEFAULT 1.0, pinned INTEGER NOT NULL DEFAULT 0, lastRecalledAt TEXT, summary TEXT ) ''');
     await db.execute(
         ''' CREATE INDEX idx_memories_characterId ON memories(characterId) ''');
     await db
@@ -1748,6 +1875,44 @@ class LocalStorageRepository {
 
     // 小说模块（v53 新增）
     await _createNovelTables(db);
+
+    // AI 群聊模块（v56 新增）—— _onCreate 必须补建，否则全新安装无表
+    await db.execute(''' CREATE TABLE IF NOT EXISTS group_chat_sessions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      avatarUrl TEXT,
+      memberIds TEXT NOT NULL DEFAULT '[]',
+      aiCharacterIds TEXT NOT NULL DEFAULT '[]',
+      creatorId TEXT NOT NULL DEFAULT '',
+      lastMessage TEXT,
+      lastMessageTime TEXT,
+      unreadCount INTEGER NOT NULL DEFAULT 0,
+      isMuted INTEGER NOT NULL DEFAULT 0,
+      isPinned INTEGER NOT NULL DEFAULT 0,
+      backgroundImage TEXT,
+      createdAt TEXT NOT NULL DEFAULT '',
+      updatedAt TEXT,
+      sync_seq INTEGER NOT NULL DEFAULT 0
+    ) ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_gc_sessions_creator ON group_chat_sessions(creatorId)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_gc_sessions_updatedAt ON group_chat_sessions(updatedAt DESC)');
+
+    await db.execute(''' CREATE TABLE IF NOT EXISTS group_chat_messages (
+      id TEXT PRIMARY KEY,
+      groupId TEXT NOT NULL DEFAULT '',
+      senderId TEXT NOT NULL DEFAULT '',
+      senderName TEXT,
+      content TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT 'text',
+      status TEXT NOT NULL DEFAULT 'sent',
+      createdAt TEXT NOT NULL DEFAULT '',
+      metadata TEXT,
+      sync_seq INTEGER NOT NULL DEFAULT 0
+    ) ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_gc_msgs_group ON group_chat_messages(groupId, createdAt DESC)');
   }
 
   Future<void> saveUser(User user) async {
@@ -3029,14 +3194,16 @@ class LocalStorageRepository {
                 'getChatMessages: merged $bufferMerged messages from SP buffer',
                 chatId: chatId);
           }
-          messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
         }
+        // 统一排序：始终返回 ASC（oldest first, newest last）
+        // _buildMessageList 的 reversedIndex 计算依赖此顺序
+        messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
         LogService.instance.i('Storage',
             'getChatMessages: returning ${messages.length} messages (DB=${messages.length - bufferMerged}, buffer=$bufferMerged)',
             chatId: chatId);
         debugPrint(
             '[DBG] getChatMessages: returning ${messages.length} messages (DB=${messages.length - bufferMerged}, buffer=$bufferMerged)');
-        return messages.reversed.toList();
+        return messages;
       } catch (e) {
         // SQLite 完全失败时，从 SP 缓冲读取
         LogService.instance.e(
@@ -3131,6 +3298,62 @@ class LocalStorageRepository {
       debugPrint(': $e');
       throw Exception(': $e');
     }
+  }
+
+  /// 获取所有被收藏的消息（isBookmark=true），跨所有会话
+  /// 返回的消息附带 sessionName（角色名/会话名）
+  Future<List<Map<String, dynamic>>> getBookmarkedMessages() async {
+    final result = <Map<String, dynamic>>[];
+    if (_isWeb) {
+      // Web 模式：遍历所有会话的 SP 键
+      final sessionIds = _prefs?.getStringList('chat_session_ids') ?? [];
+      for (final chatId in sessionIds) {
+        final ids = _prefs?.getStringList('message_ids_$chatId') ?? [];
+        for (final id in ids) {
+          final data = _prefs?.getString('message_$id');
+          if (data == null) continue;
+          try {
+            final msg = ChatMessage.fromMap(jsonDecode(data));
+            if (msg.isBookmark) {
+              final session = await getChatSession(chatId);
+              result.add({
+                'message': msg,
+                'sessionName': session?.aiCharacterName ?? chatId,
+                'sessionId': chatId,
+              });
+            }
+          } catch (_) {}
+        }
+      }
+    } else {
+      try {
+        final db = await _ensureDb();
+        final maps = await db.query(
+          'chat_messages',
+          where: 'isBookmark = ?',
+          whereArgs: [1],
+          orderBy: 'createdAt DESC',
+        );
+        for (final map in maps) {
+          try {
+            final msg = ChatMessage.fromMap(map);
+            // 查询会话信息以获取角色名
+            final session = await getChatSession(msg.chatId);
+            result.add({
+              'message': msg,
+              'sessionName': session?.aiCharacterName ?? '未知会话',
+              'sessionId': msg.chatId,
+            });
+          } catch (e) {
+            debugPrint('getBookmarkedMessages: parse failed: $e');
+          }
+        }
+      } catch (e) {
+        LogService.instance.e('Storage', 'getBookmarkedMessages failed: $e');
+        debugPrint('getBookmarkedMessages failed: $e');
+      }
+    }
+    return result;
   }
 
   Future<void> clearChatMessages(String chatId) async {
@@ -3270,11 +3493,35 @@ class LocalStorageRepository {
       }
     } else {
       final db = await _ensureDb();
-      await db.insert(
-        'memories',
-        memory.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      // 兼容：旧库缺列时 INSERT 会炸；补列后重试一次
+      try {
+        await db.insert(
+          'memories',
+          memory.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      } catch (e) {
+        final msg = e.toString().toLowerCase();
+        if (msg.contains('no such column') || msg.contains('has no column')) {
+          await _addColumnIfNotExists(db, 'memories', 'summary', 'TEXT');
+          await _addColumnIfNotExists(db, 'memories', 'keywords', 'TEXT');
+          await _addColumnIfNotExists(db, 'memories', 'lastAccessedAt', 'TEXT');
+          await _addColumnIfNotExists(
+              db, 'memories', 'accessCount', 'INTEGER NOT NULL DEFAULT 0');
+          await _addColumnIfNotExists(
+              db, 'memories', 'weight', 'REAL NOT NULL DEFAULT 1.0');
+          await _addColumnIfNotExists(
+              db, 'memories', 'pinned', 'INTEGER NOT NULL DEFAULT 0');
+          await _addColumnIfNotExists(db, 'memories', 'lastRecalledAt', 'TEXT');
+          await db.insert(
+            'memories',
+            memory.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        } else {
+          rethrow;
+        }
+      }
     }
   }
 
@@ -3335,6 +3582,46 @@ class LocalStorageRepository {
       );
       return maps.map((map) => Memory.fromMap(map)).toList();
     }
+    }
+
+  /// 按类型统计记忆数量（高性能，只做 COUNT，不加 LIMIT）
+  Future<Map<MemoryType?, int>> getMemoryCountByType({
+    required String characterId,
+    required String userId,
+  }) async {
+    if (_isWeb) {
+      final ids = _prefs?.getStringList('memory_ids_${characterId}_$userId') ?? [];
+      final countByType = <MemoryType?, int>{null: ids.length};
+      for (final id in ids) {
+        final data = _prefs?.getString('memory_$id');
+        if (data != null) {
+          final m = Memory.fromMap(jsonDecode(data));
+          countByType[m.type] = (countByType[m.type] ?? 0) + 1;
+        }
+      }
+      return countByType;
+    }
+    final db = await _ensureDb();
+    final result = <MemoryType?, int>{};
+    // 总数
+    final countResult = await db.rawQuery(
+      'SELECT COUNT(*) as cnt FROM memories WHERE characterId = ? AND userId = ?',
+      [characterId, userId],
+    );
+    result[null] = Sqflite.firstIntValue(countResult) ?? 0;
+
+    // 按类型分组
+    final typeRows = await db.rawQuery(
+      'SELECT type, COUNT(*) as cnt FROM memories WHERE characterId = ? AND userId = ? GROUP BY type',
+      [characterId, userId],
+    );
+    for (final row in typeRows) {
+      final typeIdx = row['type'] as int?;
+      if (typeIdx != null && typeIdx >= 0 && typeIdx < MemoryType.values.length) {
+        result[MemoryType.values[typeIdx]] = row['cnt'] as int? ?? 0;
+      }
+    }
+    return result;
   }
 
   Future<List<Memory>> searchMemoriesByKeywords({
@@ -3563,7 +3850,44 @@ class LocalStorageRepository {
   }
 
   bool isChatStyleNovelModeEnabled() {
-    return _prefs?.getBool(PrefKeys.chatStyleMode) ?? false;
+    final raw = _prefs?.get(PrefKeys.chatStyleMode);
+    if (raw is bool) return raw;
+    if (raw is int) return raw != 0;
+    return false;
+  }
+
+  /// 用户自定义小说对白颜色（null = 使用默认蓝色）
+  Color? getNovelDialogueColor() {
+    final raw = _prefs?.get(PrefKeys.novelDialogueColor);
+    if (raw == null) return null;
+    try {
+      if (raw is int) return Color(raw);
+      if (raw is String && raw.isNotEmpty) {
+        return Color(int.parse(raw, radix: 16));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> setNovelDialogueColor(Color? color) async {
+    if (color == null) {
+      await _prefs?.remove(PrefKeys.novelDialogueColor);
+    } else {
+      await _prefs?.setString(
+          PrefKeys.novelDialogueColor,
+          color.toARGB32().toRadixString(16).padLeft(8, '0'));
+    }
+    modeSettingsNotifier.value++;
+  }
+
+  /// 自动写日记：聊天结束后角色自然写日记
+  bool isAutoDiaryEnabled() {
+    return _prefs?.getBool(PrefKeys.autoDiaryEnabled) ?? false;
+  }
+
+  Future<void> setAutoDiaryEnabled(bool value) async {
+    await _prefs?.setBool(PrefKeys.autoDiaryEnabled, value);
+    modeSettingsNotifier.value++;
   }
 
   Future<void> setPureAiMode(bool value) async {
@@ -3652,6 +3976,96 @@ class LocalStorageRepository {
 
   bool isBtYandereMasterEnabled() {
     return _prefs?.getBool(PrefKeys.btYandereMasterEnabled) ?? false;
+  }
+
+  // ─── Device Agent ───
+
+  String? getRawString(String key) => _prefs?.getString(key);
+
+  Future<void> setRawString(String key, String value) async {
+    await _prefs?.setString(key, value);
+  }
+
+  bool isDeviceAgentMasterEnabled() {
+    return _prefs?.getBool(PrefKeys.deviceAgentMasterEnabled) ?? false;
+  }
+
+  Future<void> setDeviceAgentMasterEnabled(bool enabled) async {
+    await _prefs?.setBool(PrefKeys.deviceAgentMasterEnabled, enabled);
+    if (enabled) {
+      // 首次开启：默认打开读/显示/音频/导航/应用；网络/UI/shell 手动
+      for (final key in [
+        PrefKeys.devicePermissionRead,
+        PrefKeys.devicePermissionDisplay,
+        PrefKeys.devicePermissionAudio,
+        PrefKeys.devicePermissionLock,
+        PrefKeys.devicePermissionApp,
+      ]) {
+        if (!(_prefs?.containsKey(key) ?? false)) {
+          await _prefs?.setBool(key, true);
+        }
+      }
+    }
+    modeSettingsNotifier.value++;
+  }
+
+  bool isDeviceAgentAllowInNarrative() {
+    return _prefs?.getBool(PrefKeys.deviceAgentAllowInNarrative) ?? false;
+  }
+
+  Future<void> setDeviceAgentAllowInNarrative(bool enabled) async {
+    await _prefs?.setBool(PrefKeys.deviceAgentAllowInNarrative, enabled);
+    modeSettingsNotifier.value++;
+  }
+
+  bool? prefsGetBool(String key) => _prefs?.getBool(key);
+
+  bool isDevicePermissionEnabled(String key) {
+    return _prefs?.getBool(key) ?? false;
+  }
+
+  Future<void> setDevicePermissionEnabled(String key, bool enabled) async {
+    await _prefs?.setBool(key, enabled);
+    modeSettingsNotifier.value++;
+  }
+
+  Future<void> saveDeviceAgentAction(DeviceAgentAction action) async {
+    try {
+      final raw = _prefs?.getString(PrefKeys.deviceAgentAuditLog);
+      final list = <Map<String, dynamic>>[];
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final e in decoded) {
+            if (e is Map) list.add(Map<String, dynamic>.from(e));
+          }
+        }
+      }
+      list.insert(0, action.toMap());
+      if (list.length > 200) list.removeRange(200, list.length);
+      await _prefs?.setString(PrefKeys.deviceAgentAuditLog, jsonEncode(list));
+    } catch (e) {
+      debugPrint('saveDeviceAgentAction failed: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getDeviceAgentActions(
+      {int limit = 50}) async {
+    try {
+      final raw = _prefs?.getString(PrefKeys.deviceAgentAuditLog);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return [];
+      final list = <Map<String, dynamic>>[];
+      for (final e in decoded) {
+        if (e is Map) list.add(Map<String, dynamic>.from(e));
+        if (list.length >= limit) break;
+      }
+      return list;
+    } catch (e) {
+      debugPrint('getDeviceAgentActions failed: $e');
+      return [];
+    }
   }
 
   Future<void> setBtYandereMasterEnabled(bool enabled) async {
@@ -4062,6 +4476,9 @@ class LocalStorageRepository {
         'vp_chat_messages',
         'vp_notes',
         'vp_moments',
+        // 小说模块（DB v53）
+        'novels',
+        'novel_chapters',
       ];
       for (final table in allTables) {
         try {
@@ -4120,6 +4537,9 @@ class LocalStorageRepository {
       'vp_chat_messages',
       'vp_notes',
       'vp_moments',
+      // 小说模块（DB v53）
+      'novels',
+      'novel_chapters',
     ];
     for (int i = 0; i < allTables.length; i++) {
       final table = allTables[i];
@@ -4298,6 +4718,9 @@ class LocalStorageRepository {
       'vp_chat_messages',
       'vp_notes',
       'vp_moments',
+      // 小说模块（DB v53）
+      'novels',
+      'novel_chapters',
     ];
 
     final totalTables = allTables.length;
@@ -4798,7 +5221,43 @@ class LocalStorageRepository {
   }
 
   List<ShopItem> _seedShopItems() {
-    return const [];
+    return const [
+      // ═══ 礼物类 ═══
+      ShopItem(id: 'gift_01', name: '棒棒糖', category: 'gift', price: 10, emoji: '🍭', description: '甜蜜的奖励'),
+      ShopItem(id: 'gift_02', name: '小熊', category: 'gift', price: 50, emoji: '🧸', description: '毛茸茸的陪伴'),
+      ShopItem(id: 'gift_03', name: '玫瑰', category: 'gift', price: 30, emoji: '🌹', description: '浪漫的表达'),
+      ShopItem(id: 'gift_04', name: '巧克力', category: 'gift', price: 25, emoji: '🍫', description: '丝滑的心意'),
+      ShopItem(id: 'gift_05', name: '水晶', category: 'gift', price: 100, emoji: '💎', description: '永恒的珍藏'),
+      ShopItem(id: 'gift_06', name: '故事书', category: 'gift', price: 40, emoji: '📖', description: '共同的回忆'),
+      ShopItem(id: 'gift_07', name: '音乐盒', category: 'gift', price: 60, emoji: '🎵', description: '旋律的礼物'),
+      ShopItem(id: 'gift_08', name: '樱花', category: 'gift', price: 35, emoji: '🌸', description: '春日的气息'),
+      ShopItem(id: 'gift_09', name: '水晶球', category: 'gift', price: 80, emoji: '🔮', description: '梦幻的回忆'),
+      ShopItem(id: 'gift_10', name: '爱心', category: 'gift', price: 15, emoji: '💕', description: '满满的爱意'),
+
+      // ═══ 外卖类 ═══
+      ShopItem(id: 'food_01', name: '奶茶', category: 'food', price: 20, emoji: '🧋', description: '温暖的下午茶'),
+      ShopItem(id: 'food_02', name: '蛋糕', category: 'food', price: 35, emoji: '🎂', description: '甜蜜的庆祝'),
+      ShopItem(id: 'food_03', name: '鸡腿', category: 'food', price: 18, emoji: '🍗', description: '香喷喷的美食'),
+      ShopItem(id: 'food_04', name: '火锅', category: 'food', price: 50, emoji: '🍲', description: '热腾腾的团圆'),
+      ShopItem(id: 'food_05', name: '寿司', category: 'food', price: 45, emoji: '🍣', description: '精致的一餐'),
+      ShopItem(id: 'food_06', name: '冰淇淋', category: 'food', price: 15, emoji: '🍦', description: '清凉的享受'),
+      ShopItem(id: 'food_07', name: '水果', category: 'food', price: 25, emoji: '🍎', description: '健康的选择'),
+      ShopItem(id: 'food_08', name: '烧烤', category: 'food', price: 40, emoji: '🍖', description: '烟火气的美味'),
+      ShopItem(id: 'food_09', name: '披萨', category: 'food', price: 38, emoji: '🍕', description: '分享的快乐'),
+      ShopItem(id: 'food_10', name: '饺子', category: 'food', price: 22, emoji: '🥟', description: '家的味道'),
+
+      // ═══ 快递类 ═══
+      ShopItem(id: 'express_01', name: '手套', category: 'express', price: 30, emoji: '🧤', description: '冬日的温暖'),
+      ShopItem(id: 'express_02', name: '围巾', category: 'express', price: 45, emoji: '🧣', description: '贴心的呵护'),
+      ShopItem(id: 'express_03', name: '书籍', category: 'express', price: 35, emoji: '📚', description: '知识的礼物'),
+      ShopItem(id: 'express_04', name: '情书', category: 'express', price: 20, emoji: '💌', description: '真挚的告白'),
+      ShopItem(id: 'express_05', name: '耳机', category: 'express', price: 80, emoji: '🎧', description: '音乐的陪伴'),
+      ShopItem(id: 'express_06', name: '香薰', category: 'express', price: 40, emoji: '🕯️', description: '放松的氛围'),
+      ShopItem(id: 'express_07', name: '拖鞋', category: 'express', price: 25, emoji: '🩴', description: '居家的舒适'),
+      ShopItem(id: 'express_08', name: '礼盒', category: 'express', price: 55, emoji: '🎁', description: '惊喜的包装'),
+      ShopItem(id: 'express_09', name: '星空灯', category: 'express', price: 70, emoji: '🌌', description: '梦幻的夜晚'),
+      ShopItem(id: 'express_10', name: '抱枕', category: 'express', price: 35, emoji: '🛋️', description: '柔软的依靠'),
+    ];
   }
 
   // ==================== Pure AI ====================
@@ -5656,5 +6115,130 @@ class LocalStorageRepository {
   Future<void> deleteNovelChapter(String id) async {
     final db = await _ensureDb();
     await db.delete('novel_chapters', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // 群聊模块 CRUD
+  // ════════════════════════════════════════════════════════════
+
+  /// 保存群聊会话
+  Future<void> saveGroupChatSession(GroupChatSession session) async {
+    if (_isWeb) {
+      await _prefs?.setString(
+          'gc_session_${session.id}', jsonEncode(session.toJson()));
+      return;
+    }
+    final db = await _ensureDb();
+    final map = session.toMap();
+    await db.insert('group_chat_sessions', map,
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// 获取群聊会话
+  Future<GroupChatSession?> getGroupChatSession(String id) async {
+    if (_isWeb) {
+      final data = _prefs?.getString('gc_session_$id');
+      if (data != null) {
+        return GroupChatSession.fromJson(jsonDecode(data));
+      }
+      return null;
+    }
+    final db = await _ensureDb();
+    final maps = await db.query('group_chat_sessions', where: 'id = ?', whereArgs: [id]);
+    if (maps.isEmpty) return null;
+    return GroupChatSession.fromMap(maps.first);
+  }
+
+  /// 获取用户的所有群聊会话
+  Future<List<GroupChatSession>> getGroupChatSessions(String userId) async {
+    if (_isWeb) {
+      final keys = _prefs?.getKeys().where((k) => k.startsWith('gc_session_')).toList() ?? [];
+      final sessions = <GroupChatSession>[];
+      for (final key in keys) {
+        final data = _prefs?.getString(key);
+        if (data != null) {
+          try {
+            sessions.add(GroupChatSession.fromJson(jsonDecode(data)));
+          } catch (_) {}
+        }
+      }
+      sessions.sort((a, b) {
+        final aTime = a.lastMessageTime ?? DateTime(0);
+        final bTime = b.lastMessageTime ?? DateTime(0);
+        return bTime.compareTo(aTime);
+      });
+      return sessions;
+    }
+    final db = await _ensureDb();
+    final maps = await db.query(
+      'group_chat_sessions',
+      orderBy: 'lastMessageTime DESC',
+    );
+    return maps.map((m) => GroupChatSession.fromMap(m)).toList();
+  }
+
+  /// 删除群聊会话
+  Future<void> deleteGroupChatSession(String groupId) async {
+    if (_isWeb) {
+      await _prefs?.remove('gc_session_$groupId');
+      return;
+    }
+    final db = await _ensureDb();
+    await db.delete('group_chat_sessions', where: 'id = ?', whereArgs: [groupId]);
+    // 级联删除消息
+    await db.delete('group_chat_messages', where: 'groupId = ?', whereArgs: [groupId]);
+  }
+
+  /// 保存群聊消息
+  Future<void> saveGroupChatMessage(GroupChatMessage msg) async {
+    if (_isWeb) {
+      await _prefs?.setString('gc_msg_${msg.id}', jsonEncode(msg.toJson()));
+      return;
+    }
+    final db = await _ensureDb();
+    await db.insert('group_chat_messages', msg.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// 获取群聊消息列表
+  Future<List<GroupChatMessage>> getGroupChatMessages(String groupId,
+      {int limit = 100, int offset = 0}) async {
+    if (_isWeb) {
+      final keys = _prefs?.getKeys().where((k) => k.startsWith('gc_msg_')).toList() ?? [];
+      final messages = <GroupChatMessage>[];
+      for (final key in keys) {
+        final data = _prefs?.getString(key);
+        if (data != null) {
+          try {
+            final msg = GroupChatMessage.fromJson(jsonDecode(data));
+            if (msg.groupId == groupId) {
+              messages.add(msg);
+            }
+          } catch (_) {}
+        }
+      }
+      messages.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return messages.skip(offset).take(limit).toList();
+    }
+    final db = await _ensureDb();
+    final maps = await db.query(
+      'group_chat_messages',
+      where: 'groupId = ?',
+      whereArgs: [groupId],
+      orderBy: 'createdAt DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map((m) => GroupChatMessage.fromMap(m)).toList();
+  }
+
+  /// 删除群聊消息
+  Future<void> deleteGroupChatMessage(String messageId) async {
+    if (_isWeb) {
+      await _prefs?.remove('gc_msg_$messageId');
+      return;
+    }
+    final db = await _ensureDb();
+    await db.delete('group_chat_messages', where: 'id = ?', whereArgs: [messageId]);
   }
 }

@@ -86,21 +86,25 @@ class AIConfig extends Equatable {
   factory AIConfig.fromMap(Map<String, dynamic> map) {
     final extraKeysStr = map['extraApiKeys'] as String? ?? '';
     final extraKeys = extraKeysStr.isEmpty ? <String>[] : extraKeysStr.split(',');
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return AIConfig(
-      id: map['id'] as String,
-      providerName: map['providerName'] as String,
-      baseUrl: map['baseUrl'] as String,
-      apiKey: map['apiKey'] as String,
+      id: (map['id'] as String?) ?? '',
+      providerName: (map['providerName'] as String?) ?? '',
+      baseUrl: (map['baseUrl'] as String?) ?? '',
+      apiKey: (map['apiKey'] as String?) ?? '',
       extraApiKeys: extraKeys,
-      modelName: map['modelName'] as String,
-      temperature: map['temperature'] as double,
-      maxTokens: map['maxTokens'] as int,
+      modelName: (map['modelName'] as String?) ?? '',
+      temperature: (map['temperature'] as double?) ?? 0.7,
+      maxTokens: (map['maxTokens'] as int?) ?? 2048,
       isActive: map['isActive'] == 1,
       isThinkingModel: map['isThinkingModel'] == null ? true : map['isThinkingModel'] == 1,
-      createdAt: DateTime.parse(map['createdAt'] as String),
-      updatedAt: map['updatedAt'] != null
-          ? DateTime.parse(map['updatedAt'] as String)
-          : null,
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
+      updatedAt: tryParseDateTime(map['updatedAt']),
       syncSeq: (map['sync_seq'] ?? map['syncSeq']) as int? ?? 0,
     );
   }

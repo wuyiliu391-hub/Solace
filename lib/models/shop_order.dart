@@ -94,29 +94,29 @@ class ShopOrder extends Equatable {
   }
 
   factory ShopOrder.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return ShopOrder(
-      id: map['id'] as String,
-      buyerType: map['buyerType'] as String,
-      buyerId: map['buyerId'] as String,
-      receiverType: map['receiverType'] as String,
-      receiverId: map['receiverId'] as String,
-      chatSessionId: map['chatSessionId'] as String,
-      itemId: map['itemId'] as String,
-      itemName: map['itemName'] as String,
-      itemEmoji: map['itemEmoji'] as String,
-      price: map['price'] as int,
+      id: (map['id'] as String?) ?? '',
+      buyerType: (map['buyerType'] as String?) ?? 'user',
+      buyerId: (map['buyerId'] as String?) ?? '',
+      receiverType: (map['receiverType'] as String?) ?? 'ai',
+      receiverId: (map['receiverId'] as String?) ?? '',
+      chatSessionId: (map['chatSessionId'] as String?) ?? '',
+      itemId: (map['itemId'] as String?) ?? '',
+      itemName: (map['itemName'] as String?) ?? '',
+      itemEmoji: (map['itemEmoji'] as String?) ?? '',
+      price: (map['price'] as int?) ?? 0,
       status: map['status'] as String? ?? 'pending',
       message: map['message'] as String?,
-      createdAt: DateTime.parse(map['createdAt'] as String),
-      preparingAt: map['preparingAt'] != null
-          ? DateTime.parse(map['preparingAt'] as String)
-          : null,
-      shippingAt: map['shippingAt'] != null
-          ? DateTime.parse(map['shippingAt'] as String)
-          : null,
-      deliveredAt: map['deliveredAt'] != null
-          ? DateTime.parse(map['deliveredAt'] as String)
-          : null,
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
+      preparingAt: tryParseDateTime(map['preparingAt']),
+      shippingAt: tryParseDateTime(map['shippingAt']),
+      deliveredAt: tryParseDateTime(map['deliveredAt']),
       aiReaction: map['aiReaction'] as String?,
       syncSeq: map['sync_seq'] as int? ?? 0,
     );

@@ -103,14 +103,18 @@ class User extends Equatable {
   }
 
   factory User.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return User(
-      id: map['id'] as String,
-      nickname: map['nickname'] as String,
+      id: (map['id'] as String?) ?? '',
+      nickname: (map['nickname'] as String?) ?? 'User',
       avatarUrl: map['avatarUrl'] as String?,
-      createdAt: DateTime.parse(map['createdAt'] as String),
-      lastLoginAt: map['lastLoginAt'] != null
-          ? DateTime.parse(map['lastLoginAt'] as String)
-          : null,
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
+      lastLoginAt: tryParseDateTime(map['lastLoginAt']),
       signature: map['signature'] as String?,
       gender: map['gender'] as String?,
       birthday: map['birthday'] as String?,

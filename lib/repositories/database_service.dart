@@ -19,7 +19,7 @@ class DatabaseService {
   /// ⚠️ 必须与 LocalStorageRepository 的 solace.db 使用不同文件，
   /// 否则版本号差异会触发 sqflite 默认降级 = 删除用户主数据库。
   static const String _databaseName = 'solace_world.db';
-  static const int dbVersion = 39;
+  static const int dbVersion = 40;
 
   // ═══════════════════════════════════════════════════════
   // 性能优化：查询缓存层
@@ -330,7 +330,8 @@ class DatabaseService {
         embedding TEXT,
         weight REAL DEFAULT 1.0,
         pinned INTEGER DEFAULT 0,
-        lastRecalledAt TEXT
+        lastRecalledAt TEXT,
+        summary TEXT
       )
     ''');
 
@@ -430,6 +431,12 @@ class DatabaseService {
         )
       ''');
     }
+    if (oldVersion < 40) {
+      // v40: 为 chat_sessions 添加 novelMode 列（-1=跟随全局，0=关闭，1=开启）
+      try {
+        await db.execute('ALTER TABLE chat_sessions ADD COLUMN novelMode INTEGER DEFAULT -1');
+      } catch (_) {}
+    }
   }
 
   /// 自动补全缺失列（对标 Solace reconcileSchema）
@@ -514,6 +521,7 @@ class DatabaseService {
       'weight': 'REAL DEFAULT 1.0',
       'pinned': 'INTEGER DEFAULT 0',
       'lastRecalledAt': 'TEXT',
+      'summary': 'TEXT',
     },
     'chat_sessions': {
       'id': 'TEXT PRIMARY KEY',
@@ -527,6 +535,7 @@ class DatabaseService {
       'backgroundPath': 'TEXT',
       'createdAt': 'TEXT NOT NULL',
       'sessionType': 'TEXT DEFAULT "private"',
+      'novelMode': 'INTEGER DEFAULT -1',
     },
     'social_memories': {
       'id': 'TEXT PRIMARY KEY',

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -8,6 +9,7 @@ import '../../models/ai_character.dart';
 import '../../models/chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
+import '../../services/diary_helper.dart';
 import '../../utils/avatar_resolver.dart';
 import '../character/create_character_screen.dart';
 import '../character/discover_characters_screen.dart';
@@ -18,38 +20,48 @@ class ChatListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF000000) : Colors.white,
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
         title: Text(
           '聊天',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: isDark ? Colors.white : Colors.black,
+            color: colorScheme.onSurface,
           ),
         ),
         centerTitle: false,
         elevation: 0,
-        backgroundColor: isDark ? const Color(0xFF000000) : Colors.white,
-        foregroundColor: isDark ? Colors.white : Colors.black,
+        backgroundColor: colorScheme.surface,
+        foregroundColor: colorScheme.onSurface,
         actions: [
           IconButton(
             icon: Icon(Icons.add_circle_outline, size: 24,
-                color: isDark ? Colors.white : Colors.black),
+                color: colorScheme.onSurface),
             onPressed: () => _showCreateOptions(context),
           ),
         ],
       ),
       body: BlocBuilder<ChatBloc, ChatState>(
         builder: (context, chatState) {
+          // 优先处理错误状态：显示错误信息 + 重试按钮
+          if (chatState is ChatError) {
+            return _buildErrorState(context, chatState.message);
+          }
+
           final chatSessions = chatState is ChatSessionsLoaded
               ? chatState.sessions
               : <ChatSession>[];
 
           if (chatState is ChatLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          // ChatInitial 状态显示加载中，避免闪现空状态
+          if (chatState is ChatInitial) {
             return const Center(child: CircularProgressIndicator());
           }
 
@@ -59,9 +71,9 @@ class ChatListScreen extends StatelessWidget {
 
           return Column(
             children: [
-              _buildSearchBar(context, isDark),
+              _buildSearchBar(context),
               if (chatSessions.isNotEmpty)
-                _buildOnlineFriendsRow(context, chatSessions, isDark),
+                _buildOnlineFriendsRow(context, chatSessions),
               Expanded(
                 child: _buildChatList(context, chatSessions),
               ),
@@ -72,26 +84,27 @@ class ChatListScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSearchBar(BuildContext context, bool isDark) {
+  Widget _buildSearchBar(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Container(
         height: 40,
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF5F5F5),
+          color: colorScheme.surfaceContainerHighest.withOpacity(0.5),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
           children: [
             const SizedBox(width: 12),
             Icon(Icons.search, size: 20,
-                color: isDark ? Colors.white.withOpacity(0.4) : Colors.black.withOpacity(0.3)),
+                color: colorScheme.onSurface.withOpacity(0.4)),
             const SizedBox(width: 8),
             Text(
               '搜索',
               style: TextStyle(
                 fontSize: 15,
-                color: isDark ? Colors.white.withOpacity(0.4) : Colors.black.withOpacity(0.3),
+                color: colorScheme.onSurface.withOpacity(0.4),
               ),
             ),
           ],
@@ -101,7 +114,7 @@ class ChatListScreen extends StatelessWidget {
   }
 
   /// 在线好友行：取 chatSessions 中有最后时间的，以及所有没有 session 但在线的角色（内置角色等）
-  Widget _buildOnlineFriendsRow(BuildContext context, List<ChatSession> sessions, bool isDark) {
+  Widget _buildOnlineFriendsRow(BuildContext context, List<ChatSession> sessions) {
     // 从 chat sessions 取有消息的记录
     final activeSessions = sessions
         .where((s) => s.lastMessageTime != null)
@@ -110,7 +123,7 @@ class ChatListScreen extends StatelessWidget {
 
     if (activeSessions.isEmpty && sessions.isNotEmpty) {
       // 如果所有活跃角色都有 session，直接用原来的简化路径
-      return _buildOnlineFriendsRowFromSessions(activeSessions, isDark);
+      return _buildOnlineFriendsRowFromSessions(activeSessions);
     }
 
     return FutureBuilder<List<AICharacter>>(
@@ -138,9 +151,9 @@ class ChatListScreen extends StatelessWidget {
             itemBuilder: (context, index) {
               final item = allFriends[index];
               if (item is ChatSession) {
-                return _buildOnlineFriendItem(context, item, isDark);
+                return _buildOnlineFriendItem(context, item);
               } else if (item is AICharacter) {
-                return _buildOnlineFriendItemFromCharacter(context, item, isDark);
+                return _buildOnlineFriendItemFromCharacter(context, item);
               }
               return const SizedBox.shrink();
             },
@@ -151,7 +164,7 @@ class ChatListScreen extends StatelessWidget {
   }
 
   /// 纯 session 版本的在线好友行（用于快速路径）
-  Widget _buildOnlineFriendsRowFromSessions(List<ChatSession> sessions, bool isDark) {
+  Widget _buildOnlineFriendsRowFromSessions(List<ChatSession> sessions) {
     if (sessions.isEmpty) return const SizedBox.shrink();
 
     return Container(
@@ -163,7 +176,7 @@ class ChatListScreen extends StatelessWidget {
         itemCount: sessions.length,
         itemBuilder: (context, index) {
           final session = sessions[index];
-          return _buildOnlineFriendItem(context, session, isDark);
+          return _buildOnlineFriendItem(context, session);
         },
       ),
     );
@@ -173,7 +186,6 @@ class ChatListScreen extends StatelessWidget {
   Widget _buildOnlineFriendItemFromCharacter(
     BuildContext context,
     AICharacter character,
-    bool isDark,
   ) {
     final avatarUrl = character.avatarUrl;
     final name = character.name;
@@ -204,6 +216,14 @@ class ChatListScreen extends StatelessWidget {
               builder: (ctx) => ChatDetailScreen(session: targetSession),
             ),
           );
+          // 聊天结束，角色自然写日记
+          unawaited(DiaryHelper.tryWriteAfterChat(
+            storage: storage,
+            characterId: character.id,
+            characterName: character.name,
+            characterAvatar: character.avatarUrl,
+            sessionId: targetSession.id,
+          ));
         } else if (!context.mounted) {
           return;
         } else {
@@ -232,6 +252,13 @@ class ChatListScreen extends StatelessWidget {
               builder: (ctx) => ChatDetailScreen(session: newSession),
             ),
           );
+          unawaited(DiaryHelper.tryWriteAfterChat(
+            storage: storage,
+            characterId: character.id,
+            characterName: character.name,
+            characterAvatar: character.avatarUrl,
+            sessionId: newSession.id,
+          ));
         }
 
         if (context.mounted) {
@@ -250,16 +277,16 @@ class ChatListScreen extends StatelessWidget {
                   height: 56,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isDark ? const Color(0xFF2C2C2C) : const Color(0xFFE8E4EC),
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
                   ),
                   child: ClipOval(
                     child: avatarUrl != null && avatarUrl.isNotEmpty
-                        ? _buildAvatar(avatarUrl, isDark)
+                        ? _buildAvatar(avatarUrl)
                         : Center(
                             child: Text(
                               name.isNotEmpty ? name.substring(0, 1) : '?',
                               style: TextStyle(
-                                  color: isDark ? Colors.white : Colors.black,
+                                  color: Theme.of(context).colorScheme.onSurface,
                                   fontSize: 20,
                                   fontWeight: FontWeight.w600),
                             ),
@@ -276,7 +303,7 @@ class ChatListScreen extends StatelessWidget {
                       color: const Color(0xFF4CAF50),
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: isDark ? const Color(0xFF000000) : Colors.white,
+                        color: Theme.of(context).colorScheme.surface,
                         width: 2,
                       ),
                     ),
@@ -289,7 +316,7 @@ class ChatListScreen extends StatelessWidget {
               name,
               style: TextStyle(
                 fontSize: 11,
-                color: isDark ? Colors.white.withOpacity(0.8) : Colors.black.withOpacity(0.7),
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -301,7 +328,7 @@ class ChatListScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAvatar(String avatarUrl, bool isDark) {
+  Widget _buildAvatar(String avatarUrl) {
     final image = AvatarResolver.imageWidget(
       avatarUrl,
       fit: BoxFit.cover,
@@ -311,18 +338,26 @@ class ChatListScreen extends StatelessWidget {
     return const SizedBox.shrink();
   }
 
-  Widget _buildOnlineFriendItem(BuildContext context, ChatSession session, bool isDark) {
+  Widget _buildOnlineFriendItem(BuildContext context, ChatSession session) {
     final avatarUrl = session.aiCharacterAvatar;
     final name = session.aiCharacterName;
 
     return GestureDetector(
       onTap: () async {
+        final storage = RepositoryProvider.of<LocalStorageRepository>(context);
         await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ChatDetailScreen(session: session),
           ),
         );
+        unawaited(DiaryHelper.tryWriteAfterChat(
+          storage: storage,
+          characterId: session.aiCharacterId,
+          characterName: session.aiCharacterName,
+          characterAvatar: session.aiCharacterAvatar,
+          sessionId: session.id,
+        ));
         if (context.mounted) {
           final authBloc = context.read<AuthBloc>();
           if (authBloc.state is AuthAuthenticated) {
@@ -343,7 +378,7 @@ class ChatListScreen extends StatelessWidget {
                   height: 56,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isDark ? const Color(0xFF2C2C2C) : const Color(0xFFE8E4EC),
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
                   ),
                   child: ClipOval(
                     child: avatarUrl != null && avatarUrl.isNotEmpty
@@ -351,15 +386,15 @@ class ChatListScreen extends StatelessWidget {
                                 fit: BoxFit.cover,
                                 onError: () => Center(
                                       child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
-                                          style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 20)),
+                                          style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 20)),
                                     )) ??
                             Center(
                               child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
-                                  style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 20)),
+                                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 20)),
                             ))
                         : Center(
                             child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
-                                style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 20, fontWeight: FontWeight.w600)),
+                                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 20, fontWeight: FontWeight.w600)),
                           ),
                   ),
                 ),
@@ -374,7 +409,7 @@ class ChatListScreen extends StatelessWidget {
                         color: const Color(0xFF4CAF50),
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: isDark ? const Color(0xFF000000) : Colors.white,
+                          color: Theme.of(context).colorScheme.surface,
                           width: 2,
                         ),
                       ),
@@ -387,11 +422,61 @@ class ChatListScreen extends StatelessWidget {
               name,
               style: TextStyle(
                 fontSize: 11,
-                color: isDark ? Colors.white.withOpacity(0.8) : Colors.black.withOpacity(0.7),
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 错误状态：显示错误信息 + 重试按钮
+  Widget _buildErrorState(BuildContext context, String errorMessage) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final authBloc = context.read<AuthBloc>();
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 48,
+                color: colorScheme.error.withOpacity(0.6)),
+            const SizedBox(height: 16),
+            Text(
+              '加载失败',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: colorScheme.onSurface.withOpacity(0.7),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              errorMessage,
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurface.withOpacity(0.4),
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () {
+                if (authBloc.state is AuthAuthenticated) {
+                  final userId = (authBloc.state as AuthAuthenticated).user.id;
+                  context.read<ChatBloc>().add(ChatLoadSessions(userId));
+                }
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('重试'),
             ),
           ],
         ),
@@ -451,6 +536,10 @@ class ChatListScreen extends StatelessWidget {
   Widget _buildChatList(BuildContext context, List<ChatSession> chatSessions) {
     final sessions = [...chatSessions];
     sessions.sort((a, b) {
+      // 置顶的排前面
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      // 同组内按时间排序
       final aTime = a.lastMessageTime ?? DateTime(0);
       final bTime = b.lastMessageTime ?? DateTime(0);
       return bTime.compareTo(aTime);
@@ -462,9 +551,7 @@ class ChatListScreen extends StatelessWidget {
         height: 0.5,
         thickness: 0.5,
         indent: 80,
-        color: Theme.of(context).brightness == Brightness.dark
-            ? Colors.white.withOpacity(0.08)
-            : Colors.black.withOpacity(0.06),
+        color: Theme.of(context).colorScheme.outline.withOpacity(0.15),
       ),
       itemBuilder: (context, index) {
         final session = sessions[index];
@@ -501,6 +588,24 @@ class ChatListScreen extends StatelessWidget {
                     color: Theme.of(ctx).colorScheme.onSurfaceVariant.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(2),
                   ),
+                ),
+                ListTile(
+                  leading: Icon(
+                    session.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                    color: session.isPinned ? Colors.amber[700] : null,
+                  ),
+                  title: Text(session.isPinned ? '取消置顶' : '置顶聊天'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final updated = session.copyWith(isPinned: !session.isPinned);
+                    await storage.saveChatSession(updated);
+                    if (context.mounted) {
+                      final authBloc = context.read<AuthBloc>();
+                      if (authBloc.state is AuthAuthenticated) {
+                        context.read<ChatBloc>().add(ChatLoadSessions((authBloc.state as AuthAuthenticated).user.id));
+                      }
+                    }
+                  },
                 ),
                 ListTile(
                   leading: Icon(Icons.visibility_off, color: Colors.orange[700]),

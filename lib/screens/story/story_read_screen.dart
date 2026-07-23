@@ -9,6 +9,14 @@ import '../../widgets/typing_indicator.dart';
 import 'story_saves_screen.dart';
 import 'widgets/story_scene_panel.dart';
 
+/// 题材配色（与书架保持一致）
+const Map<StoryGenre, Color> _genreColors = {
+  StoryGenre.romance: Color(0xFFE57399),
+  StoryGenre.yandere: Color(0xFFEF5350),
+  StoryGenre.darkArt: Color(0xFF7E57C2),
+  StoryGenre.free: Color(0xFF26A69A),
+};
+
 /// 故事书 · 剧情阅读/续写
 class StoryReadScreen extends StatelessWidget {
   final String bookId;
@@ -98,6 +106,7 @@ class _StoryReadViewState extends State<_StoryReadView> {
                   children: [
                     Column(
                       children: [
+                        _buildBookHeader(context, state),
                         Expanded(child: _buildStoryList(context, state)),
                         _buildBranches(context, state),
                         _buildInputBar(context, state),
@@ -165,6 +174,10 @@ class _StoryReadViewState extends State<_StoryReadView> {
     final aiAvatarUrl = book?.coverUrl;
     final aiName = book?.title ?? '叙事者';
 
+    // 读取用户自定义的小说对白颜色（null 时回退默认蓝色）
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final customColor = storage.getNovelDialogueColor();
+
     return ListView.builder(
       controller: _scrollCtrl,
       padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
@@ -176,6 +189,7 @@ class _StoryReadViewState extends State<_StoryReadView> {
             text: state.streamingText,
             avatarUrl: aiAvatarUrl,
             name: aiName,
+            customDialogueColor: customColor,
           );
         }
         final seg = state.segments[index];
@@ -184,8 +198,63 @@ class _StoryReadViewState extends State<_StoryReadView> {
           isUser: seg.isUser,
           aiAvatarUrl: aiAvatarUrl,
           aiName: aiName,
+          customDialogueColor: customColor,
         );
       },
+    );
+  }
+
+  /// 书本上下文信息条：题材 / 叙事视角 / 登场人数
+  Widget _buildBookHeader(BuildContext context, StoryPlayState state) {
+    final book = state.book;
+    if (book == null) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    final accent = _genreColors[book.genre] ?? cs.primary;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLowest.withOpacity(0.5),
+        border: Border(
+          bottom: BorderSide(
+              color: cs.outline.withOpacity(0.12), width: 0.5),
+        ),
+      ),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: accent.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Text(book.genre.label,
+                style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: accent)),
+          ),
+          _headerItem(Icons.visibility_outlined, book.narratorRole.label, cs),
+          if (book.participantCharacterIds.isNotEmpty)
+            _headerItem(Icons.group_outlined,
+                '${book.participantCharacterIds.length} 位角色', cs),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerItem(IconData icon, String text, ColorScheme cs) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: cs.onSurfaceVariant),
+        const SizedBox(width: 4),
+        Text(text,
+            style: TextStyle(fontSize: 11.5, color: cs.onSurfaceVariant)),
+      ],
     );
   }
 
@@ -213,8 +282,14 @@ class _StoryReadViewState extends State<_StoryReadView> {
     final cs = Theme.of(context).colorScheme;
     return SafeArea(
       top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: cs.surface,
+          border: Border(
+            top: BorderSide(color: cs.outline.withOpacity(0.15), width: 0.5),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         child: Row(
           children: [
             Expanded(
@@ -225,8 +300,9 @@ class _StoryReadViewState extends State<_StoryReadView> {
                 enabled: !state.isGenerating,
                 decoration: InputDecoration(
                   hintText: state.isGenerating ? '续写中…' : '写下你的行动或对白…',
+                  hintStyle: TextStyle(color: cs.onSurfaceVariant),
                   filled: true,
-                  fillColor: cs.surfaceContainerHighest.withOpacity(0.4),
+                  fillColor: cs.surfaceContainerHighest.withOpacity(0.5),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
                     borderSide: BorderSide.none,
@@ -234,6 +310,7 @@ class _StoryReadViewState extends State<_StoryReadView> {
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 ),
+                textInputAction: TextInputAction.send,
                 onSubmitted: (v) => _advance(context, v),
               ),
             ),
@@ -247,7 +324,14 @@ class _StoryReadViewState extends State<_StoryReadView> {
                         child: CircularProgressIndicator(strokeWidth: 2)),
                   )
                 : IconButton.filled(
-                    icon: const Icon(Icons.send),
+                    icon: const Icon(Icons.arrow_upward, size: 20),
+                    style: IconButton.styleFrom(
+                      backgroundColor: cs.primary,
+                      foregroundColor: cs.onPrimary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
                     onPressed: () => _advance(context, _inputCtrl.text),
                   ),
           ],
@@ -261,8 +345,14 @@ class _StoryReadViewState extends State<_StoryReadView> {
 // 故事段落气泡 — 与聊天页 _MessageBubble 一致的视觉规范
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 匹配对白：中文弯引号 "…" 及直角引号 「」/『』
-final RegExp _dialogueRe = RegExp(r'"[^"]*"|「[^」]*」|『[^』]*』');
+/// 匹配对白：ASCII 直双引号 "…"、中文弯引号 "…"、直角引号 「」/『』
+final RegExp _dialogueRe = RegExp(
+  '\u0022[^\u0022]*\u0022|'           // "…"（ASCII 直双引号）
+  '\u201C[^\u201C\u201D]*\u201D|'    // "…"（U+201C → U+201D 标准中文配对标点）
+  '\u201D[^\u201D]*\u201D|'           // "…"（U+201D 自身配自身）
+  '\u300C[^\u300D]*\u300D|'          // 「…」
+  '\u300E[^\u300F]*\u300F'           // 『…』
+);
 
 /// 引号对内字符超过此长度时，视为旁白被模型误包，跳过对白着色（与聊天页保持一致）。
 const int _maxDialogueLen = 40;
@@ -311,12 +401,14 @@ class _StoryBubble extends StatelessWidget {
   final bool isUser;
   final String? aiAvatarUrl;
   final String aiName;
+  final Color? customDialogueColor;
 
   const _StoryBubble({
     required this.text,
     required this.isUser,
     this.aiAvatarUrl,
     this.aiName = '叙事者',
+    this.customDialogueColor,
   });
 
   @override
@@ -377,9 +469,9 @@ class _StoryBubble extends StatelessWidget {
     );
     // AI 叙事文字使用对白高亮（故事书天然是小说模式）
     if (!isUser) {
-      final dialogueColor = brightness == Brightness.dark
+      final dialogueColor = customDialogueColor ?? (brightness == Brightness.dark
           ? _douyinBlueDark
-          : _douyinBlue;
+          : _douyinBlue);
       final spans = _buildDialogueSpans(text, baseStyle, dialogueColor);
       if (spans != null) {
         return SelectableText.rich(TextSpan(children: spans));
@@ -414,11 +506,13 @@ class _StoryStreamingBubble extends StatelessWidget {
   final String text;
   final String? avatarUrl;
   final String name;
+  final Color? customDialogueColor;
 
   const _StoryStreamingBubble({
     required this.text,
     this.avatarUrl,
     this.name = '叙事者',
+    this.customDialogueColor,
   });
 
   @override
@@ -463,7 +557,7 @@ class _StoryStreamingBubble extends StatelessWidget {
                       final isDark = brightness == Brightness.dark;
                       final textColor = isDark ? _textOnDark : _textOnWhite;
                       final dialogueColor =
-                          isDark ? _douyinBlueDark : _douyinBlue;
+                          customDialogueColor ?? (isDark ? _douyinBlueDark : _douyinBlue);
                       final baseStyle = TextStyle(
                         fontSize: 15,
                         height: 1.6,

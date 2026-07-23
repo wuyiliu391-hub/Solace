@@ -140,15 +140,14 @@ void main() {
     });
 
     test('MessageType 枚举值正确', () {
-      expect(MessageType.values.length, 8);
+      expect(MessageType.values.length, 7);
       expect(MessageType.text.index, 0);
       expect(MessageType.image.index, 1);
       expect(MessageType.audio.index, 2);
       expect(MessageType.file.index, 3);
       expect(MessageType.system.index, 4);
-      expect(MessageType.narration.index, 5);
-      expect(MessageType.sticker.index, 6);
-      expect(MessageType.voice.index, 7);
+      expect(MessageType.sticker.index, 5);
+      expect(MessageType.voice.index, 6);
     });
 
     test('MessageStatus 枚举值正确', () {

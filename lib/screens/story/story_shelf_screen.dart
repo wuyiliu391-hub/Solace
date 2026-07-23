@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../blocs/auth/auth_bloc.dart';
@@ -7,6 +6,44 @@ import '../../models/story_book.dart';
 import '../../repositories/local_storage_repository.dart';
 import 'story_editor_screen.dart';
 import 'story_read_screen.dart';
+
+/// 题材配色 — 书架条目左边圆标与标签的强调色
+const Map<StoryGenre, Color> _genreColors = {
+  StoryGenre.romance: Color(0xFFE57399),
+  StoryGenre.yandere: Color(0xFFEF5350),
+  StoryGenre.darkArt: Color(0xFF7E57C2),
+  StoryGenre.free: Color(0xFF26A69A),
+};
+
+/// 把更新时间转成「x 天前」式口语标签
+String _relativeTime(DateTime t) {
+  final diff = DateTime.now().difference(t);
+  if (diff.inMinutes < 1) return '刚刚';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
+  if (diff.inHours < 24) return '${diff.inHours} 小时前';
+  if (diff.inDays < 30) return '${diff.inDays} 天前';
+  if (diff.inDays < 365) return '${(diff.inDays / 30).floor()} 个月前';
+  return '${(diff.inDays / 365).floor()} 年前';
+}
+
+/// 题材小标签
+Widget _genreChip(String label, Color color, ColorScheme cs) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.14),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: color,
+      ),
+    ),
+  );
+}
 
 /// 故事书 · 书架
 class StoryShelfScreen extends StatelessWidget {
@@ -63,18 +100,18 @@ class _StoryShelfView extends StatelessWidget {
           if (state.books.isEmpty) {
             return _buildEmpty(context);
           }
-          return GridView.builder(
-            padding: const EdgeInsets.all(16),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 0.68,
-              crossAxisSpacing: 14,
-              mainAxisSpacing: 14,
-            ),
-            itemCount: state.books.length,
+          // 归档排末尾，其余按最近更新在前
+          final books = [...state.books]
+            ..sort((a, b) {
+              if (a.isArchived != b.isArchived) return a.isArchived ? 1 : -1;
+              return b.updatedAt.compareTo(a.updatedAt);
+            });
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            itemCount: books.length,
             itemBuilder: (context, index) {
-              final book = state.books[index];
-              return _StoryCard(
+              final book = books[index];
+              return _StoryTile(
                 book: book,
                 onTap: () => _openBook(context, book),
                 onLongPress: () => _showOptions(context, book),
@@ -220,12 +257,13 @@ class _StoryShelfView extends StatelessWidget {
   }
 }
 
-class _StoryCard extends StatelessWidget {
+/// 故事条目 — 横条样式（与通讯录一致），避免封面尺寸报错
+class _StoryTile extends StatelessWidget {
   final StoryBook book;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
-  const _StoryCard({
+  const _StoryTile({
     required this.book,
     required this.onTap,
     required this.onLongPress,
@@ -234,73 +272,92 @@ class _StoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          color: cs.surfaceContainerHighest.withOpacity(0.4),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
+    final accent = _genreColors[book.genre] ?? cs.primary;
+    final dimmed = book.isArchived;
+    final preview = book.lastSegmentPreview;
+    final titleColor =
+        dimmed ? cs.onSurface.withOpacity(0.5) : cs.onSurface;
+    final subColor =
+        dimmed ? cs.onSurfaceVariant.withOpacity(0.5) : cs.onSurfaceVariant;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+      elevation: 0,
+      color: dimmed
+          ? cs.surfaceContainerLow.withOpacity(0.55)
+          : cs.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        leading: CircleAvatar(
+          backgroundColor: accent.withOpacity(0.15),
+          child: Icon(Icons.auto_stories, color: accent, size: 22),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        title: Row(
           children: [
-            Expanded(child: _buildCover(cs)),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+            Expanded(
               child: Text(
                 book.title.isEmpty ? '未命名故事' : book.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: cs.onSurface),
+                style: TextStyle(fontWeight: FontWeight.w600, color: titleColor),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-              child: Text(
-                book.lastSegmentPreview ?? book.genre.label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 11.5, color: cs.onSurface.withOpacity(0.5)),
+            if (dimmed) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: cs.onSurfaceVariant.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text('已归档',
+                    style: TextStyle(
+                        fontSize: 10.5,
+                        color: subColor,
+                        fontWeight: FontWeight.w500)),
               ),
+            ],
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (preview != null && preview.isNotEmpty) ...[
+              const SizedBox(height: 3),
+              Text(
+                preview,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: subColor),
+              ),
+            ],
+            const SizedBox(height: 5),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                _genreChip(book.genre.label, accent, cs),
+                Text(_relativeTime(book.updatedAt),
+                    style: TextStyle(fontSize: 11.5, color: subColor)),
+                if (book.participantCharacterIds.isNotEmpty) ...[
+                  Icon(Icons.group_outlined, size: 13, color: subColor),
+                  Text('${book.participantCharacterIds.length}',
+                      style: TextStyle(fontSize: 11.5, color: subColor)),
+                ],
+              ],
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildCover(ColorScheme cs) {
-    final cover = book.coverUrl;
-    if (cover != null && cover.isNotEmpty) {
-      final img = cover.startsWith('http')
-          ? Image.network(cover, fit: BoxFit.cover)
-          : Image.file(File(cover), fit: BoxFit.cover);
-      return img;
-    }
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [cs.primary.withOpacity(0.6), cs.tertiary.withOpacity(0.5)],
-        ),
-      ),
-      child: Center(
-        child: Icon(Icons.auto_stories,
-            color: Colors.white.withOpacity(0.85), size: 40),
+        trailing: Icon(Icons.chevron_right,
+            color: cs.onSurfaceVariant, size: 20),
+        onTap: onTap,
+        onLongPress: onLongPress,
       ),
     );
   }

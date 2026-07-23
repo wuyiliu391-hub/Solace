@@ -435,6 +435,10 @@ class MessageSanitizer {
     result = result.replaceAll(
         RegExp(r'<BT_ACTION>[\s\S]*?</BT_ACTION>', caseSensitive: false, dotAll: true),
         '');
+    result = result.replaceAll(
+        RegExp(r'<DEVICE_ACTION>[\s\S]*?</DEVICE_ACTION>',
+            caseSensitive: false, dotAll: true),
+        '');
     result = stripInternalControlLeaks(result);
 
     // 3. 刷屏级重复时间戳（带括号 + 裸时间戳）
@@ -793,6 +797,22 @@ class MessageSanitizer {
     return sanitizeFinal(text)
         .replaceAll(RegExp(r'[\s\n\r\t，。！？、,.!?;；:："“”‘’\[\]（）()…~～\-—_]'), '')
         .toLowerCase();
+  }
+
+  /// 过滤禁止短语：将文本中的禁止短语替换为等长星号
+  static String filterForbiddenPhrases(String text, List<String> phrases) {
+    if (phrases.isEmpty || text.isEmpty) return text;
+    var result = text;
+    for (final phrase in phrases) {
+      if (phrase.isEmpty) continue;
+      // 大小写不敏感替换
+      final escaped = RegExp.escape(phrase);
+      result = result.replaceAll(
+        RegExp(escaped, caseSensitive: false),
+        '*' * phrase.length,
+      );
+    }
+    return result;
   }
 
   /// 判断文本是否主要是时间戳/日志（用于判断是否为无效消息）

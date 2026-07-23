@@ -22,6 +22,11 @@ class AppDurations {
   // ─── AI Typing Delays ───
   static const instantReplyDelay = Duration(milliseconds: 300);
   static const multiMessageDelay = Duration(milliseconds: 400);
+  /// normal 模式拟人延迟上限（过大会被当成「卡住」）
+  static const typingDelayMinMs = 200;
+  static const typingDelayMaxMs = 1800;
+  /// 流式 UI 刷新最小间隔，避免每 token 全量重建
+  static const streamUiThrottle = Duration(milliseconds: 80);
 }
 
 class ApiDefaults {
@@ -160,6 +165,7 @@ class PrefKeys {
   static const String daoModeEnabled = 'dao_mode_enabled';
   static const String chatStyleMode = 'chat_style_mode';
   static const String novelDialogueColor = 'novel_dialogue_color';
+  static const String autoDiaryEnabled = 'auto_diary_enabled';
   static const String appUsageAwareness = 'app_usage_awareness';
   static const String pureAiModeEnabled = 'pure_ai_mode_enabled';
   static const String idCardChangeCount = 'id_card_change_count';
@@ -172,6 +178,7 @@ class PrefKeys {
   static const String diaryEntries = 'diary_entries';
   static const String lastSeenAnnouncementId = 'last_seen_announcement_id';
   static const String themeMode = 'app_theme_mode';
+  static const String visualStyle = 'app_visual_style';
   static const String lockTextColor = 'lock_screen_text_color';
   static const String globalResponseStyle = 'global_response_style';
   static const String globalMemoryMode = 'global_memory_mode';
@@ -212,6 +219,32 @@ class PrefKeys {
   static const String btPermissionDarkTheme = 'bt_permission_dark_theme';
   static const String btPermissionSystemTheme = 'bt_permission_system_theme';
 
+  // ─── Device Agent（角色主动操控真实设备 · 全量） ───
+  static const String deviceAgentMasterEnabled = 'device_agent_master_enabled';
+  static const String devicePermissionRead = 'device_permission_read';
+  static const String devicePermissionDisplay = 'device_permission_display';
+  static const String devicePermissionAudio = 'device_permission_audio';
+  static const String devicePermissionLock = 'device_permission_lock';
+  static const String devicePermissionApp = 'device_permission_app';
+  static const String devicePermissionNetwork = 'device_permission_network';
+  static const String devicePermissionUi = 'device_permission_ui';
+  static const String devicePermissionShell = 'device_permission_shell';
+  static const String deviceAgentAuditLog = 'device_agent_audit_log';
+  /// 小说/法模式下是否仍允许 Device Agent（默认关，防叙事混乱）
+  static const String deviceAgentAllowInNarrative =
+      'device_agent_allow_in_narrative';
+
+  static const List<String> deviceAllPermissionKeys = [
+    devicePermissionRead,
+    devicePermissionDisplay,
+    devicePermissionAudio,
+    devicePermissionLock,
+    devicePermissionApp,
+    devicePermissionNetwork,
+    devicePermissionUi,
+    devicePermissionShell,
+  ];
+
   static const List<String> btAllPermissionKeys = [
     btPermissionContactRemark,
     btPermissionContactAvatar,
@@ -243,11 +276,6 @@ class PrefKeys {
   static const String coreHubTaskQueuePending = 'core_hub_task_queue_pending';
   static const String coreHubTaskQueueCompleted =
       'core_hub_task_queue_completed';
-  static const String coreHubNewWorldEnabled = 'core_hub_new_world_enabled';
-  static const String coreHubNewWorldTokenConsumed = 'core_hub_new_world_token_consumed';
-  static const String coreHubNewWorldActivatedAt = 'core_hub_new_world_activated_at';
-  static const String coreHubNewWorldTokenResetAt = 'core_hub_new_world_token_reset_at';
-
   static const String siliconeApiKey = 'siliconflow_api_key';
   static const String ttsApiKey = 'tts_api_key';
   static const String brevoApiKey = 'brevo_api_key';
@@ -337,7 +365,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 53;
+  static const int dbVersion = 56;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;
@@ -392,13 +420,16 @@ class MethodChannels {
 
   static const String background = 'com.solace.background';
   static const String settings = 'com.solace.solace/settings';
+  static const String notification = 'com.solace.solace/notification';
+  static const String accessibility = 'com.solace.solace/accessibility';
+  static const String screenshot = 'com.solace.solace/screenshot';
 }
 
 class AppVersion {
   AppVersion._();
 
-static const String version = '17.1.0';
-static const int build = 279;
+  static const String version = '17.4.0';
+  static const int build = 283;
 }
 
 class NotificationChannels {
@@ -436,3 +467,6 @@ class DbTables {
         socialMemories,
       ];
 }
+
+/// 视觉风格包：原有主题（抖音风格）vs 现代主义聊天主题
+enum VisualStyle { classic, modernist }

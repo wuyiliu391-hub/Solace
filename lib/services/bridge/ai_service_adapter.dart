@@ -323,13 +323,21 @@ class AIServiceAdapter {
     return result;
   }
 
-  /// 按句子切割文本
+  /// 按句子切割文本（引号感知版：防止引号内分句导致对白断裂）
   List<String> _splitIntoSentences(String text) {
     final sentences = <String>[];
     final currentSentence = StringBuffer();
+    bool insideQuote = false; // 追踪是否在引号对内部
 
     for (int j = 0; j < text.length; j++) {
       currentSentence.write(text[j]);
+
+      // 追踪引号边界
+      if (text[j] == '“' || text[j] == '「' || text[j] == '『') {
+        insideQuote = true;
+      } else if (text[j] == '”' || text[j] == '」' || text[j] == '』') {
+        insideQuote = false;
+      }
 
       // 句末标点（中英文）
       final isEndPunctuation =
@@ -342,8 +350,11 @@ class AIServiceAdapter {
       // 换行符
       final isNewline = text[j] == '\n';
 
-      final shouldSplit = (isEndPunctuation || isEllipsis || isNewline) &&
-          currentSentence.length >= 5;
+      // 引号内部不分割，确保对白完整性
+      final shouldSplit =
+          (isEndPunctuation || isEllipsis || isNewline) &&
+              currentSentence.length >= 5 &&
+              !insideQuote;
 
       if (shouldSplit && j + 1 < text.length) {
         final next = text[j + 1];

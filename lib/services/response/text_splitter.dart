@@ -110,21 +110,32 @@ class TextSplitter {
   static List<String> _splitIntoSentences(String text) {
     final sentences = <String>[];
     final currentSentence = StringBuffer();
+    bool insideQuote = false; // 追踪是否在引号对内部，防止引号内分句导致对白断裂
 
     for (int j = 0; j < text.length; j++) {
       currentSentence.write(text[j]);
 
+      // 追踪引号边界：左引号进入对白，右引号退出对白
+      if (text[j] == '\u201C' || text[j] == '「' || text[j] == '『') {
+        insideQuote = true;
+      } else if (text[j] == '\u201D' || text[j] == '」' || text[j] == '』') {
+        insideQuote = false;
+      }
+
+      // 句号、感叹号、问号为自然断句点；分号和冒号不作为分句标点（中文语境下它们连接相关内容）
       final isEndPunctuation =
-          ['。', '！', '？', '!', '?', '；', ';', '：', ':'].contains(text[j]);
+          ['。', '！', '？', '!', '?'].contains(text[j]);
       final isEllipsis = text[j] == '…' &&
           j + 2 < text.length &&
           text[j + 1] == '…' &&
           text[j + 2] == '…';
       final isNewline = text[j] == '\n';
 
+      // 引号内部不分割，确保对白完整性；最小分句长度8字符，避免过多小气泡
       final shouldSplit =
           (isEndPunctuation || isEllipsis || isNewline) &&
-              currentSentence.length >= 5;
+              currentSentence.length >= 8 &&
+              !insideQuote;
 
       if (shouldSplit && j + 1 < text.length) {
         final next = text[j + 1];
@@ -151,6 +162,9 @@ class TextSplitter {
 
     while (remaining.length > maxLength) {
       var cutIndex = maxLength;
+      bool foundCut = false;
+
+      // 从 maxLength 向前扫描，寻找引号外的分割点
       for (int i = maxLength;
           i > maxLength - 30 && i > 0;
           i--) {
@@ -158,10 +172,34 @@ class TextSplitter {
           '。', '！', '？', '!', '?', '；', ';',
           '，', ',', '、', '…', '\n'
         ].contains(remaining[i])) {
-          cutIndex = i + 1;
-          break;
+          // 检查该位置是否在引号内部
+          bool inside = false;
+          for (int k = 0; k <= i; k++) {
+            if (remaining[k] == '\u201C' || remaining[k] == '「' || remaining[k] == '『') {
+              inside = !inside;
+            } else if (remaining[k] == '\u201D' || remaining[k] == '」' || remaining[k] == '』') {
+              inside = !inside;
+            }
+          }
+          if (!inside) {
+            cutIndex = i + 1;
+            foundCut = true;
+            break;
+          }
         }
       }
+
+      // 如果在引号外找不到分割点，尝试在左引号处分割（让引号对整体移到下一个气泡）
+      if (!foundCut) {
+        for (int i = maxLength; i > maxLength - 30 && i > 0; i--) {
+          if (remaining[i] == '\u201C' || remaining[i] == '「' || remaining[i] == '『') {
+            cutIndex = i;
+            foundCut = true;
+            break;
+          }
+        }
+      }
+
       result.add(remaining.substring(0, cutIndex).trim());
       remaining = remaining.substring(cutIndex).trim();
     }

@@ -2,17 +2,22 @@ class IntimacyRules {
   IntimacyRules._();
 
   static const int maxLevel = 100;
-  static const int decayAfterHours = 48;
-  static const int maxDecaySteps = 5;
-  static const int minMessageLength = 5;
-  static const int dailyCap = 5;
+  static const int decayAfterHours = 168;  // 7 天不说话才衰减（原来是 48h）
+  static const int maxDecaySteps = 3;      // 每次衰减最多 3 点（原来是 5）
+  static const int minMessageLength = 2;   // 2 字就算有效消息（原来是 5）
+  static const int dailyCap = 10;          // 每日最多 +10（原来是 5）
 
   static int msgsPerPoint(int level) {
     if (level < 30) return 1;
     if (level < 60) return 2;
-    if (level < 80) return 3;
-    return 5;
+    if (level < 80) return 4;
+    return 6;
   }
+
+  // ─── 深度对话额外加分 ───
+  static const int deepTalkThreshold = 50;    // 超过 50 字算深度对话
+  static const int deepTalkBonus = 2;         // 深度对话额外 +2
+  static const int emotionalBonus = 1;        // 强情绪（正面或负面）额外 +1
 
   // ─── Intimacy tiers used in prompts ───
   static const int tierLow = 20;
@@ -79,6 +84,8 @@ class IntimacyRules {
 class EmotionEngineRules {
   EmotionEngineRules._();
 
+  // ─── 亲密度情绪阈值 ───
+  static const double strongEmotionThreshold = 0.4;  // |score| >= 0.4 算强情绪
   static const double emotionMemoryThreshold = 0.3;
   static const double calmThreshold = 0.1;
   static const double intensityVeryHigh = 0.8;

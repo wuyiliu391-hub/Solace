@@ -97,6 +97,15 @@ class MemoryEngine {
 
   MemoryEngine(this._storage);
 
+  /// 统一保存入口：先存记忆，再异步生成摘要
+  Future<void> _saveWithSummary(Memory memory) async {
+    await _storage.saveMemory(memory);
+    // 异步生成摘要，不阻塞主流程
+    if (memory.content.length >= 40) {
+      generateAndSaveSummary(memory); // fire-and-forget
+    }
+  }
+
   bool _isBtContextPolluted(String text) => looksLikeBtAgentPayload(text);
 
   String _stripBtContextPollution(String text) {
@@ -1088,7 +1097,7 @@ ${userMessages.join('\n')}
             (m) => m.content.contains(content) || content.contains(m.content));
         if (isDuplicate) continue;
 
-        await _storage.saveMemory(Memory(
+        await _saveWithSummary(Memory(
           id: const Uuid().v4(),
           characterId: character.id,
           userId: userId,
@@ -1202,7 +1211,7 @@ ${userMessages.join('\n')}
     for (final pref in preferences) {
       final existing = await _findSimilarMemory(characterId, userId, pref);
       if (existing == null) {
-        await _storage.saveMemory(Memory(
+        await _saveWithSummary(Memory(
           id: const Uuid().v4(),
           characterId: characterId,
           userId: userId,
@@ -1240,7 +1249,7 @@ ${userMessages.join('\n')}
         final existing = await _findSimilarMemory(characterId, userId,
             content.substring(0, content.length.clamp(0, 50)));
         if (existing == null) {
-          await _storage.saveMemory(Memory(
+          await _saveWithSummary(Memory(
             id: const Uuid().v4(),
             characterId: characterId,
             userId: userId,
@@ -1272,7 +1281,7 @@ ${userMessages.join('\n')}
       final existing =
           await _findSimilarMemory(characterId, userId, memoryText);
       if (existing == null) {
-        await _storage.saveMemory(Memory(
+        await _saveWithSummary(Memory(
           id: const Uuid().v4(),
           characterId: characterId,
           userId: userId,
@@ -1300,7 +1309,7 @@ ${userMessages.join('\n')}
           final existing = await _findSimilarMemory(characterId, userId,
               planText.substring(0, planText.length.clamp(0, 50)));
           if (existing == null) {
-            await _storage.saveMemory(Memory(
+            await _saveWithSummary(Memory(
               id: const Uuid().v4(),
               characterId: characterId,
               userId: userId,
@@ -1361,13 +1370,13 @@ ${userMessages.join('\n')}
               final existing =
                   await _findSimilarState(characterId, userId, entry.key);
               if (existing != null) {
-                await _storage.saveMemory(existing.copyWith(
+                await _saveWithSummary(existing.copyWith(
                   content: stateText,
                   createdAt: DateTime.now(),
                   keywords: _extractKeywords(stateText),
                 ));
               } else {
-                await _storage.saveMemory(Memory(
+                await _saveWithSummary(Memory(
                   id: const Uuid().v4(),
                   characterId: characterId,
                   userId: userId,
@@ -1534,7 +1543,7 @@ ${userMessages.join('\n')}
       accessCount: (existing.isNotEmpty ? existing.first.accessCount : 0) + 1,
     );
 
-    await _storage.saveMemory(memory);
+    await _saveWithSummary(memory);
   }
 
   /// 检查是否需要生成新的滚动摘要
@@ -1848,7 +1857,7 @@ ${userMessages.join('\n')}
       accessCount: 0,
     );
 
-    await _storage.saveMemory(memory);
+    await _saveWithSummary(memory);
   }
 
   /// 保存对话章节（形成关系发展叙事线）
@@ -1889,7 +1898,7 @@ ${userMessages.join('\n')}
       accessCount: 0,
     );
 
-    await _storage.saveMemory(memory);
+    await _saveWithSummary(memory);
   }
 
   /// 获取相关记忆（按热度加权精选，用于 prompt 注入）
@@ -2050,5 +2059,59 @@ ${userMessages.join('\n')}
     }
 
     return buffer.toString();
+  }
+
+  /// 为一条记忆生成1-2句中文摘要（约20-40字），用于前端卡片展示
+  /// 失败或无配置时返回 null，调用方自行兜底（截断原文）
+  Future<String?> generateSummary(String content, {String? apiKey, String? baseUrl, String? modelName}) async {
+    if (content.length < 40) return null;
+
+    String key = apiKey ?? '';
+    String url = baseUrl ?? '';
+    String model = modelName ?? '';
+
+    if (key.isEmpty || url.isEmpty) {
+      final config = await _storage.getActiveAIConfig();
+      if (config == null) return null;
+      key = config.apiKey;
+      url = config.baseUrl.endsWith('/') ? config.baseUrl.substring(0, config.baseUrl.length - 1) : config.baseUrl;
+      model = config.modelName;
+    }
+
+    final prompt = '用1-2句简短的中文（20-40字）总结以下内容的核心要点，只输出总结，不要任何额外文字：\n\n$content';
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$url/chat/completions'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $key',
+            },
+            body: jsonEncode({
+              'model': model,
+              'messages': [{'role': 'user', 'content': prompt}],
+              'temperature': 0.3,
+              'max_tokens': 100,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) return null;
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      final text = ResponseDecoder.extractContent(data);
+      final trimmed = text.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 为一条 Memory 生成摘要并持久化到数据库
+  Future<void> generateAndSaveSummary(Memory memory) async {
+    if (memory.content.length < 40) return;
+    final summary = await generateSummary(memory.content);
+    if (summary == null || summary.isEmpty) return;
+    await _storage.saveMemory(memory.copyWith(summary: summary));
   }
 }

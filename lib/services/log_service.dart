@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 enum LogLevel { debug, info, warn, error }
 
@@ -67,8 +68,10 @@ class LogService {
   void w(String module, String message, {String? chatId}) =>
       _add(LogLevel.warn, module, message, chatId: chatId);
 
-  void e(String module, String message, {String? chatId}) =>
-      _add(LogLevel.error, module, message, chatId: chatId);
+  void e(String module, String message, {String? chatId}) {
+    debugPrint('[ERROR] [$module] $message');
+    _add(LogLevel.error, module, message, chatId: chatId);
+  }
 
   List<LogEntry> getAll() => List.unmodifiable(_entries);
 

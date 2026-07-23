@@ -44,6 +44,12 @@ class AIInteractionConfig extends Equatable {
   final int replyDelaySeconds;
   final bool voiceReplyEnabled;
   final bool enableStickerReply;
+  /// 该角色是否允许主动设备操控（仍受全局 Device Agent 总开关约束）
+  final bool enableProactiveDevice;
+  /// 该角色是否允许读通知（查岗/好奇类）
+  final bool enableReadNotifications;
+  /// 是否用 LLM 精炼欲望画像（人设变更时）
+  final bool enableLlmDesireRefine;
 
   const AIInteractionConfig({
     this.enableMorningGreeting = true,
@@ -59,6 +65,9 @@ class AIInteractionConfig extends Equatable {
     this.replyDelaySeconds = 5,
     this.voiceReplyEnabled = false,
     this.enableStickerReply = true,
+    this.enableProactiveDevice = true,
+    this.enableReadNotifications = true,
+    this.enableLlmDesireRefine = true,
   });
 
   Map<String, dynamic> toMap() {
@@ -76,38 +85,64 @@ class AIInteractionConfig extends Equatable {
       'replyDelaySeconds': replyDelaySeconds,
       'voiceReplyEnabled': voiceReplyEnabled ? 1 : 0,
       'enableStickerReply': enableStickerReply ? 1 : 0,
+      'enableProactiveDevice': enableProactiveDevice ? 1 : 0,
+      'enableReadNotifications': enableReadNotifications ? 1 : 0,
+      'enableLlmDesireRefine': enableLlmDesireRefine ? 1 : 0,
     };
   }
 
+  static bool _asBool(dynamic v, {required bool defaultValue}) {
+    if (v == null) return defaultValue;
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    if (v is String) {
+      final s = v.trim().toLowerCase();
+      if (s == '1' || s == 'true' || s == 'yes') return true;
+      if (s == '0' || s == 'false' || s == 'no') return false;
+    }
+    return defaultValue;
+  }
+
+  static int _asInt(dynamic v, {required int defaultValue}) {
+    if (v == null) return defaultValue;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? defaultValue;
+    return defaultValue;
+  }
+
   factory AIInteractionConfig.fromMap(Map<String, dynamic> map) {
+    final replyModeIndex = _asInt(map['replyMode'], defaultValue: 1)
+        .clamp(0, ReplyMode.values.length - 1);
     return AIInteractionConfig(
-      enableMorningGreeting: map['enableMorningGreeting'] == 1 ||
-          map['enableMorningGreeting'] == true,
+      enableMorningGreeting:
+          _asBool(map['enableMorningGreeting'], defaultValue: true),
       enableNightGreeting:
-          map['enableNightGreeting'] == 1 || map['enableNightGreeting'] == true,
-      enableFestivalGreeting: map['enableFestivalGreeting'] == 1 ||
-          map['enableFestivalGreeting'] == true,
+          _asBool(map['enableNightGreeting'], defaultValue: true),
+      enableFestivalGreeting:
+          _asBool(map['enableFestivalGreeting'], defaultValue: true),
       enableCareReminder:
-          map['enableCareReminder'] == 1 || map['enableCareReminder'] == true,
-      activeMessageFrequency: map['activeMessageFrequency'] as int? ?? 2,
-      enableMomentInteraction: map['enableMomentInteraction'] == 1 ||
-          map['enableMomentInteraction'] == true,
+          _asBool(map['enableCareReminder'], defaultValue: true),
+      activeMessageFrequency:
+          _asInt(map['activeMessageFrequency'], defaultValue: 2),
+      enableMomentInteraction:
+          _asBool(map['enableMomentInteraction'], defaultValue: true),
       enableUserMomentInteraction:
-          map.containsKey('enableUserMomentInteraction')
-              ? (map['enableUserMomentInteraction'] == 1 ||
-                  map['enableUserMomentInteraction'] == true)
-              : true,
-      morningGreetingTime: map['morningGreetingTime'] as String?,
-      nightGreetingTime: map['nightGreetingTime'] as String?,
-      replyMode: ReplyMode.values[(map['replyMode'] as int?) ?? 1],
-      replyDelaySeconds: map['replyDelaySeconds'] as int? ?? 5,
-      voiceReplyEnabled: map.containsKey('voiceReplyEnabled')
-          ? (map['voiceReplyEnabled'] == 1 || map['voiceReplyEnabled'] == true)
-          : false,
-      enableStickerReply: map.containsKey('enableStickerReply')
-          ? (map['enableStickerReply'] == 1 ||
-              map['enableStickerReply'] == true)
-          : true,
+          _asBool(map['enableUserMomentInteraction'], defaultValue: true),
+      morningGreetingTime: map['morningGreetingTime']?.toString(),
+      nightGreetingTime: map['nightGreetingTime']?.toString(),
+      replyMode: ReplyMode.values[replyModeIndex],
+      replyDelaySeconds: _asInt(map['replyDelaySeconds'], defaultValue: 5),
+      voiceReplyEnabled:
+          _asBool(map['voiceReplyEnabled'], defaultValue: false),
+      enableStickerReply:
+          _asBool(map['enableStickerReply'], defaultValue: true),
+      enableProactiveDevice:
+          _asBool(map['enableProactiveDevice'], defaultValue: true),
+      enableReadNotifications:
+          _asBool(map['enableReadNotifications'], defaultValue: true),
+      enableLlmDesireRefine:
+          _asBool(map['enableLlmDesireRefine'], defaultValue: true),
     );
   }
 
@@ -125,6 +160,9 @@ class AIInteractionConfig extends Equatable {
     int? replyDelaySeconds,
     bool? voiceReplyEnabled,
     bool? enableStickerReply,
+    bool? enableProactiveDevice,
+    bool? enableReadNotifications,
+    bool? enableLlmDesireRefine,
   }) {
     return AIInteractionConfig(
       enableMorningGreeting:
@@ -145,6 +183,12 @@ class AIInteractionConfig extends Equatable {
       replyDelaySeconds: replyDelaySeconds ?? this.replyDelaySeconds,
       voiceReplyEnabled: voiceReplyEnabled ?? this.voiceReplyEnabled,
       enableStickerReply: enableStickerReply ?? this.enableStickerReply,
+      enableProactiveDevice:
+          enableProactiveDevice ?? this.enableProactiveDevice,
+      enableReadNotifications:
+          enableReadNotifications ?? this.enableReadNotifications,
+      enableLlmDesireRefine:
+          enableLlmDesireRefine ?? this.enableLlmDesireRefine,
     );
   }
 
@@ -163,6 +207,9 @@ class AIInteractionConfig extends Equatable {
         replyDelaySeconds,
         voiceReplyEnabled,
         enableStickerReply,
+        enableProactiveDevice,
+        enableReadNotifications,
+        enableLlmDesireRefine,
       ];
 }
 
@@ -432,11 +479,9 @@ class AICharacter extends Equatable {
       moralBoundary: map['moralBoundary'] as String,
       backgroundStory: map['backgroundStory'] as String?,
       gender: map['gender'] as String?,
-      createdAt: DateTime.tryParse(map['createdAt'] as String? ?? '') ??
-          DateTime.now(),
-      updatedAt: map['updatedAt'] != null
-          ? DateTime.tryParse(map['updatedAt'] as String? ?? '')
-          : null,
+      // 修复：处理 int 类型的时间戳
+      createdAt: _parseDateTime(map['createdAt']) ?? DateTime.now(),
+      updatedAt: _parseDateTime(map['updatedAt']),
       worldSetting: map['worldSetting'] as String?,
       languageStyle: map['languageStyle'] as String?,
       tabooTopics: map['tabooTopics'] as String?,
@@ -450,9 +495,7 @@ class AICharacter extends Equatable {
       isHidden: map['isHidden'] == 1 || map['isHidden'] == true,
       isOnline: map['isOnline'] == 1 || map['isOnline'] == true,
       currentStatus: map['currentStatus'] as String?,
-      lastOnlineAt: map['lastOnlineAt'] != null
-          ? DateTime.tryParse(map['lastOnlineAt'] as String? ?? '')
-          : null,
+      lastOnlineAt: _parseDateTime(map['lastOnlineAt']),
       syncSeq: (map['sync_seq'] ?? map['syncSeq']) as int? ?? 0,
       immutableAnchor: map['immutableAnchor'] as String?,
       deviationRadius: (map['deviationRadius'] as num?)?.toDouble() ?? 0.4,
@@ -472,6 +515,14 @@ class AICharacter extends Equatable {
       age: map['age'] as int?,
       structuredTraits: map['structuredTraits'] as String?,
     );
+  }
+
+  // 辅助方法：处理 String、int 或 null 的日期时间
+  static DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return DateTime.tryParse(value);
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    return null;
   }
 
   @override

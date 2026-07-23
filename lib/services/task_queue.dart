@@ -11,7 +11,6 @@ import '../models/task_request.dart';
 /// 由 CoreHub 实例化持有，不使用单例模式。
 class TaskQueue {
   final SharedPreferences _prefs;
-  final bool Function() _isWorldModeEnabled;
 
   final Queue<TaskRequest> _pending = Queue<TaskRequest>();
   TaskRequest? _running;
@@ -22,9 +21,7 @@ class TaskQueue {
 
   TaskQueue({
     required SharedPreferences prefs,
-    required bool Function() isWorldModeEnabled,
-  })  : _prefs = prefs,
-        _isWorldModeEnabled = isWorldModeEnabled;
+  })  : _prefs = prefs;
 
   /// 当前等待队列长度
   int get pendingCount => _pending.length;
@@ -35,18 +32,8 @@ class TaskQueue {
   /// 已完成任务列表（只读副本，最多 100 条）
   List<TaskRequest> get completedTasks => List.unmodifiable(_completed);
 
-  /// 将任务加入队列。若新世界模式未开启，社交类任务将被立即拒绝。
+  /// 将任务加入队列。
   Future<void> enqueue(TaskRequest task) async {
-    // 社交类任务在新世界模式关闭时直接拒绝
-    if (!_isWorldModeEnabled() && _isSocialTask(task.actionType)) {
-      task.status = 'rejected';
-      task.result = '新世界模式未开启';
-      task.completedAt = DateTime.now();
-      _addToCompleted(task);
-      await persist();
-      return;
-    }
-
     _pending.addLast(task);
     await persist();
   }
@@ -169,12 +156,6 @@ class TaskQueue {
         _completed.add(TaskRequest.fromJson(item as Map<String, dynamic>));
       }
     }
-  }
-
-  /// 判断是否为社交类任务（新世界模式未开启时需拒绝）
-  bool _isSocialTask(String actionType) {
-    return actionType.startsWith('social_') ||
-        actionType.startsWith('visit_');
   }
 
   /// 异常恢复：检查卡死的任务和过期的锁。

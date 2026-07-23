@@ -74,15 +74,21 @@ class MomentNotification extends Equatable {
   }
 
   factory MomentNotification.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return MomentNotification(
-      id: map['id'] as String,
-      momentId: map['momentId'] as String,
-      actorId: map['actorId'] as String,
-      actorName: map['actorName'] as String,
+      id: (map['id'] as String?) ?? '',
+      momentId: (map['momentId'] as String?) ?? '',
+      actorId: (map['actorId'] as String?) ?? '',
+      actorName: (map['actorName'] as String?) ?? '',
       actorAvatar: map['actorAvatar'] as String?,
       type: MomentNotificationType.values[(map['type'] as int?) ?? 0],
       content: map['content'] as String?,
-      createdAt: DateTime.parse(map['createdAt'] as String),
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
       isRead: map['isRead'] == 1 || map['isRead'] == true,
       isFromAI: map['isFromAI'] == 1 || map['isFromAI'] == true,
     );

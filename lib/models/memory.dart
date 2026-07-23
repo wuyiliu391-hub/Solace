@@ -35,6 +35,9 @@ class Memory extends Equatable {
   final bool pinned; // 是否锁定（不衰减）
   final DateTime? lastRecalledAt; // 上次被回忆的时间（注入prompt时更新）
 
+  /// 前端展示用摘要（一两句话），可为空
+  final String? summary;
+
   const Memory({
     required this.id,
     required this.characterId,
@@ -50,6 +53,7 @@ class Memory extends Equatable {
     this.weight = 1.0,
     this.pinned = false,
     this.lastRecalledAt,
+    this.summary,
   });
 
   Memory copyWith({
@@ -67,6 +71,7 @@ class Memory extends Equatable {
     double? weight,
     bool? pinned,
     DateTime? lastRecalledAt,
+    String? summary,
   }) {
     return Memory(
       id: id ?? this.id,
@@ -83,6 +88,7 @@ class Memory extends Equatable {
       weight: weight ?? this.weight,
       pinned: pinned ?? this.pinned,
       lastRecalledAt: lastRecalledAt ?? this.lastRecalledAt,
+      summary: summary ?? this.summary,
     );
   }
 
@@ -102,6 +108,7 @@ class Memory extends Equatable {
       'weight': weight,
       'pinned': pinned ? 1 : 0,
       'lastRecalledAt': lastRecalledAt?.toIso8601String(),
+      'summary': summary,
     };
   }
 
@@ -127,6 +134,7 @@ class Memory extends Equatable {
       lastRecalledAt: map['lastRecalledAt'] != null
           ? DateTime.tryParse(map['lastRecalledAt'] as String? ?? '')
           : null,
+      summary: map['summary'] as String?,
     );
   }
 
@@ -146,6 +154,7 @@ class Memory extends Equatable {
         weight,
         pinned,
         lastRecalledAt,
+        summary,
       ];
 
   static T _safeEnumIndex<T>(int? index, List<T> values, T fallback) {

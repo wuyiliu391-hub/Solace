@@ -28,7 +28,7 @@ class AdminRequest {
   final String sourceId;
 
   /// The action being attempted, e.g.
-  /// "modify_persona_rule", "toggle_new_world", "execute_social_action".
+  /// "modify_persona_rule", "execute_social_action".
   final String targetAction;
 
   /// Optional ID of the character or resource being targeted.

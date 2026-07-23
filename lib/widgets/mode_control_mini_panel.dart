@@ -17,7 +17,19 @@ const _kPresetColors = [
 /// 音量键控制的迷你模式面板，外部通过 ValueNotifier<bool> 控制显隐
 class ModeControlMiniPanel extends StatelessWidget {
   final ValueNotifier<bool> visible;
-  const ModeControlMiniPanel({super.key, required this.visible});
+
+  /// 当前会话小说模式是否开启（从 session.novelMode 读取）
+  final bool novelModeEnabled;
+
+  /// 切换当前会话小说模式的回调
+  final VoidCallback? onNovelModeToggle;
+
+  const ModeControlMiniPanel({
+    super.key,
+    required this.visible,
+    this.novelModeEnabled = false,
+    this.onNovelModeToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -116,8 +128,24 @@ class ModeControlMiniPanel extends StatelessWidget {
           Icons.auto_stories_outlined,
           Colors.teal,
           '小说模式',
-          s.isChatStyleNovelModeEnabled(),
-          (v) => _setMode(ctx, '小说模式', v, () => s.setChatStyleMode(v))),
+          novelModeEnabled,
+          onNovelModeToggle != null
+              ? (v) async {
+                  // 会话级开关，由外部处理切换
+                  onNovelModeToggle!();
+                  if (!ctx.mounted) return;
+                  final msg = v ? '小说模式已开启（仅本会话）' : '小说模式已关闭（仅本会话）';
+                  ScaffoldMessenger.of(ctx)
+                    ..hideCurrentSnackBar()
+                    ..showSnackBar(
+                      SnackBar(
+                        content: Text(msg),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                }
+              : null),
       _D(
           Icons.favorite_border,
           Colors.pink,
@@ -150,6 +178,12 @@ class ModeControlMiniPanel extends StatelessWidget {
           '刀模式',
           s.isDaoModeEnabled(),
           (v) => _setMode(ctx, '刀模式', v, () => s.setDaoMode(v))),
+      _D(
+          Icons.book_rounded,
+          Colors.orange,
+          '自动写日记',
+          s.isAutoDiaryEnabled(),
+          (v) => s.setAutoDiaryEnabled(v)),
     ];
 
     final widgets = <Widget>[];

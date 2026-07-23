@@ -2,6 +2,8 @@ import 'dart:math';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/ai_service.dart';
+import '../../repositories/local_storage_repository.dart';
 
 /// 运势转盘小游戏界面
 class LuckyWheelScreen extends StatefulWidget {
@@ -121,12 +123,51 @@ class _LuckyWheelScreenState extends State<LuckyWheelScreen>
       setState(() {
         _isSpinning = false;
         _fortuneResult = _fortunes[_selectedIndex]['message']!;
+        _aiInterpretation = '正在让AI为你解读运势...';
+        _showResult = true;
+      });
+      _getAIInterpretation();
+      _saveToHistory();
+    }
+  }
+
+  Future<void> _getAIInterpretation() async {
+    try {
+      final category = _fortunes[_selectedIndex]['category']!;
+      final fortune = _fortunes[_selectedIndex]['message']!;
+      final storage = LocalStorageRepository();
+      await storage.initialize();
+      final aiService = AIService(storage);
+      final characters = await storage.getAllAICharacters();
+      if (characters.isEmpty) {
+        _fallbackToLocalTemplate();
+        return;
+      }
+      final result = await aiService.sendMessage(
+        character: characters.first,
+        userId: 'user',
+        userMessage: '帮我解读今天的$category运势："$fortune"。用温柔自然的语气，像朋友一样给我一两句贴心建议。不要太长，30字以内。',
+        chatHistory: [],
+        memories: [],
+        intimacyLevel: 50,
+      );
+      if (result.trim().isNotEmpty && mounted) {
+        setState(() {
+          _aiInterpretation = result.trim();
+        });
+      }
+    } catch (e) {
+      _fallbackToLocalTemplate();
+    }
+  }
+
+  void _fallbackToLocalTemplate() {
+    if (mounted) {
+      setState(() {
         _aiInterpretation =
             _aiTemplates[_fortunes[_selectedIndex]['category']]![
                 _random.nextInt(3)];
-        _showResult = true;
       });
-      _saveToHistory();
     }
   }
 

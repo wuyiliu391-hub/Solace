@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/theme/theme_bloc.dart';
+import '../../config/constants.dart';
 import '../../config/tts_config.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../settings/ai_config_screen.dart';
@@ -52,11 +53,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final isDark = colorScheme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor:
-          isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF8F9FA),
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
         title: const Text('设置'),
         centerTitle: true,
@@ -68,7 +67,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
           const SizedBox(height: 8),
-          _buildThemeCard(colorScheme, isDark),
+          _buildThemeCard(colorScheme),
           const SizedBox(height: 12),
           _buildCard([
             _buildSwitchTile(
@@ -226,16 +225,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildThemeCard(ColorScheme colorScheme, bool isDark) {
+  Widget _buildThemeCard(ColorScheme colorScheme) {
     return BlocBuilder<ThemeBloc, ThemeState>(
       builder: (context, themeState) {
         return Container(
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            color: colorScheme.surface,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
+                color: colorScheme.shadow.withOpacity(0.08),
                 blurRadius: 10,
                 offset: const Offset(0, 2),
               ),
@@ -300,6 +299,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 14),
+              // 分割线
+              Divider(height: 1, color: colorScheme.outlineVariant.withOpacity(0.5)),
+              const SizedBox(height: 14),
+              // 视觉风格切换
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: colorScheme.secondary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.style_outlined,
+                        size: 20, color: colorScheme.secondary),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    '视觉风格',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const Spacer(),
+                  // 风格切换按钮组
+                  Container(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildVisualStyleChip(
+                          label: '经典',
+                          isSelected: themeState.visualStyle == VisualStyle.classic,
+                          onTap: () => context.read<ThemeBloc>().add(const VisualStyleChanged(VisualStyle.classic)),
+                          colorScheme: colorScheme,
+                        ),
+                        _buildVisualStyleChip(
+                          label: '现代',
+                          isSelected: themeState.visualStyle == VisualStyle.modernist,
+                          onTap: () => context.read<ThemeBloc>().add(const VisualStyleChanged(VisualStyle.modernist)),
+                          colorScheme: colorScheme,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         );
@@ -353,6 +400,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildVisualStyleChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required ColorScheme colorScheme,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? colorScheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            color: isSelected ? colorScheme.onPrimary : colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionTitle(String title, ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
@@ -369,15 +442,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildCard(List<Widget> children, ColorScheme colorScheme) {
-    final isDark = colorScheme.brightness == Brightness.dark;
-
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
+            color: colorScheme.shadow.withOpacity(0.08),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),

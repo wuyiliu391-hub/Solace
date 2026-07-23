@@ -46,7 +46,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final isDark = colorScheme.brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -80,7 +79,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       controller: _nicknameController,
                       maxLength: 20,
                       colorScheme: colorScheme,
-                      isDark: isDark,
                     ),
                     const SizedBox(height: 16),
                     _buildTextField(
@@ -89,7 +87,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       maxLength: 50,
                       hint: '写一句个性签名吧',
                       colorScheme: colorScheme,
-                      isDark: isDark,
                     ),
                   ],
                 ),
@@ -131,7 +128,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             });
                           },
                           selectedColor: colorScheme.primary,
-                          backgroundColor: isDark ? colorScheme.surfaceContainerHighest : Colors.grey[200],
+                          backgroundColor: colorScheme.surfaceContainerHighest,
                           labelStyle: TextStyle(
                             color: isSelected ? Colors.white : colorScheme.onSurface,
                             fontSize: 13,
@@ -146,7 +143,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       maxLength: 20,
                       hint: '输入你的当前状态',
                       colorScheme: colorScheme,
-                      isDark: isDark,
                     ),
                   ],
                 ),
@@ -162,9 +158,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    _buildGenderSelector(colorScheme, isDark),
+                    _buildGenderSelector(colorScheme),
                     const SizedBox(height: 16),
-                    _buildBirthdayPicker(colorScheme, isDark),
+                    _buildBirthdayPicker(colorScheme),
                   ],
                 ),
               ),
@@ -184,7 +180,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   maxLength: 200,
                   hint: '介绍一下自己吧',
                   colorScheme: colorScheme,
-                  isDark: isDark,
                 ),
               ),
             ),
@@ -210,7 +205,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required String label,
     required TextEditingController controller,
     required ColorScheme colorScheme,
-    required bool isDark,
     int maxLines = 1,
     int? maxLength,
     String? hint,
@@ -237,12 +231,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           borderSide: BorderSide(color: colorScheme.primary, width: 2),
         ),
         filled: true,
-        fillColor: isDark ? colorScheme.surfaceContainerHighest : Colors.grey[100],
+        fillColor: colorScheme.surfaceContainerHighest,
       ),
     );
   }
 
-  Widget _buildGenderSelector(ColorScheme colorScheme, bool isDark) {
+  Widget _buildGenderSelector(ColorScheme colorScheme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -269,7 +263,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   });
                 },
                 selectedColor: colorScheme.primary,
-                backgroundColor: isDark ? colorScheme.surfaceContainerHighest : Colors.grey[200],
+                backgroundColor: colorScheme.surfaceContainerHighest,
                 labelStyle: TextStyle(
                   color: isSelected ? Colors.white : colorScheme.onSurface,
                 ),
@@ -281,7 +275,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  Widget _buildBirthdayPicker(ColorScheme colorScheme, bool isDark) {
+  Widget _buildBirthdayPicker(ColorScheme colorScheme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -300,7 +294,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
             decoration: BoxDecoration(
-              color: isDark ? colorScheme.surfaceContainerHighest : Colors.grey[100],
+              color: colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: colorScheme.outline.withOpacity(0.5)),
             ),

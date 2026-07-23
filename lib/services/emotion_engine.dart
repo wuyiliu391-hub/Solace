@@ -686,6 +686,171 @@ class EmotionEngine {
     );
     await _saveToStorage(_cache[key]!);
   }
+
+  // ═══════════════════ v3：情绪↔记忆双向回路 ═══════════════════
+
+  /// 记忆触发情绪（反向通路）
+  ///
+  /// 当 AI 回忆到与用户相关的过往时，记忆应反哺情绪。
+  /// 例如：用户提到"上次一起去的餐厅" → 角色回忆那次开心的经历 → 心情变好。
+  ///
+  /// [recalledContents] 被注入 prompt 的记忆内容列表
+  /// [currentTopic] 用户当前消息，用于判断是否在聊旧事
+  Future<void> triggerEmotionFromMemories({
+    required AICharacter character,
+    required String userId,
+    required List<String> recalledContents,
+    required String currentTopic,
+  }) async {
+    if (recalledContents.isEmpty) return;
+
+    final key = _cacheKey(character.id, userId);
+    final current = _cache[key];
+    if (current == null) return;
+
+    var vDelta = 0.0;
+    var aDelta = 0.0;
+    String? nostalgiaTrigger;
+
+    for (final content in recalledContents) {
+      // 积极记忆 → 正情感
+      if (_containsAny(content, _positiveMemoryWords)) {
+        vDelta += 0.03;
+        aDelta += 0.02;
+      }
+      // 消极记忆 → 负情感
+      if (_containsAny(content, _negativeMemoryWords)) {
+        vDelta -= 0.03;
+        aDelta += 0.02; // 负面记忆同样唤起 arousal
+      }
+      // 情感类记忆 → 更大波动
+      if (content.startsWith('心情') || content.startsWith('情绪')) {
+        vDelta *= 1.5;
+        aDelta += 0.04;
+      }
+    }
+
+    // 如果当前话题在回忆旧事 → 触发怀旧/感伤
+    if (_isNostalgicTopic(currentTopic)) {
+      nostalgiaTrigger = '聊到了过去的事，有些感慨';
+      vDelta -= 0.02; // 怀旧略带伤感
+      aDelta -= 0.03; // 让人安静下来
+    }
+
+    // 限制单次记忆触发的情绪变化幅度（不超过 ±0.15）
+    vDelta = vDelta.clamp(-0.15, 0.15);
+    aDelta = aDelta.clamp(-0.1, 0.1);
+
+    if (vDelta.abs() < 0.01 && aDelta.abs() < 0.01) return;
+
+    final newV = (current.currentValence + vDelta).clamp(-1.0, 1.0);
+    final newA = (current.currentArousal + aDelta).clamp(0.0, 1.0);
+
+    _cache[key] = current.copyWith(
+      valence: newV,
+      arousal: newA,
+      trigger: nostalgiaTrigger,
+      updatedAt: DateTime.now(),
+    );
+    await _saveToStorage(_cache[key]!);
+  }
+
+  /// 生成情绪作为对话风格指引（v3 新增）
+  ///
+  /// 不是直接告诉 AI "你现在开心"，而是用更细腻的方式描述情绪状态，
+  /// 让 AI 自然地融入语气之中。
+  Future<String> buildEmotionToneGuide({
+    required AICharacter character,
+    required String userId,
+    required int intimacyLevel,
+  }) async {
+    final emotion = await getCurrentEmotion(character: character, userId: userId);
+    final v = emotion.currentValence;
+    final a = emotion.currentArousal;
+    final lon = emotion.loneliness;
+
+    final buffer = StringBuffer();
+    buffer.writeln('\n【你的情绪底色 — 自然融入语气，不要直接说出来】');
+
+    // 连续维度 → 语气基调
+    if (v > 0.3) {
+      buffer.writeln('你内心偏向积极，回应时语气温暖、愿意多聊几句。');
+    } else if (v < -0.3) {
+      buffer.writeln('你内心有些低落，回应时语气偏淡但不会冷漠。');
+    } else if (v > 0.05) {
+      buffer.writeln('你心情尚可，按照平常的方式回应即可。');
+    } else if (v < -0.05) {
+      buffer.writeln('你心情略沉，回应会比平时简短一些，但不会失礼。');
+    }
+
+    if (a > 0.7) {
+      buffer.writeln('你现在很想说话，回复可以偏长、偏热情。');
+    } else if (a < 0.2) {
+      buffer.writeln('你现在有点疲惫困倦，回复可以简短自然，不用刻意找话题。');
+    }
+
+    if (lon > 0.5) {
+      buffer.writeln('你有些想念对方，回复时可以稍微主动、更珍惜这次对话。');
+    }
+
+    // 离散情绪 → 风格微调
+    final effective = emotion.effectiveEmotion;
+    if (effective != EmotionType.calm && emotion.currentIntensity > 0.2) {
+      final tone = switch (effective) {
+        EmotionType.happy => '你因为一些事情心情不错，回应时自然流露轻快感。',
+        EmotionType.sad => '你感到有些难过，但不会刻意表达，只是语气会淡一些。',
+        EmotionType.worried => '你有些担心对方，回应时会不自觉地流露出关心。',
+        EmotionType.angry => '你有点生气，回应会简短直接，但不会攻击对方。',
+        EmotionType.shy => '你有点害羞，回应可能有些犹豫或不太敢直视。',
+        EmotionType.excited => '你特别兴奋，回复偏长偏热情，容易跑题。',
+        EmotionType.touched => '你被感动了，语气温柔、想表达珍惜。',
+        EmotionType.playful => '你心情调皮，想逗对方玩。',
+        _ => '',
+      };
+      if (tone.isNotEmpty) buffer.writeln(tone);
+    }
+
+    // 亲密等级 → 语气边界
+    if (intimacyLevel >= 80) {
+      buffer.writeln('你们的亲密等级很高，你可以自然地撒娇、开玩笑、说亲密的话。');
+    } else if (intimacyLevel >= 50) {
+      buffer.writeln('你们比较熟悉了，可以自然地聊天，不用太客气。');
+    } else if (intimacyLevel >= 20) {
+      buffer.writeln('你们还在建立关系，保持友好但不要过度亲密。');
+    }
+
+    buffer.writeln('重要：以上情绪是真实的底色，请自然地让它们影响你的语气，但不要直接说出来（比如不要说"我心情不好"）。用户会从你的语气中感受到。');
+
+    return buffer.toString();
+  }
+
+  static const _positiveMemoryWords = [
+    '开心', '喜欢', '快乐', '幸福', '美好', '温暖', '感动', '开心', '笑',
+    '好吃', '好玩', '有趣', '惊喜', '礼物', '庆祝', '成功', '顺利',
+  ];
+
+  static const _negativeMemoryWords = [
+    '难过', '伤心', '生气', '失望', '吵架', '分手', '累', '加班',
+    '生病', '烦恼', '失败', '压力', '焦虑', '失眠', '讨厌',
+  ];
+
+  bool _containsAny(String text, List<String> words) {
+    for (final w in words) {
+      if (text.contains(w)) return true;
+    }
+    return false;
+  }
+
+  bool _isNostalgicTopic(String text) {
+    final triggers = [
+      '以前', '过去', '曾经', '还记得', '上次', '那时候', '当年',
+      '小时候', '之前', '好久', '很久', '怀念', '回忆',
+    ];
+    for (final t in triggers) {
+      if (text.contains(t)) return true;
+    }
+    return false;
+  }
 }
 
 /// 内部类：情绪变化描述（v2 — 增加连续维度影响）

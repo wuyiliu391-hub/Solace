@@ -146,6 +146,7 @@ class CharacterRepository {
   /// 数据库行转角色对象
   CharacterCardV2 _rowToCharacter(Map<String, dynamic> row) {
     return CharacterCardV2(
+      id: row['id'] as String? ?? '',
       name: row['name'] as String? ?? '',
       description: row['description'] as String? ?? '',
       characterVersion: row['characterVersion'] as String? ?? '',

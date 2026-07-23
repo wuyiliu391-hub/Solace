@@ -66,6 +66,8 @@ class NotificationService {
       navigatorKey.currentState?.pushNamed('/chat', arguments: sessionId);
     } else if (payload != null && payload.startsWith('moment_')) {
       navigatorKey.currentState?.pushNamed('/moment');
+    } else if (payload != null && payload.startsWith('letter_')) {
+      navigatorKey.currentState?.pushNamed('/mailbox');
     }
   }
 

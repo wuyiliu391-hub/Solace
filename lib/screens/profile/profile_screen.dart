@@ -93,24 +93,24 @@ class _ProfileScreenState extends State<ProfileScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
 
     if (_isLoading) {
       return Scaffold(
-        backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+        backgroundColor: colorScheme.surface,
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_user == null) {
       return Scaffold(
-        backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+        backgroundColor: colorScheme.surface,
         body: const Center(child: Text('未登录')),
       );
     }
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+      backgroundColor: colorScheme.surface,
       body: RefreshIndicator(
         onRefresh: () async {
           await _loadUser();
@@ -119,25 +119,26 @@ class _ProfileScreenState extends State<ProfileScreen>
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            _buildSliverAppBar(isDark),
-            SliverToBoxAdapter(child: _buildProfileSection(isDark)),
-            SliverToBoxAdapter(child: _buildStatsRow(isDark)),
-            SliverToBoxAdapter(child: _buildQuickActions(isDark)),
+            _buildSliverAppBar(),
+            SliverToBoxAdapter(child: _buildProfileSection()),
+            SliverToBoxAdapter(child: _buildStatsRow()),
+            SliverToBoxAdapter(child: _buildQuickActions()),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSliverAppBar(bool isDark) {
+  Widget _buildSliverAppBar() {
     final bgFile = _user?.backgroundImage != null ? File(_user!.backgroundImage!) : null;
     final hasBg = bgFile != null && bgFile.existsSync();
+    final colorScheme = Theme.of(context).colorScheme;
 
     return SliverAppBar(
       expandedHeight: 260,
       pinned: true,
       stretch: true,
-      backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+      backgroundColor: colorScheme.surface,
       foregroundColor: Colors.white,
       actions: [
         IconButton(
@@ -194,8 +195,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                   colors: [
                     Colors.transparent,
                     Colors.transparent,
-                    (isDark ? const Color(0xFF0A0A0A) : Colors.white).withOpacity(0.8),
-                    isDark ? const Color(0xFF0A0A0A) : Colors.white,
+                    colorScheme.surface.withOpacity(0.8),
+                    colorScheme.surface,
                   ],
                   stops: const [0.0, 0.5, 0.85, 1.0],
                 ),
@@ -207,9 +208,10 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildProfileSection(bool isDark) {
+  Widget _buildProfileSection() {
     final avatarFile = _user?.avatarUrl != null ? File(_user!.avatarUrl!) : null;
     final hasValidAvatar = avatarFile != null && avatarFile.existsSync();
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
@@ -227,7 +229,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+                      color: colorScheme.surface,
                       width: 4,
                     ),
                     boxShadow: [
@@ -242,20 +244,20 @@ class _ProfileScreenState extends State<ProfileScreen>
                     child: hasValidAvatar
                         ? Image.file(avatarFile, fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => Container(
-                              color: isDark ? const Color(0xFF2C2C2C) : const Color(0xFFE8E4EC),
+                              color: colorScheme.surfaceContainerHigh,
                               child: Icon(
                                 Icons.person,
                                 size: 40,
-                                color: isDark ? Colors.white70 : Colors.black38,
+                                color: colorScheme.onSurface.withOpacity(0.7),
                               ),
                             ),
                           )
                         : Container(
-                            color: isDark ? const Color(0xFF2C2C2C) : const Color(0xFFE8E4EC),
+                            color: colorScheme.surfaceContainerHigh,
                             child: Icon(
                               Icons.person,
                               size: 40,
-                              color: isDark ? Colors.white70 : Colors.black38,
+                              color: colorScheme.onSurface.withOpacity(0.7),
                             ),
                           ),
                   ),
@@ -271,7 +273,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Colors.black,
+                        color: colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -279,7 +281,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       'ID: ${_user!.id.length > 8 ? _user!.id.substring(0, 8) : _user!.id}',
                       style: TextStyle(
                         fontSize: 13,
-                        color: isDark ? Colors.white.withOpacity(0.4) : Colors.black.withOpacity(0.35),
+                        color: colorScheme.onSurface.withOpacity(0.4),
                       ),
                     ),
                   ],
@@ -290,10 +292,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF0F0F0),
+                    color: colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.08),
+                      color: colorScheme.outline.withOpacity(0.1),
                       width: 1,
                     ),
                   ),
@@ -301,7 +303,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     '编辑资料',
                     style: TextStyle(
                       fontSize: 13,
-                      color: isDark ? Colors.white.withOpacity(0.7) : Colors.black.withOpacity(0.6),
+                      color: colorScheme.onSurface.withOpacity(0.7),
                     ),
                   ),
                 ),
@@ -314,7 +316,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               _user!.signature!,
               style: TextStyle(
                 fontSize: 14,
-                color: isDark ? Colors.white.withOpacity(0.5) : Colors.black.withOpacity(0.45),
+                color: colorScheme.onSurface.withOpacity(0.5),
                 height: 1.5,
               ),
             ),
@@ -324,28 +326,30 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildStatsRow(bool isDark) {
+  Widget _buildStatsRow() {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 20, 20, 0),
       padding: const EdgeInsets.symmetric(vertical: 18),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF141414) : const Color(0xFFF8F8F8),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildStatColumn('$_chatCount', '对话数', isDark),
-          _buildStatDivider(isDark),
-          _buildStatColumn('$_bookmarkCount', '收藏', isDark),
-          _buildStatDivider(isDark),
-          _buildStatColumn('$_avgIntimacy', '好感度', isDark),
+          _buildStatColumn('$_chatCount', '对话数'),
+          _buildStatDivider(),
+          _buildStatColumn('$_bookmarkCount', '收藏'),
+          _buildStatDivider(),
+          _buildStatColumn('$_avgIntimacy', '好感度'),
         ],
       ),
     );
   }
 
-  Widget _buildStatColumn(String value, String label, bool isDark) {
+  Widget _buildStatColumn(String value, String label) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Column(
       children: [
         Text(
@@ -353,7 +357,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: isDark ? Colors.white : Colors.black,
+            color: colorScheme.onSurface,
           ),
         ),
         const SizedBox(height: 4),
@@ -361,22 +365,24 @@ class _ProfileScreenState extends State<ProfileScreen>
           label,
           style: TextStyle(
             fontSize: 12,
-            color: isDark ? Colors.white.withOpacity(0.4) : Colors.black.withOpacity(0.35),
+            color: colorScheme.onSurface.withOpacity(0.4),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildStatDivider(bool isDark) {
+  Widget _buildStatDivider() {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       height: 32,
       width: 1,
-      color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06),
+      color: colorScheme.outline.withOpacity(0.1),
     );
   }
 
-  Widget _buildQuickActions(bool isDark) {
+  Widget _buildQuickActions() {
+    final colorScheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
       child: Column(
@@ -385,7 +391,6 @@ class _ProfileScreenState extends State<ProfileScreen>
             Icons.chat_bubble_outline,
             '查看所有对话',
             '共 $_chatCount 个会话',
-            isDark,
             () {},
           ),
           const SizedBox(height: 12),
@@ -393,7 +398,6 @@ class _ProfileScreenState extends State<ProfileScreen>
             Icons.account_balance_wallet_outlined,
             '我的钱包',
             '${_user!.coins} 金币',
-            isDark,
             _openWallet,
           ),
         ],
@@ -401,18 +405,19 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildQuickAction(IconData icon, String title, String subtitle, bool isDark, VoidCallback onTap) {
+  Widget _buildQuickAction(IconData icon, String title, String subtitle, VoidCallback onTap) {
+    final colorScheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF141414) : const Color(0xFFF8F8F8),
+          color: colorScheme.surfaceContainerLow,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
-            Icon(icon, size: 22, color: isDark ? Colors.white.withOpacity(0.5) : Colors.black.withOpacity(0.4)),
+            Icon(icon, size: 22, color: colorScheme.onSurface.withOpacity(0.5)),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -423,7 +428,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.white.withOpacity(0.8) : Colors.black.withOpacity(0.7),
+                      color: colorScheme.onSurface.withOpacity(0.8),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -431,13 +436,13 @@ class _ProfileScreenState extends State<ProfileScreen>
                     subtitle,
                     style: TextStyle(
                       fontSize: 12,
-                      color: isDark ? Colors.white.withOpacity(0.3) : Colors.black.withOpacity(0.25),
+                      color: colorScheme.onSurface.withOpacity(0.3),
                     ),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, size: 20, color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.15)),
+            Icon(Icons.chevron_right, size: 20, color: colorScheme.onSurface.withOpacity(0.2)),
           ],
         ),
       ),

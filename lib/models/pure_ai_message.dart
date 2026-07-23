@@ -66,15 +66,21 @@ class PureAIMessage extends Equatable {
   }
 
   factory PureAIMessage.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return PureAIMessage(
-      id: map['id'] as String,
-      sessionId: map['sessionId'] as String,
-      senderId: map['senderId'] as String,
+      id: (map['id'] as String?) ?? '',
+      sessionId: (map['sessionId'] as String?) ?? '',
+      senderId: (map['senderId'] as String?) ?? '',
       senderName: map['senderName'] as String?,
-      content: map['content'] as String,
+      content: (map['content'] as String?) ?? '',
       type: MessageType.values[map['type'] as int? ?? 0],
       status: MessageStatus.values[map['status'] as int? ?? 1],
-      createdAt: DateTime.parse(map['createdAt'] as String),
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
       metadata: map['metadata'] != null
           ? jsonDecode(map['metadata'] as String) as Map<String, dynamic>
           : null,

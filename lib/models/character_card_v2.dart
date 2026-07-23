@@ -4,6 +4,9 @@
 
 /// 角色卡 v2 数据结构（对标 SillyTavern v2CharData）
 class CharacterCardV2 {
+  /// 本地数据库 ID（SillyTavern 原生无此字段，Solace 用于标识本地角色）
+  final String id;
+
   /// 角色名称（对标 #character_name_pole / ch_name）
   final String name;
 
@@ -53,6 +56,7 @@ class CharacterCardV2 {
   final String? avatarPath;
 
   const CharacterCardV2({
+    this.id = '',
     required this.name,
     this.description = '',
     this.characterVersion = '',
@@ -72,6 +76,7 @@ class CharacterCardV2 {
   });
 
   Map<String, dynamic> toJson() => {
+        'id': id,
         'name': name,
         'description': description,
         'character_version': characterVersion,
@@ -92,6 +97,7 @@ class CharacterCardV2 {
 
   factory CharacterCardV2.fromJson(Map<String, dynamic> json) {
     return CharacterCardV2(
+      id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
       characterVersion: json['character_version'] as String? ?? '',

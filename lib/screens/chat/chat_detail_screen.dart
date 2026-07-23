@@ -29,6 +29,7 @@ import '../../services/sticker_pack_service.dart';
 import '../../models/sticker_pack.dart';
 import '../../widgets/red_packet_card.dart';
 import '../../widgets/order_card.dart';
+import '../../widgets/tool_result_card.dart';
 import '../../screens/shop/shop_screen.dart';
 import '../../screens/shop/order_tracking_screen.dart';
 import '../../models/shop_order.dart';
@@ -50,8 +51,8 @@ import '../../services/audio_transcription_service.dart';
 
 import '../../services/emotion_engine.dart';
 import '../../models/character_emotion.dart';
+import '../moments/moments_screen.dart';
 import 'package:record/record.dart';
-import '../../screens/settings/log_viewer_screen.dart';
 import 'chat_settings_screen.dart';
 import 'voice_call_screen.dart';
 
@@ -144,6 +145,29 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Timer? _recordTimer;
   int _recordSeconds = 0;
 
+  /// 获取当前会话的有效小说模式：会话级设置优先，否则跟随全局
+  bool _isNovelModeEnabled() {
+    final session = _currentSession ?? widget.session;
+    if (session.novelMode == -1) {
+      // 跟随全局设置
+      return RepositoryProvider.of<LocalStorageRepository>(context)
+          .isChatStyleNovelModeEnabled();
+    }
+    return session.novelMode == 1;
+  }
+
+  /// 切换当前会话的小说模式（三态循环：跟随全局→开启→关闭→跟随全局）
+  Future<void> _toggleSessionNovelMode() async {
+    final session = _currentSession ?? widget.session;
+    final current = session.novelMode;
+    // -1(跟随全局) → 1(开启) → 0(关闭) → -1(跟随全局)
+    final next = current == -1 ? 1 : (current == 1 ? 0 : -1);
+    final updated = session.copyWith(novelMode: next);
+    setState(() => _currentSession = updated);
+    await RepositoryProvider.of<LocalStorageRepository>(context)
+        .saveChatSession(updated);
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -191,8 +215,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final currentName = _displayName ??
         _currentSession?.aiCharacterName ??
         widget.session.aiCharacterName;
-    final isOnline =
-        AIStatusService.isOnlineFromSession(_currentSession ?? widget.session);
+    final session = _currentSession ?? widget.session;
+    final isOnline = AIStatusService.isOnlineFromSession(session);
+    final statusLine = AIStatusService.displayStatusFromSession(session);
 
     return AppBar(
       backgroundColor: Colors.transparent,
@@ -221,58 +246,85 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     child: _buildAppBarAvatar(currentAvatar, isDark),
                   ),
                 ),
-                if (isOnline)
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF4CAF50),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isDark ? Colors.black : Colors.white,
-                          width: 2,
-                        ),
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: isOnline
+                          ? const Color(0xFF4CAF50)
+                          : Colors.grey.shade500,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isDark ? Colors.black : Colors.white,
+                        width: 2,
                       ),
                     ),
                   ),
+                ),
               ],
             ),
           ),
           const SizedBox(width: 8),
           Flexible(
-            child: Row(
+            child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Flexible(
-                  child: Text(
-                    currentName,
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? Colors.white : Colors.black,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        currentName,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white : Colors.black,
+                          height: 1.15,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'AI',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 6),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(4),
+                const SizedBox(height: 2),
+                // 与设置页一致的状态栏文案：在线 · 自定义状态
+                Text(
+                  statusLine,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                    color: isOnline
+                        ? (isDark
+                            ? const Color(0xFF81C784)
+                            : const Color(0xFF2E7D32))
+                        : (isDark
+                            ? Colors.white.withOpacity(0.45)
+                            : Colors.black.withOpacity(0.45)),
+                    height: 1.1,
                   ),
-                  child: Text(
-                    'AI',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -324,6 +376,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       return;
     }
     Navigator.of(context).push(VirtualPhoneScreen.route(context, character));
+  }
+
+  /// 从状态栏跳转到朋友圈
+  void _openMoments(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const MomentsScreen(),
+      ),
+    );
   }
 
   Widget _buildAppBarAvatar(String? avatarUrl, bool isDark) {
@@ -641,11 +703,123 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
+
+  /// 角色状态栏 — 在聊天区域上方固定展示（与设置页状态栏同款文案）
+  Widget _buildStatusBar(ColorScheme colorScheme, bool isDark) {
+    if (_isSearching || _isJumpedToMessage) return const SizedBox.shrink();
+    final session = _currentSession ?? widget.session;
+    final statusLabel = AIStatusService.displayStatusFromSession(session);
+    final isOnline = session.aiIsOnline;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.04)
+            : Colors.black.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          // 在线状态绿点
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: isOnline ? const Color(0xFF4CAF50) : Colors.grey,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          // 状态文字（在线 · 自定义状态）
+          Expanded(
+            child: Text(
+              statusLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                color: isOnline
+                    ? (isDark
+                        ? const Color(0xFF81C784)
+                        : const Color(0xFF2E7D32))
+                    : colorScheme.onSurface.withOpacity(0.55),
+              ),
+            ),
+          ),
+          // AI 手机快捷入口
+          GestureDetector(
+            onTap: () => _openVirtualPhone(context),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: colorScheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.phone_android_rounded,
+                    size: 12,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'TA 的手机',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // 朋友圈快捷入口
+          GestureDetector(
+            onTap: () => _openMoments(context),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.photo_library_outlined,
+                    size: 12,
+                    color: Colors.orange.shade700,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '朋友圈',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.orange.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBody(ColorScheme colorScheme) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final content = Column(
       children: [
         _buildRelationshipHeader(colorScheme, isDark),
+        _buildStatusBar(colorScheme, isDark),
         Expanded(
           child: Stack(
             children: [
@@ -806,6 +980,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   } else if (state is ChatAITyping &&
                       state.messages.isNotEmpty) {
                     _cachedMessages = state.messages;
+                  } else if (state is ChatAIProcessing &&
+                      state.messages.isNotEmpty) {
+                    _cachedMessages = state.messages;
                   } else if (state is ChatAIObserving &&
                       state.messages.isNotEmpty) {
                     _cachedMessages = state.messages;
@@ -831,6 +1008,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         state.messages, 'ChatTransferStatusUpdated');
                     return _buildMessageList(context, state.messages,
                         showTyping: false);
+                  }
+
+                  // 优先级：AI处理中（工具执行等）- 显示已有消息 + 状态指示器
+                  if (state is ChatAIProcessing) {
+                    final baseMsgs = state.messages.isNotEmpty
+                        ? state.messages
+                        : _cachedMessages;
+                    return _buildMessageList(context, baseMsgs,
+                        showTyping: true,
+                        typingStatusText: state.statusText);
                   }
 
                   // 优先级：AI正在输入 - 显示已有消息 + 输入指示器
@@ -927,7 +1114,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   );
                 },
               ),
-              ModeControlMiniPanel(visible: _modePanelVisible),
+              ModeControlMiniPanel(
+                visible: _modePanelVisible,
+                novelModeEnabled: _isNovelModeEnabled(),
+                onNovelModeToggle: _toggleSessionNovelMode,
+              ),
             ],
           ),
         ),
@@ -1864,7 +2055,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   void _sendMessage() async {
     tapHaptic();
-    final content = _messageController.text.trim();
+    final raw = _messageController.text;
+    final content = raw.trim();
     final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
 
     Map<String, dynamic>? replyMetadata;
@@ -1881,11 +2073,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
 
     if (content.isNotEmpty) {
+      // 检测括号「（动作/旁白描写）」
+      // 包含中文全角括号且括号内有文字 → 标记为动作/旁白消息
+      final hasActionBracket = RegExp(r'（[^（）]+）').hasMatch(content) ||
+          RegExp(r'\([^()]+\)').hasMatch(content);
+      final effectiveMetadata = {
+        ...?replyMetadata,
+        if (hasActionBracket) 'hasActionBracket': true,
+      };
       _chatBloc.add(ChatSendMessage(
         chatId: widget.session.id,
         userId: user.id,
         content: content,
-        metadata: replyMetadata,
+        metadata: effectiveMetadata.isNotEmpty ? effectiveMetadata : null,
         enableWebSearch: _webSearchEnabled,
       ));
       _messageController.clear();
@@ -2598,6 +2798,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 },
               ),
             ListTile(
+              leading: Icon(Icons.bookmark_border, color: Colors.amber.shade700),
+              title: Text(message.isBookmark ? '取消收藏' : '收藏'),
+              subtitle: Text(message.isBookmark ? '从收藏夹移除' : '收藏此消息到发现页'),
+              onTap: () {
+                Navigator.pop(context);
+                _chatBloc.add(ChatToggleBookmark(
+                  chatId: widget.session.id,
+                  messageId: message.id,
+                ));
+              },
+            ),
+            ListTile(
               leading: Icon(Icons.delete_outline, color: Colors.red[400]),
               title: const Text('删除'),
               onTap: () {
@@ -2779,7 +2991,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Widget _buildMessageList(BuildContext context, List<ChatMessage> messages,
-      {bool showTyping = false}) {
+      {bool showTyping = false, String? typingStatusText}) {
     final authState = context.read<AuthBloc>().state;
     final userAvatarUrl =
         authState is AuthAuthenticated ? authState.user.avatarUrl : null;
@@ -2825,7 +3037,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             return TypingIndicator(
               avatarUrl: currentAvatar,
               name: currentName,
-              statusText: '等待中...',
+              statusText: typingStatusText ?? '等待中...',
             );
           }
 
@@ -2868,9 +3080,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       aiAvatarUrl: currentAvatar,
                       userAvatarUrl: userAvatarUrl,
                       aiName: currentName,
-                      novelMode: RepositoryProvider.of<LocalStorageRepository>(
-                              context)
-                          .isChatStyleNovelModeEnabled(),
+                      novelMode: _isNovelModeEnabled(),
                       dialogueColorLight: RepositoryProvider.of<
                               LocalStorageRepository>(context)
                           .getNovelDialogueColor(),
@@ -3117,6 +3327,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               size: 24,
                             ),
                           ),
+                        ),
+                        // 括号快捷按钮（语c动作描写）
+                        Tooltip(
+                          message: '输入括号（语C动作描写）',
+                          child: GestureDetector(
+                          onTap: () {
+                            final text = _messageController.text;
+                            final selection = _messageController.selection;
+                            final start = selection.start < 0 ? text.length : selection.start;
+                            final newText = '${text.substring(0, start)}（）${text.substring(start)}';
+                            _messageController.text = newText;
+                            // 光标定位到括号中间
+                            _messageController.selection = TextSelection.collapsed(offset: start + 1);
+                            _messageFocusNode.requestFocus();
+                            // 更新发送按钮状态
+                            final canSend = newText.trim().isNotEmpty;
+                            if (canSend != _canSend) {
+                              _canSendNotifier.value = canSend;
+                            }
+                          },
+                          child: Container(
+                            width: 36,
+                            height: 40,
+                            margin: const EdgeInsets.only(right: 4, bottom: 2),
+                            alignment: Alignment.center,
+                            child: Text(
+                              '()',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: isDark
+                                    ? Colors.white.withOpacity(0.6)
+                                    : Colors.black.withOpacity(0.5),
+                              ),
+                            ),
+                          ),
+                        ),
                         ),
                         // 输入框
                         Expanded(
@@ -3472,18 +3719,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               reasoning: reasoning,
               avatarUrl: currentAvatar,
               name: currentName,
-              novelMode: RepositoryProvider.of<LocalStorageRepository>(context)
-                  .isChatStyleNovelModeEnabled(),
-              dialogueColorLight:
-                  RepositoryProvider.of<LocalStorageRepository>(context)
-                      .getNovelDialogueColor(),
-              dialogueColorDark:
-                  RepositoryProvider.of<LocalStorageRepository>(context)
-                      .getNovelDialogueColor(),
+              novelMode: _isNovelModeEnabled(),
+              hasActionBracket: RegExp(r'[（(]([^（)()]+)[）)]').hasMatch(streamingText),
             );
           }
-
-          // 消息列表
           final msgIndex = index - 1;
           final reversedIndex = messages.length - 1 - msgIndex;
           if (reversedIndex < 0 || reversedIndex >= messages.length)
@@ -3509,9 +3748,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               aiAvatarUrl: currentAvatar,
               userAvatarUrl: userAvatarUrl,
               aiName: currentName,
-              novelMode:
-                  RepositoryProvider.of<LocalStorageRepository>(context)
-                      .isChatStyleNovelModeEnabled(),
+              novelMode: _isNovelModeEnabled(),
               dialogueColorLight:
                   RepositoryProvider.of<LocalStorageRepository>(context)
                       .getNovelDialogueColor(),
@@ -4372,6 +4609,38 @@ class _MessageBubble extends StatelessWidget {
   static final RegExp _dialogueRe =
       RegExp(r'”[^”]*”|「[^」]*」|『[^』]*』');
 
+  /// 匹配动作/神态描写括号：（...）或 (...)
+  static final RegExp _actionBracketRe =
+      RegExp(r'[（(]([^（)()]+)[）)]');
+
+  /// 将文本按动作括号拆分为富文本片段，括号内文字用斜体+灰色渲染
+  static List<InlineSpan>? _buildActionBracketSpans(
+      String text, TextStyle baseStyle) {
+    final matches = _actionBracketRe.allMatches(text).toList();
+    if (matches.isEmpty) return null;
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    final bracketStyle = baseStyle.copyWith(
+      fontStyle: FontStyle.italic,
+      color: baseStyle.color?.withOpacity(0.55),
+      fontSize: baseStyle.fontSize != null ? baseStyle.fontSize! * 0.9 : 13.5,
+      height: 1.3,
+    );
+    for (final m in matches) {
+      if (m.start > cursor) {
+        spans.add(TextSpan(
+            text: text.substring(cursor, m.start), style: baseStyle));
+      }
+      // 保留括号符号 + 内部文字，整体用斜体灰色
+      spans.add(TextSpan(text: m.group(0), style: bracketStyle));
+      cursor = m.end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
+    }
+    return spans;
+  }
+
   /// 把一段文本按「引号内=对白（蓝色）/引号外=旁白（默认色）」拆成富文本片段。
   /// 若文本里没有任何对白引号，返回 null（外层回退到普通 Text）。
   /// 单个引号对内字符超过此长度时，视为旁白被误包，跳过对白着色。
@@ -4469,6 +4738,19 @@ class _MessageBubble extends StatelessWidget {
 
     // 系统消息居中显示（如通话记录）
     if (message.isSystem) {
+      // 工具执行 trace 消息：使用 ToolTraceCard 渲染
+      if (message.metadata?['isToolTrace'] == true) {
+        final toolTrace = message.metadata?['toolTrace'];
+        if (toolTrace is List && toolTrace.isNotEmpty) {
+          final traces = toolTrace
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: _hPad),
+            child: Center(child: ToolTraceCard(traces: traces)),
+          );
+        }
+      }
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: _hPad),
         child: Center(
@@ -4659,7 +4941,16 @@ class _MessageBubble extends StatelessWidget {
                       );
                     },
                   ),
-                ] else if (message.type == MessageType.voice)
+                ] else if (isAI && message.metadata?['actionType'] == 'system')
+                  Flexible(
+                    child: ToolResultCard(
+                      toolName: message.metadata?['actionLabel'] as String? ?? '工具操作',
+                      summary: displayText,
+                      isSuccess: message.metadata?['success'] == true,
+                      detail: message.reasoning,
+                    ),
+                  )
+                else if (message.type == MessageType.voice)
                   Flexible(
                     child: _VoiceMessageWithTranscript(
                       audioPath: message.content,
@@ -4759,6 +5050,17 @@ class _MessageBubble extends StatelessWidget {
                             if (isAI && webSearchTrace is Map<String, dynamic>)
                               _WebSearchSection(trace: webSearchTrace),
                             if (isAI &&
+                                message.metadata?['toolTrace'] is List &&
+                                (message.metadata?['toolTrace'] as List).isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: ToolTraceCard(
+                                  traces: (message.metadata!['toolTrace'] as List)
+                                      .map((e) => Map<String, dynamic>.from(e as Map))
+                                      .toList(),
+                                ),
+                              ),
+                            if (isAI &&
                                 !isRecalled &&
                                 message.reasoning != null &&
                                 message.reasoning!.isNotEmpty)
@@ -4794,9 +5096,26 @@ class _MessageBubble extends StatelessWidget {
                                   return Text.rich(TextSpan(children: spans));
                                 }
                               }
-                              return Text(
+                              // 动作括号渲染：用户消息或 AI 消息中包含（...）时，
+                              // 用斜体+灰色区分动作/神态描写与普通文本
+                              if (!isRecalled &&
+                                  message.metadata?['hasActionBracket'] ==
+                                      true) {
+                                final bracketSpans =
+                                    _buildActionBracketSpans(displayText, baseStyle);
+                                if (bracketSpans != null) {
+                                  return Text.rich(
+                                      TextSpan(children: bracketSpans));
+                                }
+                              }
+                              // 非小说模式：统一使用 SelectableText，
+                              // 解决中文双引号异常换行的问题。
+                              // Text widget 会把引号当作断点，SelectableText
+                              // 配合 textWidthBasis 让中文排版更自然。
+                              return SelectableText(
                                 isRecalled ? '已撤回' : displayText,
                                 style: baseStyle,
+                                textWidthBasis: TextWidthBasis.parent,
                               );
                             }),
                           ],
@@ -5376,6 +5695,7 @@ class _StreamingBubble extends StatelessWidget {
   final String? avatarUrl;
   final String name;
   final bool novelMode;
+  final bool hasActionBracket;
 
   /// 小说模式对白颜色（亮色/暗色）。null 时使用默认蓝色。
   final Color? dialogueColorLight;
@@ -5387,6 +5707,7 @@ class _StreamingBubble extends StatelessWidget {
     this.avatarUrl,
     this.name = 'AI',
     this.novelMode = false,
+    this.hasActionBracket = false,
     this.dialogueColorLight,
     this.dialogueColorDark,
   });
@@ -5461,6 +5782,14 @@ class _StreamingBubble extends StatelessWidget {
                             cleanText, baseStyle, dialogueColor);
                         if (spans != null) {
                           return Text.rich(TextSpan(children: spans));
+                        }
+                      }
+                      // 动作括号渲染（流式气泡）
+                      if (hasActionBracket) {
+                        final bracketSpans =
+                            _MessageBubble._buildActionBracketSpans(cleanText, baseStyle);
+                        if (bracketSpans != null) {
+                          return Text.rich(TextSpan(children: bracketSpans));
                         }
                       }
                       return SelectableText(cleanText, style: baseStyle);

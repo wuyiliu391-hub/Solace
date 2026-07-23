@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Dart-%3E%3D3.0.0-blue?logo=dart" alt="Dart">
   <img src="https://img.shields.io/badge/Platform-Android%20%7C%20Web%20%7C%20Windows-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-17.1.0-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-17.4.0-orange" alt="Version">
 </p>
 
 ---
@@ -279,7 +279,7 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ## 数据库设计
 
-当前数据库版本：**v36**，包含 15+ 张表：
+当前数据库版本：**v56**，包含 15+ 张表：
 
 | 表名 | 用途 |
 |------|------|
@@ -322,6 +322,61 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 3. 提交更改：`git commit -m 'feat: 添加某功能'`
 4. 推送分支：`git push origin feature/your-feature`
 5. 创建 Pull Request
+
+---
+
+## 调试方法论
+
+以下是项目中总结出的实战调试经验，面对复杂无头绪的 Bug 时按此流程操作：
+
+### 第一步：先拿堆栈，别猜
+
+**没有 stacktrace 就是在盲人摸象。** 遇到报错第一件事不是看代码，而是让程序把完整调用栈打出来。
+
+```dart
+// main.dart 全局错误兜底 —— 永远不要删这段
+FlutterError.onError = (FlutterErrorDetails details) {
+  debugPrint('[FlutterError] ${details.exception}');
+  debugPrint('${details.stack}');  // ← 这行最关键
+};
+```
+
+Flutter 的 `ErrorWidget.builder` 默认只显示异常信息，不显示调用栈。必须在 `FlutterError.onError` 里打印 `details.stack` 才能看到完整的报错路径。
+
+**反面教训**：v17.1.0 的气泡报错（`type 'int' is not a subtype of type 'String?'`），一开始没打 stacktrace，花了半小时改 `ChatMessage.fromMap`，方向完全错了。加了 print 后 5 分钟定位到 `SharedPreferences.getString` 在 `getNovelDialogueColor()` 里出的问题。
+
+### 第二步：缩小范围，二分排查
+
+拿到报错信息后，确认**错误发生在哪个层级**：
+
+| 层级 | 典型位置 | 排查方法 |
+|------|---------|---------|
+| 数据加载层 | `fromMap` / `fromJson` / 数据库查询 | 在 `fromMap` 里加 try-catch |
+| 状态管理层 | BLoC / Repository | 在 BLoC 事件处理入口加 print |
+| UI 渲染层 | Widget `build()` 方法 | 在目标 Widget 的 `build()` 里加 try-catch |
+
+**实操技巧**：在可疑 Widget 的 `build()` 里加 try-catch，如果 catch 没触发，说明错误不在这个 Widget 里，往调用链上游追。
+
+### 第三步：看日志，不看代码
+
+代码有几万行，靠人眼看是看不完的。用工具一条命令定位：
+
+```bash
+# 清空旧日志，让用户操作复现
+adb logcat -c
+
+# 等几秒后抓取 Flutter 相关日志
+adb logcat -d -s "I flutter" | grep -i "error\|exception"
+```
+
+**日志会直接告诉你**：哪个文件、哪一行、什么方法出了问题。比肉眼翻代码快 10 倍。
+
+### 常见陷阱
+
+1. **SharedPreferences 类型不一致**：`getString()` 在部分 Android 设备上对 int 类型的值会抛异常。始终用 `get()` 读取原始值再做类型判断。
+2. **异步竞态条件**：BLoC 中先加载数据、长时间异步操作后再保存，中间用户操作会覆盖。保存前必须重新读取最新状态。
+3. **`HitTestBehavior.opaque`**：会捕获整个 Widget 区域的点击，干扰外层手势。改用 `deferToChild`。
+4. **`Column` + `mainAxisSize: MainAxisSize.min` 里直接展开列表**：列表项多时高度无界导致布局溢出。用 `Flexible` + `ListView.builder` 限制。
 
 ---
 

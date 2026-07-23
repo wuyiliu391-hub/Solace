@@ -38,11 +38,17 @@ class StickerItem extends Equatable {
   }
 
   factory StickerItem.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return StickerItem(
-      id: map['id'] as String,
-      imagePath: map['imagePath'] as String,
+      id: (map['id'] as String?) ?? '',
+      imagePath: (map['imagePath'] as String?) ?? '',
       name: map['name'] as String?,
-      createdAt: DateTime.parse(map['createdAt'] as String),
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
     );
   }
 
@@ -115,15 +121,20 @@ class StickerPack extends Equatable {
           .toList();
     }
 
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
+
     return StickerPack(
-      id: map['id'] as String,
-      name: map['name'] as String,
+      id: (map['id'] as String?) ?? '',
+      name: (map['name'] as String?) ?? '',
       coverImagePath: map['coverImagePath'] as String?,
       stickers: stickersList,
-      createdAt: DateTime.parse(map['createdAt'] as String),
-      updatedAt: map['updatedAt'] != null
-          ? DateTime.parse(map['updatedAt'] as String)
-          : null,
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
+      updatedAt: tryParseDateTime(map['updatedAt']),
       isDefault: (map['isDefault'] as int?) == 1,
       syncSeq: (map['sync_seq'] ?? map['syncSeq']) as int? ?? 0,
     );

@@ -19,3 +19,12 @@ class ThemeChanged extends ThemeEvent {
   @override
   List<Object?> get props => [themeMode];
 }
+
+class VisualStyleChanged extends ThemeEvent {
+  final VisualStyle visualStyle;
+
+  const VisualStyleChanged(this.visualStyle);
+
+  @override
+  List<Object?> get props => [visualStyle];
+}

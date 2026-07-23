@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Solace 无障碍服务配置
+  =====================
+  针对国产 ROM 持久化优化：
+  - notificationTimeout=50: 缩短事件间隔，让系统感知服务活跃
+  - canTakeScreenshot=false: 截图走 MediaProjection，不依赖无障碍截图 API
+    （部分 ROM 会因截图权限额外限制无障碍服务）
+  - settingsActivity: 指向自身，在系统设置页显示"设置"入口
+  - nonInteractiveUiTimeout=0: 不设超时，让国产 ROM 不因"闲置"而冻结服务
+    （Android 14+ 支持）
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/accessibility_service_description"
+    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityFlags="flagReportViewIds|flagIncludeNotImportantViews|flagRequestEnhancedWebAccessibility"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:notificationTimeout="50"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
+    android:settingsActivity="com.solace.solace.MainActivity" />

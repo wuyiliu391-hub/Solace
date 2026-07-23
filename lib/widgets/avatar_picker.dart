@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import '../services/permission_service.dart';
 
 class AvatarPicker extends StatefulWidget {
@@ -276,13 +277,16 @@ class _AvatarPickerState extends State<AvatarPicker> {
 
   Future<String?> _copyToCache(String sourcePath) async {
     try {
-      final dir = Directory.systemTemp;
+      // 存到应用文档目录下的 avatars 子目录，避免系统清理 temp 后头像丢失
+      final docs = await getApplicationDocumentsDirectory();
+      final avatarsDir = Directory('${docs.path}/avatars');
+      if (!await avatarsDir.exists()) await avatarsDir.create(recursive: true);
       final ext = sourcePath.contains('.') ? sourcePath.split('.').last : 'jpg';
-      final dest = '${dir.path}/img_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final dest = '${avatarsDir.path}/avatar_${DateTime.now().millisecondsSinceEpoch}.$ext';
       await File(sourcePath).copy(dest);
       return dest;
     } catch (e) {
-      debugPrint('复制图片到缓存失败: $e');
+      debugPrint('复制头像到持久目录失败: $e');
       return null;
     }
   }

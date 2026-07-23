@@ -20,7 +20,10 @@ class AIMailboxScreen extends StatefulWidget {
 class _AIMailboxScreenState extends State<AIMailboxScreen> {
   var _letters = <AILetter>[];
   var _loading = true;
+  var _loadingMore = false;
   var _generating = false;
+  static const int _pageSize = 30;
+  var _hasMore = true;
 
   @override
   void initState() {
@@ -46,11 +49,35 @@ class _AIMailboxScreenState extends State<AIMailboxScreen> {
     }
 
     final storage = context.read<LocalStorageRepository>();
-    final letters = await storage.getAILetters(userId: userId);
+    final letters = await storage.getAILetters(
+      userId: userId,
+      limit: _pageSize,
+    );
     if (!mounted) return;
     setState(() {
       _letters = letters;
       _loading = false;
+      _hasMore = letters.length >= _pageSize;
+    });
+  }
+
+  Future<void> _loadMoreLetters() async {
+    if (!_hasMore || _loadingMore) return;
+    final userId = _userId;
+    if (userId == null) return;
+
+    setState(() => _loadingMore = true);
+    final storage = context.read<LocalStorageRepository>();
+    final more = await storage.getAILetters(
+      userId: userId,
+      limit: _pageSize,
+      offset: _letters.length,
+    );
+    if (!mounted) return;
+    setState(() {
+      _letters.addAll(more);
+      _loadingMore = false;
+      _hasMore = more.length >= _pageSize;
     });
   }
 
@@ -199,6 +226,8 @@ class _AIMailboxScreenState extends State<AIMailboxScreen> {
     if (userId == null) return;
 
     setState(() => _generating = true);
+    // 让 UI 先刷新到"正在写信..."状态，避免卡顿感
+    await Future.delayed(Duration.zero);
     try {
       final storage = context.read<LocalStorageRepository>();
 
@@ -767,9 +796,31 @@ class _AIMailboxScreenState extends State<AIMailboxScreen> {
                   onRefresh: _loadLetters,
                   child: ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                    itemCount: _letters.length,
+                    itemCount: _letters.length + (_hasMore ? 1 : 0),
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
+                      if (index == _letters.length) {
+                        // 加载更多
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Center(
+                            child: _loadingMore
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : TextButton.icon(
+                                    onPressed: _loadMoreLetters,
+                                    icon: const Icon(Icons.expand_more, size: 18),
+                                    label: Text(
+                                      '加载更多信件',
+                                      style: TextStyle(color: cs.primary),
+                                    ),
+                                  ),
+                          ),
+                        );
+                      }
                       final letter = _letters[index];
                       return _letterCard(cs, letter);
                     },

@@ -450,3 +450,31 @@ class ChatClearContext extends ChatEvent {
   @override
   List<Object?> get props => [chatId];
 }
+
+// ── AutoGLM 自动化事件 ──
+
+/// 在聊天中触发 AutoGLM 自动化任务
+class ChatRunAutoGlm extends ChatEvent {
+  final String chatId;
+  final String userId;
+  final String task;
+
+  const ChatRunAutoGlm({
+    required this.chatId,
+    required this.userId,
+    required this.task,
+  });
+
+  @override
+  List<Object?> get props => [chatId, userId, task];
+}
+
+/// 取消正在执行的 AutoGLM 任务
+class ChatCancelAutoGlm extends ChatEvent {
+  final String chatId;
+
+  const ChatCancelAutoGlm({required this.chatId});
+
+  @override
+  List<Object?> get props => [chatId];
+}

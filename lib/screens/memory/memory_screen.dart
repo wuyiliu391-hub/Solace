@@ -5,11 +5,16 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../blocs/auth/auth_bloc.dart';
+import '../../blocs/theme/theme_bloc.dart';
+import '../../config/constants.dart';
 import '../../models/memory.dart';
 import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/memory_engine.dart';
 import '../../services/memory_rebuild_service.dart';
+import '../../widgets/graph/graph_node.dart';
+import '../../widgets/graph/webview_graph_view.dart';
+import '../../widgets/graph/memory_graph_builder.dart';
 
 // ─────────────────────────────────────────────────────────
 // MemoryScreen — 记忆页面完整重构
@@ -32,7 +37,6 @@ class _MemoryScreenState extends State<MemoryScreen>
   MemoryType? _selectedType;
   String _searchQuery = '';
   bool _isLoading = true;
-  bool _isLoadingMore = false;
   bool _isSearching = false;
   bool _isRebuildingMemories = false;
   String _rebuildStatus = '';
@@ -40,16 +44,13 @@ class _MemoryScreenState extends State<MemoryScreen>
   late String _userId;
   StreamSubscription<MemoryRebuildProgress>? _rebuildSub;
 
-  // 分页相关
-  static const int _pageSize = 20;
-  int _displayCount = _pageSize;
-  final ScrollController _scrollController = ScrollController();
+  // 图谱数据
+  List<GraphNode> _graphNodes = [];
+  List<GraphEdge> _graphEdges = [];
+  String? _selectedNodeId;
+  Memory? _selectedMemory;
 
-  // 缓存分组结果，避免每次 build 重新计算
-  List<MapEntry<String, List<Memory>>> _cachedGroupedEntries = [];
-  bool _groupByDirty = true;
-
-  // 缓存分类计数，避免每次 build 遍历
+  // 缓存分类计数
   Map<MemoryType?, int> _typeCountCache = {};
 
   // 搜索防抖
@@ -57,7 +58,6 @@ class _MemoryScreenState extends State<MemoryScreen>
 
   // 动画控制器
   late AnimationController _fabAnimController;
-  late AnimationController _listAnimController;
   final TextEditingController _searchEditingController =
       TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -88,20 +88,12 @@ class _MemoryScreenState extends State<MemoryScreen>
       vsync: this,
       duration: const Duration(milliseconds: 400),
     )..forward();
-    _listAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
     final authState = context.read<AuthBloc>().state;
     _userId = (authState as AuthAuthenticated).user.id;
-    // 延迟加载，避免阻塞 UI
     Future.microtask(() => _loadCharacters());
     _searchFocusNode.addListener(() {
       setState(() => _isSearching = _searchFocusNode.hasFocus);
     });
-    // 滚动监听，加载更多
-    _scrollController.addListener(_onScroll);
-    // 同步后台重建状态（用户可能从其他页面返回时重建仍在进行）
     _syncRebuildState();
   }
 
@@ -146,39 +138,9 @@ class _MemoryScreenState extends State<MemoryScreen>
     _searchDebounce?.cancel();
     _rebuildSub?.cancel();
     _fabAnimController.dispose();
-    _listAnimController.dispose();
     _searchEditingController.dispose();
     _searchFocusNode.dispose();
-    _scrollController.dispose();
     super.dispose();
-  }
-
-  void _onScroll() {
-    if (_scrollController.position.pixels >=
-        _scrollController.position.maxScrollExtent - 200) {
-      _loadMore();
-    }
-  }
-
-  void _loadMore() {
-    if (_isLoadingMore) return;
-    if (_displayCount >= _filteredMemories.length) return;
-
-    setState(() {
-      _isLoadingMore = true;
-    });
-
-    // 延迟一下，让 UI 有时间渲染
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (mounted) {
-        setState(() {
-          _displayCount =
-              (_displayCount + _pageSize).clamp(0, _filteredMemories.length);
-          _isLoadingMore = false;
-          _groupByDirty = true;
-        });
-      }
-    });
   }
 
   Future<void> _loadCharacters() async {
@@ -200,26 +162,35 @@ class _MemoryScreenState extends State<MemoryScreen>
     setState(() => _isLoading = true);
 
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    final memories = await storage.getMemories(
-      characterId: _selectedCharacterId!,
-      userId: _userId,
-      limit: null,
-    );
+    final characterId = _selectedCharacterId!;
 
-    // 预计算分类计数
-    final countCache = <MemoryType?, int>{null: memories.length};
-    for (final m in memories) {
-      countCache[m.type] = (countCache[m.type] ?? 0) + 1;
-    }
+    // 并发：计数（快） + 取 top 200（快）
+    final results = await Future.wait([
+      storage.getMemoryCountByType(characterId: characterId, userId: _userId),
+      storage.getMemories(
+        characterId: characterId,
+        userId: _userId,
+        limit: _maxGraphNodes,
+      ),
+    ]);
 
+    final countCache = results[0] as Map<MemoryType?, int>;
+    final topMemories = results[1] as List<Memory>;
+
+    if (!mounted) return;
     setState(() {
-      _allMemories = memories;
+      _allMemories = topMemories;
       _typeCountCache = countCache;
       _isLoading = false;
+      _truncatedCount = (countCache[null] ?? 0) > _maxGraphNodes
+          ? countCache[null]
+          : null;
     });
     _applyFilters();
-    _listAnimController.forward(from: 0);
   }
+
+    // 图谱性能保护：最多渲染节点数
+  static const int _maxGraphNodes = 200;
 
   void _applyFilters() {
     var filtered = List<Memory>.from(_allMemories);
@@ -237,13 +208,42 @@ class _MemoryScreenState extends State<MemoryScreen>
           .toList();
     }
 
-    filtered.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    _groupByDirty = true;
+    // 按重要性+热度排序，取前 N 个防止天文数字记忆卡死
+    filtered.sort((a, b) {
+      final scoreA = a.importance.index * 10 + a.weight;
+      final scoreB = b.importance.index * 10 + b.weight;
+      final scoreCmp = scoreB.compareTo(scoreA);
+      if (scoreCmp != 0) return scoreCmp;
+      return b.createdAt.compareTo(a.createdAt);
+    });
+
+    final truncated = filtered.length > _maxGraphNodes;
+
+    // 构建图谱 — 异步避免阻塞 UI
+    final selected = filtered.take(_maxGraphNodes).toList();
+    
+    // 先更新过滤结果，图谱数据稍后异步推送
     setState(() {
-      _filteredMemories = filtered;
-      _displayCount = _pageSize; // 重置分页
+      _filteredMemories = selected;
+      _selectedNodeId = null;
+      _selectedMemory = null;
+      _truncatedCount = truncated ? filtered.length : null;
+    });
+
+    // 异步构建图谱（不阻塞 UI 线程）
+    Future.microtask(() {
+      final nodes = MemoryGraphBuilder.buildNodes(selected);
+      final edges = MemoryGraphBuilder.buildEdges(nodes, selected, maxEdges: 50);
+      if (mounted) {
+        setState(() {
+          _graphNodes = nodes;
+          _graphEdges = edges;
+        });
+      }
     });
   }
+
+  int? _truncatedCount;
 
   /// 搜索防抖：300ms 内只触发最后一次
   void _onSearchChanged(String value) {
@@ -254,37 +254,19 @@ class _MemoryScreenState extends State<MemoryScreen>
     });
   }
 
-  List<MapEntry<String, List<Memory>>> _getGroupedEntries() {
-    if (!_groupByDirty) return _cachedGroupedEntries;
+  void _onNodeTapped(String nodeId) {
+    final memory = _filteredMemories.where((m) => m.id == nodeId).firstOrNull;
+    setState(() {
+      _selectedNodeId = nodeId;
+      _selectedMemory = memory;
+    });
+  }
 
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final weekAgo = today.subtract(const Duration(days: 7));
-
-    // 只取当前分页的数据
-    final displayMemories = _filteredMemories.take(_displayCount).toList();
-
-    final groups = <String, List<Memory>>{};
-    for (final memory in displayMemories) {
-      final date = DateTime(
-          memory.createdAt.year, memory.createdAt.month, memory.createdAt.day);
-      String key;
-      if (date == today) {
-        key = '今天';
-      } else if (date == yesterday) {
-        key = '昨天';
-      } else if (date.isAfter(weekAgo)) {
-        key = '本周';
-      } else {
-        key = DateFormat('MM月dd日').format(memory.createdAt);
-      }
-      groups.putIfAbsent(key, () => []).add(memory);
-    }
-
-    _cachedGroupedEntries = groups.entries.toList();
-    _groupByDirty = false;
-    return _cachedGroupedEntries;
+  void _onBackgroundTapped() {
+    setState(() {
+      _selectedNodeId = null;
+      _selectedMemory = null;
+    });
   }
 
   @override
@@ -293,20 +275,31 @@ class _MemoryScreenState extends State<MemoryScreen>
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDark ? cs.surface : const Color(0xFFFDF5F7),
+      backgroundColor: cs.surface,
       body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(cs, isDark),
-            _buildSearchBar(cs, isDark),
-            _buildTypeFilter(cs, isDark),
-            if (_isRebuildingMemories && _rebuildStatus.isNotEmpty)
-              _buildRebuildStatus(cs, isDark),
-            if (_hasPendingCheckpoint && !_isRebuildingMemories)
-              _buildCheckpointBanner(cs, isDark),
-            const SizedBox(height: 8),
-            Expanded(child: _buildContent(cs, isDark)),
-          ],
+        child: RefreshIndicator(
+          onRefresh: _loadMemories,
+          child: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Column(
+                  children: [
+                    _buildHeader(cs, isDark),
+                    _buildSearchBar(cs, isDark),
+                    _buildTypeFilter(cs, isDark),
+                    if (_isRebuildingMemories && _rebuildStatus.isNotEmpty)
+                      _buildRebuildStatus(cs, isDark),
+                    if (_hasPendingCheckpoint && !_isRebuildingMemories)
+                      _buildCheckpointBanner(cs, isDark),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+              SliverFillRemaining(
+                child: _buildContent(cs, isDark),
+              ),
+            ],
+          ),
         ),
       ),
       floatingActionButton: _buildFAB(cs),
@@ -439,11 +432,16 @@ class _MemoryScreenState extends State<MemoryScreen>
                 ),
                 if (_allMemories.isNotEmpty)
                   Text(
-                    '共 ${_allMemories.length} 条记忆${_filteredMemories.length != _allMemories.length ? '，匹配 ${_filteredMemories.length} 条' : ''}${_displayCount < _filteredMemories.length ? '（显示 $_displayCount）' : ''}',
+                    '共 ${_allMemories.length} 条记忆${_filteredMemories.length != _allMemories.length ? '，匹配 ${_filteredMemories.length} 条' : ''}',
                     style: TextStyle(
                       fontSize: 12,
                       color: cs.onSurfaceVariant.withOpacity(0.6),
                     ),
+                  ),
+                if (_truncatedCount != null)
+                  Text(
+                    '图谱最多显示 200 条（按重要性排序），使用筛选缩小范围',
+                    style: TextStyle(fontSize: 11, color: cs.primary.withOpacity(0.7)),
                   ),
               ],
             ),
@@ -765,10 +763,13 @@ class _MemoryScreenState extends State<MemoryScreen>
   }
 
   void _showCharacterPicker(ColorScheme cs, bool isDark) {
+    final maxH = MediaQuery.of(context).size.height * 0.6;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (ctx) => Container(
+        constraints: BoxConstraints(maxHeight: maxH),
         decoration: BoxDecoration(
           color: cs.surface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -792,36 +793,43 @@ class _MemoryScreenState extends State<MemoryScreen>
                     fontWeight: FontWeight.w600,
                     color: cs.onSurface)),
             const SizedBox(height: 12),
-            ..._characters.map((c) => ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: c.id == _selectedCharacterId
-                        ? cs.primary.withOpacity(0.2)
-                        : cs.surfaceContainerHighest,
-                    child: Icon(
-                      Icons.person_rounded,
-                      color: c.id == _selectedCharacterId
-                          ? cs.primary
-                          : cs.onSurfaceVariant,
-                      size: 20,
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _characters.length,
+                itemBuilder: (context, index) {
+                  final c = _characters[index];
+                  final selected = c.id == _selectedCharacterId;
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: selected
+                          ? cs.primary.withOpacity(0.2)
+                          : cs.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.person_rounded,
+                        color: selected ? cs.primary : cs.onSurfaceVariant,
+                        size: 20,
+                      ),
                     ),
-                  ),
-                  title: Text(c.name,
-                      style: TextStyle(
-                        fontWeight: c.id == _selectedCharacterId
-                            ? FontWeight.w600
-                            : FontWeight.w400,
-                        color: cs.onSurface,
-                      )),
-                  trailing: c.id == _selectedCharacterId
-                      ? Icon(Icons.check_circle_rounded,
-                          color: cs.primary, size: 20)
-                      : null,
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    setState(() => _selectedCharacterId = c.id);
-                    _loadMemories();
-                  },
-                )),
+                    title: Text(c.name,
+                        style: TextStyle(
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.w400,
+                          color: cs.onSurface,
+                        )),
+                    trailing: selected
+                        ? Icon(Icons.check_circle_rounded,
+                            color: cs.primary, size: 20)
+                        : null,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() => _selectedCharacterId = c.id);
+                      _loadMemories();
+                    },
+                  );
+                },
+              ),
+            ),
             SizedBox(height: MediaQuery.of(ctx).viewInsets.bottom + 20),
           ],
         ),
@@ -1029,7 +1037,14 @@ class _MemoryScreenState extends State<MemoryScreen>
       return _buildEmptyState(cs, isDark);
     }
 
-    return _buildGroupedList(cs, isDark);
+    return WebViewGraphView(
+      key: ValueKey('graph_${isDark ? 'dark' : 'light'}'),
+      nodes: _graphNodes,
+      edges: _graphEdges,
+      isDark: isDark,
+      onNodeTap: _onNodeTapped,
+      onBackgroundTap: _onBackgroundTapped,
+    );
   }
 
   // ── 空白状态 ──
@@ -1042,7 +1057,6 @@ class _MemoryScreenState extends State<MemoryScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 装饰圆圈
             Container(
               width: 100,
               height: 100,
@@ -1138,13 +1152,21 @@ class _MemoryScreenState extends State<MemoryScreen>
                     color: cs.primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text(
-                    '清除筛选',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: cs.primary,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.refresh_rounded,
+                          size: 18, color: cs.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        '清除筛选',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: cs.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1155,583 +1177,132 @@ class _MemoryScreenState extends State<MemoryScreen>
     );
   }
 
-  // ── 分组列表 ──
-  Widget _buildGroupedList(ColorScheme cs, bool isDark) {
-    final entries = _getGroupedEntries();
-    final hasMore = _displayCount < _filteredMemories.length;
+  // ── 记忆详情弹窗 ──
+  Widget _buildMemoryDetailSheet(ColorScheme cs, bool isDark) {
+    final m = _selectedMemory;
+    if (m == null) return const SizedBox.shrink();
 
-    return AnimatedBuilder(
-      animation: _listAnimController,
-      builder: (context, child) {
-        return ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 100),
-          itemCount: entries.length + (hasMore ? 1 : 0),
-          itemBuilder: (context, index) {
-            // 加载更多的指示器
-            if (index == entries.length) {
-              return _buildLoadMoreIndicator(cs);
-            }
-
-            final entry = entries[index]; // O(1) 直接索引
-            final anim = CurvedAnimation(
-              parent: _listAnimController,
-              curve: Interval(
-                (index * 0.1).clamp(0.0, 0.8),
-                ((index * 0.1) + 0.4).clamp(0.0, 1.0),
-                curve: Curves.easeOutCubic,
-              ),
-            );
-
-            return FadeTransition(
-              opacity: anim,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.15),
-                  end: Offset.zero,
-                ).animate(anim),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildDateHeader(entry.key, cs, isDark),
-                    ...entry.value.map((m) => _buildMemoryCard(m, cs, isDark)),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+    final typeConfig = _typeConfigs.firstWhere(
+      (c) => c.type == m.type,
+      orElse: () => _typeConfigs.first,
     );
-  }
+    final typeColor = typeConfig.color ?? cs.primary;
 
-  Widget _buildLoadMoreIndicator(ColorScheme cs) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Center(
-        child: _isLoadingMore
-            ? SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation(cs.primary),
-                ),
-              )
-            : Text(
-                '上拉加载更多',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: cs.onSurfaceVariant.withOpacity(0.5),
-                ),
-              ),
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.72,
       ),
-    );
-  }
-
-  // ── 日期分组标题 ──
-  Widget _buildDateHeader(String label, ColorScheme cs, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, top: 16, bottom: 10),
-      child: Row(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 4,
-            height: 16,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [cs.primary, cs.primary.withOpacity(0.4)],
-              ),
-              borderRadius: BorderRadius.circular(2),
-            ),
+          Center(
+            child: Container(width: 40, height: 4,
+              decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2))),
           ),
-          const SizedBox(width: 10),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: cs.onSurface.withOpacity(0.8),
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Container(
-              height: 1,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    cs.outlineVariant.withOpacity(0.3),
-                    cs.outlineVariant.withOpacity(0.05),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: typeColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(typeConfig.icon, size: 14, color: typeColor),
+                    const SizedBox(width: 4),
+                    Text(typeConfig.label, style: TextStyle(fontSize: 12, color: typeColor, fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── 记忆卡片 ──
-  Widget _buildMemoryCard(Memory memory, ColorScheme cs, bool isDark) {
-    final config = _typeConfigs.firstWhere(
-      (c) => c.type == memory.type,
-      orElse: () => _typeConfigs.last,
-    );
-    final color = config.color ?? cs.primary;
-    final timeStr = _formatTime(memory.createdAt);
-
-    return Dismissible(
-      key: Key(memory.id),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (direction) async {
-        HapticFeedback.mediumImpact();
-        return await _showDeleteConfirm(cs, isDark, memory);
-      },
-      onDismissed: (_) => _deleteMemory(memory.id),
-      background: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFF6B6B), Color(0xFFFF3B3B)],
-          ),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        child: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.delete_outline_rounded, color: Colors.white, size: 26),
-            SizedBox(height: 2),
-            Text('删除',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600)),
-          ],
-        ),
-      ),
-      child: GestureDetector(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          _showEditSheet(memory);
-        },
-        onLongPress: () {
-          HapticFeedback.mediumImpact();
-          _showMemoryActions(memory, cs, isDark);
-        },
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          decoration: BoxDecoration(
-            color: isDark
-                ? cs.surfaceContainerHighest.withOpacity(0.5)
-                : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: color.withOpacity(0.12),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: cs.shadow.withOpacity(isDark ? 0.2 : 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
+              const Spacer(),
+              Text(DateFormat('MM/dd HH:mm').format(m.createdAt),
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant.withOpacity(0.5))),
             ],
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+          const SizedBox(height: 12),
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 左侧色条
-                  Container(
-                    width: 4,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [color, color.withOpacity(0.4)],
+                  Text(
+                    m.content,
+                    style: TextStyle(fontSize: 15, height: 1.5, color: cs.onSurface),
+                  ),
+                  if (m.summary != null &&
+                      m.summary!.trim().isNotEmpty &&
+                      m.summary!.trim() != m.content.trim()) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      '摘要',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: cs.onSurfaceVariant.withOpacity(0.7),
                       ),
                     ),
-                  ),
-                  // 内容区
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // 头部：类型标签 + 时间
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(config.icon, size: 12, color: color),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      config.label,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: color,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Spacer(),
-                              Text(
-                                timeStr,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: cs.onSurfaceVariant.withOpacity(0.45),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          // 内容文字
-                          Text(
-                            memory.content,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 14,
-                              height: 1.5,
-                              color: cs.onSurface.withOpacity(0.85),
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                          // 关键词
-                          if (memory.keywords.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: memory.keywords
-                                  .take(5)
-                                  .map((k) => Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: cs.surfaceContainerHighest
-                                              .withOpacity(isDark ? 0.4 : 0.6),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          '#$k',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: cs.onSurfaceVariant
-                                                .withOpacity(0.7),
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ))
-                                  .toList(),
-                            ),
-                          ],
-                          // 底部：重要度 + 热度 + 操作提示
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              // 重要度指示
-                              _buildImportanceIndicator(memory.importance, cs),
-                              const SizedBox(width: 12),
-                              // 热度指示（艾宾浩斯）
-                              _buildHeatIndicator(memory, cs),
-                              const Spacer(),
-                              // 展开提示
-                              Icon(
-                                Icons.chevron_right_rounded,
-                                size: 18,
-                                color: cs.onSurfaceVariant.withOpacity(0.25),
-                              ),
-                            ],
-                          ),
-                        ],
+                    const SizedBox(height: 4),
+                    Text(
+                      m.summary!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.45,
+                        color: cs.onSurface.withOpacity(0.85),
                       ),
                     ),
-                  ),
+                  ],
+                  if (m.keywords.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: m.keywords.map((kw) => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: typeColor.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(kw, style: TextStyle(fontSize: 11, color: typeColor)),
+                      )).toList(),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  // ── 重要度指示器 ──
-  Widget _buildImportanceIndicator(
-      MemoryImportance importance, ColorScheme cs) {
-    final config = _importanceConfig(importance);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ...List.generate(4, (i) {
-          final isActive = i <= config.level;
-          return Container(
-            width: 6,
-            height: 6 + (i * 2.0),
-            margin: const EdgeInsets.only(right: 3),
-            decoration: BoxDecoration(
-              color: isActive
-                  ? config.color
-                  : cs.onSurfaceVariant.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          );
-        }),
-        const SizedBox(width: 6),
-        Text(
-          config.label,
-          style: TextStyle(
-            fontSize: 11,
-            color: config.color.withOpacity(0.8),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── 热度指示器（艾宾浩斯权重可视化）──
-  Widget _buildHeatIndicator(Memory memory, ColorScheme cs) {
-    // weight 范围 0.0~2.0，映射到热度等级
-    final w = memory.weight;
-    final String label;
-    final Color color;
-    final IconData icon;
-
-    if (w >= 1.5) {
-      label = '炽热';
-      color = const Color(0xFFEF5350);
-      icon = Icons.whatshot_rounded;
-    } else if (w >= 1.0) {
-      label = '温热';
-      color = const Color(0xFFFF9800);
-      icon = Icons.local_fire_department_rounded;
-    } else if (w >= 0.5) {
-      label = '温暖';
-      color = const Color(0xFFFFB74D);
-      icon = Icons.wb_sunny_rounded;
-    } else {
-      label = '冷却';
-      color = const Color(0xFF90CAF9);
-      icon = Icons.ac_unit_rounded;
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 13, color: color.withOpacity(0.7)),
-        const SizedBox(width: 3),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            color: color.withOpacity(0.7),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-
-  _ImportanceConfig _importanceConfig(MemoryImportance imp) {
-    return switch (imp) {
-      MemoryImportance.trivial =>
-        const _ImportanceConfig(0, '普通', Color(0xFFBDBDBD)),
-      MemoryImportance.normal =>
-        const _ImportanceConfig(1, '一般', Color(0xFF64B5F6)),
-      MemoryImportance.important =>
-        const _ImportanceConfig(2, '重要', Color(0xFFFFB74D)),
-      MemoryImportance.crucial =>
-        const _ImportanceConfig(3, '关键', Color(0xFFEF5350)),
-    };
-  }
-
-  // ── 长按操作菜单 ──
-  void _showMemoryActions(Memory memory, ColorScheme cs, bool isDark) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: cs.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: cs.onSurfaceVariant.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-            // 预览
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                memory.content,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: cs.onSurface.withOpacity(0.7),
-                  height: 1.4,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              height: 1,
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              color: cs.outlineVariant.withOpacity(0.2),
-            ),
-            const SizedBox(height: 8),
-            _buildActionTile(
-              icon: Icons.edit_outlined,
-              label: '编辑记忆',
-              color: cs.primary,
-              onTap: () {
-                Navigator.pop(ctx);
-                _showEditSheet(memory);
-              },
-            ),
-            _buildActionTile(
-              icon: Icons.copy_rounded,
-              label: '复制内容',
-              color: const Color(0xFF64B5F6),
-              onTap: () {
-                Navigator.pop(ctx);
-                Clipboard.setData(ClipboardData(text: memory.content));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('已复制到剪贴板'),
-                    duration: const Duration(seconds: 1),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                  ),
-                );
-              },
-            ),
-            _buildActionTile(
-              icon: Icons.delete_outline_rounded,
-              label: '删除记忆',
-              color: const Color(0xFFEF5350),
-              onTap: () async {
-                Navigator.pop(ctx);
-                final confirmed = await _showDeleteConfirm(cs, isDark, memory);
-                if (confirmed == true) _deleteMemory(memory.id);
-              },
-            ),
-            SizedBox(height: MediaQuery.of(ctx).viewInsets.bottom + 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionTile({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      leading: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, size: 20, color: color),
-      ),
-      title: Text(
-        label,
-        style: TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-          color: color,
-        ),
-      ),
-      onTap: onTap,
-    );
-  }
-
-  // ── 删除确认弹窗 ──
-  Future<bool?> _showDeleteConfirm(ColorScheme cs, bool isDark, Memory memory) {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: cs.surface,
-        title: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF5350).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.delete_outline_rounded,
-                  size: 20, color: Color(0xFFEF5350)),
-            ),
-            const SizedBox(width: 12),
-            const Text('删除记忆'),
-          ],
-        ),
-        content: Text(
-          '确定要删除这条记忆吗？此操作不可撤销。',
-          style: TextStyle(color: cs.onSurfaceVariant, fontSize: 14),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('取消', style: TextStyle(color: cs.onSurfaceVariant)),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFEF5350),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('删除'),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildDetailStat(Icons.favorite_rounded, '\ 度', cs),
+              _buildDetailStat(Icons.touch_app_rounded, '\ 次', cs),
+              _buildDetailStat(Icons.star_rounded, m.importance.name, cs),
+            ],
           ),
         ],
       ),
     );
   }
 
-  // ── FAB ──
+  Widget _buildDetailStat(IconData icon, String label, ColorScheme cs) {
+    return Column(
+      children: [
+        Icon(icon, size: 18, color: cs.primary.withOpacity(0.6)),
+        const SizedBox(height: 4),
+        Text(label, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withOpacity(0.6))),
+      ],
+    );
+  }
+
   Widget _buildFAB(ColorScheme cs) {
     return ScaleTransition(
       scale: CurvedAnimation(
@@ -2461,4 +2032,19 @@ class _ImportanceConfig {
   final Color color;
 
   const _ImportanceConfig(this.level, this.label, this.color);
+}
+
+extension _MemoryScreenImportance on _MemoryScreenState {
+  _ImportanceConfig _importanceConfig(MemoryImportance imp) {
+    return switch (imp) {
+      MemoryImportance.trivial =>
+        const _ImportanceConfig(0, '普通', Color(0xFFBDBDBD)),
+      MemoryImportance.normal =>
+        const _ImportanceConfig(1, '一般', Color(0xFF64B5F6)),
+      MemoryImportance.important =>
+        const _ImportanceConfig(2, '重要', Color(0xFFFFB74D)),
+      MemoryImportance.crucial =>
+        const _ImportanceConfig(3, '关键', Color(0xFFEF5350)),
+    };
+  }
 }

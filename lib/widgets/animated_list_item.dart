@@ -49,7 +49,8 @@ class _AnimatedListItemState extends State<AnimatedListItem>
       curve: const Interval(0.0, 0.8, curve: Curves.easeOutBack),
     ));
 
-    Future.delayed(Duration(milliseconds: widget.index * 40), () {
+    final delayMs = widget.index * 40 > 400 ? 400 : widget.index * 40;
+    Future.delayed(Duration(milliseconds: delayMs), () {
       if (mounted) _controller.forward();
     });
   }

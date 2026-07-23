@@ -1,4 +1,4 @@
-﻿﻿// 【对标来源：SillyTavern-1.18.0 — index.html:7377 #message_template 消息模板】
+﻿// 【对标来源：SillyTavern-1.18.0 — index.html:7377 #message_template 消息模板】
 // 1:1 转译自 SillyTavern 消息气泡 DOM 结构为 Flutter Widget
 // 参考文件：index.html:7377-7450 (#message_template)
 

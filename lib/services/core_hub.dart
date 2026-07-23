@@ -12,12 +12,10 @@ import 'persona_rule_registry.dart';
 import 'admin_guard.dart';
 import 'bt_agent_execution_service.dart';
 import 'bt_operation_lock_service.dart';
-import 'token_budget_service.dart';
 import 'audit_service.dart';
 
 /// Core Hub — 全局中枢调度大脑
 ///
-/// 管理所有 AI 角色行为请求、人设规则、双模式切换（经典模式 vs 新世界模式）。
 /// 单例模式，通过 [CoreHub.init] 初始化。
 class CoreHub {
   CoreHub._(this._prefs);
@@ -31,11 +29,8 @@ class CoreHub {
   late final TaskQueue _taskQueue;
   late final PersonaRuleRegistry _ruleRegistry;
   late final AdminGuard _adminGuard;
-  late final TokenBudgetService _tokenBudget;
   late final AuditService _audit;
   BtAgentExecutionService? Function()? _btExecutionServiceFactory;
-  bool _newWorldMode = false;
-  int _tokenConsumed = 0;
   String? _currentUserId;
 
   /// 初始化 Core Hub 单例。
@@ -53,85 +48,27 @@ class CoreHub {
 
     hub._btExecutionServiceFactory = btExecutionServiceFactory;
 
-    hub._newWorldMode =
-        prefs.getBool(PrefKeys.coreHubNewWorldEnabled) ?? false;
-    hub._tokenConsumed =
-        prefs.getInt(PrefKeys.coreHubNewWorldTokenConsumed) ?? 0;
-
     hub._adminGuard = AdminGuard();
     hub._ruleRegistry = PersonaRuleRegistry(prefs);
     await hub._ruleRegistry.init();
 
-    hub._tokenBudget = TokenBudgetService(prefs);
-    await hub._tokenBudget.init();
-
     hub._audit = AuditService(prefs);
     await hub._audit.init();
 
-    hub._taskQueue = TaskQueue(
-      prefs: prefs,
-      isWorldModeEnabled: () => hub._newWorldMode,
-    );
+    hub._taskQueue = TaskQueue(prefs: prefs);
     await hub._taskQueue.restore();
 
     await hub._audit.log(
       category: 'system',
       action: 'core_hub_initialized',
-      detail: '新世界模式: ${hub._newWorldMode}',
     );
 
     _instance = hub;
     return hub;
   }
 
-  // ────────────────────── Mode control ──────────────────────
-
-  /// 当前是否为新世界模式。
-  bool get isNewWorldMode => _newWorldMode;
-
-  /// 切换新世界模式。
-  Future<void> setNewWorldMode(bool enabled) async {
-    _newWorldMode = enabled;
-    await _prefs.setBool(PrefKeys.coreHubNewWorldEnabled, enabled);
-    if (enabled) {
-      await _prefs.setString(
-        PrefKeys.coreHubNewWorldActivatedAt,
-        DateTime.now().toIso8601String(),
-      );
-    }
-    await _audit.log(
-      category: 'mode',
-      action: enabled ? 'new_world_enabled' : 'new_world_disabled',
-    );
-  }
-
-  /// 累计消耗的 token 数。
-  int get tokenConsumed => _tokenConsumed;
-
-  /// Token 预算服务。
-  TokenBudgetService get tokenBudget => _tokenBudget;
-
   /// 审计日志服务。
   AuditService get audit => _audit;
-
-  /// 记录 token 消耗并持久化。
-  Future<void> recordTokenUsage(int tokens) async {
-    _tokenConsumed += tokens;
-    await _prefs.setInt(PrefKeys.coreHubNewWorldTokenConsumed, _tokenConsumed);
-    await _tokenBudget.consume(tokens);
-  }
-
-  /// 重置 token 计数器并记录重置时间戳。
-  Future<void> resetTokenCounter() async {
-    _tokenConsumed = 0;
-    await _prefs.setInt(PrefKeys.coreHubNewWorldTokenConsumed, 0);
-    await _prefs.setString(
-      PrefKeys.coreHubNewWorldTokenResetAt,
-      DateTime.now().toIso8601String(),
-    );
-    await _tokenBudget.resetDaily();
-    await _audit.log(category: 'token', action: 'counter_reset');
-  }
 
   // ────────────────────── Task submission ──────────────────────
 
@@ -213,10 +150,6 @@ class CoreHub {
       } else {
         task.status = 'failed';
         task.result = 'SocialActionExecutor 未绑定';
-      }
-
-      if (task.tokenUsage != null && task.tokenUsage! > 0) {
-        await recordTokenUsage(task.tokenUsage!);
       }
 
       await _audit.log(

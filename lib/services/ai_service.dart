@@ -20,6 +20,7 @@ import 'bing_cn_mcp_service.dart';
 import 'prompt_rewriter.dart';
 import 'usage_meter_service.dart';
 import 'prompt/prompt_builder.dart';
+import 'dialogue_strategy.dart';
 
 /// 创建带连接超时的 HTTP Client
 http.Client _createClient() {
@@ -47,13 +48,27 @@ class AIService {
   late final MemoryEngine _memoryEngine;
   late final EmotionEngine _emotionEngine;
   late final PromptBuilder _promptBuilder;
+
+  /// 会话级小说模式覆盖：由 ChatBloc 在调用前设置，null 表示使用全局设置
+  bool? _novelModeOverride;
+
+  /// 设置当前会话的小说模式覆盖（null = 跟随全局）
+  void setNovelModeOverride(bool? override) {
+    _novelModeOverride = override;
+  }
+
+  /// 判断小说模式是否开启：会话级覆盖优先，否则回退到全局
+  bool _isNovelModeEnabled() {
+    return _novelModeOverride ?? _storage.isChatStyleNovelModeEnabled();
+  }
   String? _lastParsedStatus;
   Map<String, dynamic>? _lastWebSearchTrace;
 
   AIService(this._storage) {
     _memoryEngine = MemoryEngine(_storage);
     _emotionEngine = EmotionEngine(_storage);
-    _promptBuilder = PromptBuilder(_storage, _memoryEngine, _emotionEngine);
+    _promptBuilder = PromptBuilder(
+        _storage, _memoryEngine, _emotionEngine, DialogueStrategy());
   }
 
   String? get lastParsedStatus => _lastParsedStatus;
@@ -84,7 +99,7 @@ class AIService {
   }
 
   int? _chatMaxTokensForCurrentMode(int configuredMaxTokens) {
-    final novelMode = _storage.isChatStyleNovelModeEnabled();
+    final novelMode = _isNovelModeEnabled();
     final pureAiMode = _storage.isPureAiModeEnabled();
     if (novelMode && !pureAiMode) return null;
     return _effectiveChatMaxTokens(configuredMaxTokens);
@@ -259,7 +274,7 @@ class AIService {
       try {
         final currentKey = allApiKeys[currentKeyIndex];
         final client = _createClient();
-        final novelMode = _storage.isChatStyleNovelModeEnabled();
+        final novelMode = _isNovelModeEnabled();
         final requestPayload = <String, dynamic>{
           'model': config.modelName,
           'messages': messages,
@@ -1219,13 +1234,21 @@ class AIService {
     return result;
   }
 
-  /// 按句子切割文本
+  /// 按句子切割文本（引号感知版：防止引号内分句导致对白断裂）
   List<String> _splitIntoSentences(String text) {
     final sentences = <String>[];
     final currentSentence = StringBuffer();
+    bool insideQuote = false; // 追踪是否在引号对内部
 
     for (int j = 0; j < text.length; j++) {
       currentSentence.write(text[j]);
+
+      // 追踪引号边界
+      if (text[j] == '“' || text[j] == '「' || text[j] == '『') {
+        insideQuote = true;
+      } else if (text[j] == '”' || text[j] == '」' || text[j] == '』') {
+        insideQuote = false;
+      }
 
       // 句末标点（中英文）
       final isEndPunctuation =
@@ -1238,8 +1261,11 @@ class AIService {
       // 换行符
       final isNewline = text[j] == '\n';
 
-      final shouldSplit = (isEndPunctuation || isEllipsis || isNewline) &&
-          currentSentence.length >= 5;
+      // 引号内部不分割，确保对白完整性
+      final shouldSplit =
+          (isEndPunctuation || isEllipsis || isNewline) &&
+              currentSentence.length >= 5 &&
+              !insideQuote;
 
       if (shouldSplit && j + 1 < text.length) {
         final next = text[j + 1];
@@ -1588,6 +1614,8 @@ class AIService {
       imageDescription: imageDescription,
       isBlockedByAI: isBlockedByAI,
       blockReason: blockReason,
+      messageCount: chatHistory.length,
+      isFirstMessage: chatHistory.where((m) => m.isUser).length <= 1,
     );
 
     // Rewrite system prompt for non-thinking models when FA mode is active
@@ -1999,6 +2027,8 @@ class AIService {
     String? imageDescription,
     bool isBlockedByAI = false,
     String? blockReason,
+    int messageCount = 0,
+    bool isFirstMessage = false,
   }) async {
     return _promptBuilder.buildSystemPrompt(
       character: character, userId: userId,
@@ -2006,6 +2036,7 @@ class AIService {
       intimacyLevel: intimacyLevel, userStatus: userStatus,
       sentiment: sentiment, imageDescription: imageDescription,
       isBlockedByAI: isBlockedByAI, blockReason: blockReason,
+      messageCount: messageCount, isFirstMessage: isFirstMessage,
     );
   }
 

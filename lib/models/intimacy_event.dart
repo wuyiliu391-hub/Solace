@@ -48,21 +48,26 @@ class IntimacyEvent {
   }
 
   factory IntimacyEvent.fromMap(Map<String, dynamic> map) {
+    DateTime? tryParseDateTime(dynamic val) {
+      if (val == null || (val is String && val.trim().isEmpty)) return null;
+      if (val is String) return DateTime.tryParse(val);
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return null;
+    }
     return IntimacyEvent(
-      id: map['id'] as String,
-      chatId: map['chatId'] as String,
-      userId: map['userId'] as String,
-      characterId: map['characterId'] as String,
-      oldLevel: map['oldLevel'] as int,
-      newLevel: map['newLevel'] as int,
-      delta: map['delta'] as int,
-      dailyCount: map['dailyCount'] as int,
-      source: map['source'] as String,
+      id: (map['id'] as String?) ?? '',
+      chatId: (map['chatId'] as String?) ?? '',
+      userId: (map['userId'] as String?) ?? '',
+      characterId: (map['characterId'] as String?) ?? '',
+      oldLevel: (map['oldLevel'] as int?) ?? 0,
+      newLevel: (map['newLevel'] as int?) ?? 0,
+      delta: (map['delta'] as int?) ?? 0,
+      dailyCount: (map['dailyCount'] as int?) ?? 0,
+      source: (map['source'] as String?) ?? '',
       messagePreview: map['messagePreview'] as String?,
       sentimentLabel: map['sentimentLabel'] as String?,
       sentimentType: map['sentimentType'] as String?,
-      createdAt: DateTime.tryParse(map['createdAt'] as String? ?? '') ??
-          DateTime.fromMillisecondsSinceEpoch(0),
+      createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
     );
   }
 }

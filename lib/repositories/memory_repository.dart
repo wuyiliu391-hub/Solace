@@ -1,4 +1,4 @@
-﻿// 【对标来源：Muice-Chatbot-1.4 — llm/faiss_memory.py 向量记忆存储】
+// 【对标来源：Muice-Chatbot-1.4 — llm/faiss_memory.py 向量记忆存储】
 // 1:1 转译自 Muice FAISSMemory 类，适配 Flutter SQLite + SharedPreferences
 // 参考文件：llm/faiss_memory.py:search_memory()、insert_memory()、save_all_data()
 
@@ -307,7 +307,6 @@ class MemoryRepository {
 
   /// 获取嵌入向量（占位：实际需要对接 embedding 服务）
   Future<List<double>?> _getEmbedding(String text) async {
-    // TODO: 对接 embedding_service.dart
     return null;
   }
 

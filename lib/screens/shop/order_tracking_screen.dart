@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../blocs/shop/shop_bloc.dart';
 import '../../models/shop_order.dart';
-import '../../config/business_rules.dart';
 
-/// 订单追踪页 - 借鉴京东物流追踪
+/// 订单追踪页 —— 跟随 app 主题，温柔的物流进度展示
 class OrderTrackingScreen extends StatefulWidget {
   const OrderTrackingScreen({super.key});
 
@@ -35,18 +34,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        title: Text(
-          '我的订单',
-          style: TextStyle(fontWeight: FontWeight.bold, color: cs.onPrimary),
-        ),
-        centerTitle: true,
+        title: const Text('我的订单'),
+        centerTitle: false,
         elevation: 0,
-        backgroundColor: cs.primary,
-        foregroundColor: cs.onPrimary,
+        backgroundColor: cs.surface,
+        foregroundColor: cs.onSurface,
       ),
       body: Column(
         children: [
-          _buildTabBar(),
+          _buildTabBar(cs),
           Expanded(
             child: TabBarView(
               controller: _tabController,
@@ -61,10 +57,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
     );
   }
 
-  Widget _buildTabBar() {
+  Widget _buildTabBar(ColorScheme cs) {
     return BlocBuilder<ShopBloc, ShopState>(
       builder: (context, state) {
-        final cs = Theme.of(context).colorScheme;
         final activeCount = state.activeOrders.length;
         final completedCount =
             state.orders.where((o) => o.status == 'delivered').length;
@@ -77,6 +72,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
             unselectedLabelColor: cs.onSurfaceVariant,
             indicatorColor: cs.primary,
             indicatorWeight: 3,
+            labelStyle:
+                const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            unselectedLabelStyle:
+                const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
             tabs: [
               Tab(text: '进行中 ($activeCount)'),
               Tab(text: '已完成 ($completedCount)'),
@@ -90,28 +89,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
   Widget _buildActiveOrdersTab() {
     return BlocBuilder<ShopBloc, ShopState>(
       builder: (context, state) {
-        final cs = Theme.of(context).colorScheme;
         if (state.activeOrders.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.inbox_outlined,
-                  size: 64,
-                  color: cs.onSurfaceVariant,
-                ),
-                SizedBox(height: 12),
-                Text(
-                  '暂无进行中的订单',
-                  style: TextStyle(
-                    color: cs.onSurfaceVariant,
-                    fontSize: 15,
-                  ),
-                ),
-              ],
-            ),
-          );
+          return _buildEmptyState(Icons.inbox_outlined, '暂无进行中的订单');
         }
 
         return ListView.builder(
@@ -138,26 +117,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
           });
 
         if (completed.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.check_circle_outline,
-                  size: 64,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-                SizedBox(height: 12),
-                Text(
-                  '暂无已完成的订单',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 15,
-                  ),
-                ),
-              ],
-            ),
-          );
+          return _buildEmptyState(Icons.check_circle_outline, '暂无已完成的订单');
         }
 
         return ListView.builder(
@@ -171,86 +131,120 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
     );
   }
 
+  Widget _buildEmptyState(IconData icon, String text) {
+    final cs = Theme.of(context).colorScheme;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(40),
+            ),
+            child: Icon(icon, size: 40, color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            text,
+            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 15),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOrderCard(ShopOrder order) {
     final cs = Theme.of(context).colorScheme;
-    final category = _getCategory(order);
-    final colors = _getCardColors(category);
     final statusIndex = _getStatusIndex(order.status);
+    final isDelivered = order.status == 'delivered';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: cs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: cs.shadow.withOpacity(0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 头部：商品信息
-          _buildOrderHeader(order, category),
-
-          // 分割线
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              height: 1,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    cs.outlineVariant.withOpacity(0.15),
-                    cs.outlineVariant.withOpacity(0.05),
-                  ],
+          // 顶部状态条
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDelivered
+                  ? cs.tertiaryContainer
+                  : cs.primaryContainer,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(14)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isDelivered
+                      ? Icons.check_circle_outline
+                      : Icons.local_shipping_outlined,
+                  color: isDelivered
+                      ? cs.onTertiaryContainer
+                      : cs.onPrimaryContainer,
+                  size: 16,
                 ),
-              ),
+                const SizedBox(width: 6),
+                Text(
+                  _getStatusDetail(order.status)['text'] as String,
+                  style: TextStyle(
+                    color: isDelivered
+                        ? cs.onTertiaryContainer
+                        : cs.onPrimaryContainer,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
-
+          // 头部：商品信息
+          _buildOrderHeader(order, cs),
           // 进度条
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: _buildProgressBar(order, statusIndex),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: _buildProgressBar(order, statusIndex, cs),
           ),
-
           // 当前状态
-          _buildStatusSection(order, category),
-
+          _buildStatusSection(order, cs),
           const SizedBox(height: 12),
         ],
       ),
     );
   }
 
-  Widget _buildOrderHeader(ShopOrder order, String category) {
-    final cs = Theme.of(context).colorScheme;
+  Widget _buildOrderHeader(ShopOrder order, ColorScheme cs) {
     final receiver = order.receiverType == 'ai' ? 'AI' : order.receiverId;
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: Row(
         children: [
           // 商品图标
           Container(
-            width: 52,
-            height: 52,
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
-              color: _getItemColor(order.itemId).withOpacity(0.12),
-              borderRadius: BorderRadius.circular(14),
+              color: cs.secondaryContainer,
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              _getItemIcon(order.itemId),
-              size: 26,
-              color: _getItemColor(order.itemId),
+            child: Center(
+              child: Text(
+                _getItemEmoji(order.itemId),
+                style: const TextStyle(fontSize: 30),
+              ),
             ),
           ),
           const SizedBox(width: 12),
-
           // 商品信息
           Expanded(
             child: Column(
@@ -265,19 +259,34 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  '送给: $receiver  ·  ${order.price}金币',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: cs.onSurfaceVariant,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      '送给 $receiver',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(Icons.savings_outlined, size: 14, color: cs.primary),
+                    const SizedBox(width: 2),
+                    Text(
+                      '${order.price}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
                 ),
                 if (order.message != null && order.message!.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
                     '"${order.message}"',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       color: cs.onSurfaceVariant,
                       fontStyle: FontStyle.italic,
                     ),
@@ -293,8 +302,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
     );
   }
 
-  Widget _buildProgressBar(ShopOrder order, int statusIndex) {
-    final cs = Theme.of(context).colorScheme;
+  Widget _buildProgressBar(ShopOrder order, int statusIndex, ColorScheme cs) {
     const labels = ['下单', '准备', '配送', '送达'];
     final timestamps = [
       _formatTime(order.createdAt),
@@ -311,54 +319,37 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
         return Expanded(
           child: Column(
             children: [
-              // 节点 + 连线
               Row(
                 children: [
                   if (index > 0)
                     Expanded(
                       child: Container(
                         height: 2,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: isCompleted || isCurrent
-                                ? [
-                                    const Color(0xFFF9A825),
-                                    const Color(0xFFF9A825),
-                                  ]
-                                : [
-                                    cs.outlineVariant.withOpacity(0.3),
-                                    cs.outlineVariant.withOpacity(0.2),
-                                  ],
-                          ),
-                        ),
+                        color: isCompleted || isCurrent
+                            ? cs.primary
+                            : cs.outlineVariant,
                       ),
                     ),
-                  // 节点圆点
-                  _buildNode(isCompleted, isCurrent),
+                  _buildNode(isCompleted, isCurrent, cs),
                 ],
               ),
               const SizedBox(height: 6),
-
-              // 标签文字
               Text(
                 labels[index],
                 style: TextStyle(
                   fontSize: 11,
                   color: isCompleted || isCurrent
-                      ? const Color(0xFFF9A825)
+                      ? cs.primary
                       : cs.onSurfaceVariant,
-                  fontWeight:
-                      isCurrent ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
               const SizedBox(height: 2),
-
-              // 时间
               Text(
                 timestamps[index] ?? '',
                 style: TextStyle(
                   fontSize: 9,
-                  color: cs.onSurfaceVariant,
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.7),
                 ),
               ),
             ],
@@ -368,10 +359,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
     );
   }
 
-  Widget _buildNode(bool isCompleted, bool isCurrent) {
-    final cs = Theme.of(context).colorScheme;
+  Widget _buildNode(bool isCompleted, bool isCurrent, ColorScheme cs) {
     if (isCurrent) {
-      return _PulsingNode();
+      return _PulsingNode(color: cs.primary);
     }
 
     return Container(
@@ -379,31 +369,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
       height: 14,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: isCompleted ? const Color(0xFFF9A825) : cs.surface,
+        color: isCompleted ? cs.primary : cs.surface,
         border: Border.all(
-          color: isCompleted
-              ? const Color(0xFFF9A825)
-              : cs.outlineVariant,
+          color: isCompleted ? cs.primary : cs.outlineVariant,
           width: 2,
         ),
       ),
       child: isCompleted
-          ? const Icon(Icons.check, size: 8, color: Colors.white)
+          ? Icon(Icons.check, size: 8, color: cs.onPrimary)
           : null,
     );
   }
 
-  Widget _buildStatusSection(ShopOrder order, String category) {
-    final cs = Theme.of(context).colorScheme;
+  Widget _buildStatusSection(ShopOrder order, ColorScheme cs) {
     final statusInfo = _getStatusDetail(order.status);
-    final bgColor = _getStatusBgColor(order.status, cs);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: bgColor,
+          color: cs.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
@@ -411,26 +397,26 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
             Icon(
               statusInfo['icon'] as IconData,
               size: 18,
-              color: statusInfo['color'] as Color,
+              color: cs.primary,
             ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                statusInfo['text']!,
+                statusInfo['text'] as String,
                 style: TextStyle(
                   fontSize: 13,
-                  color: statusInfo['color'] as Color,
+                  color: cs.onSurface,
                   fontWeight: FontWeight.w500,
                 ),
               ),
             ),
             if (order.status == 'delivered' && order.aiReaction != null)
-              Expanded(
+              Flexible(
                 child: Text(
                   order.aiReaction!,
                   style: TextStyle(
                     fontSize: 12,
-                    color: const Color(0xFF9C27B0).withOpacity(0.8),
+                    color: cs.onSurfaceVariant,
                     fontStyle: FontStyle.italic,
                   ),
                   maxLines: 1,
@@ -441,12 +427,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
         ),
       ),
     );
-  }
-
-  String _getCategory(ShopOrder order) {
-    if (order.itemId.startsWith('food')) return 'food';
-    if (order.itemId.startsWith('express')) return 'express';
-    return 'gift';
   }
 
   int _getStatusIndex(String status) {
@@ -465,161 +445,34 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
   }
 
   Map<String, dynamic> _getStatusDetail(String status) {
-    final cs = Theme.of(context).colorScheme;
     switch (status) {
       case 'pending':
-        return {
-          'icon': Icons.hourglass_top,
-          'text': '等待确认...',
-          'color': const Color(0xFFFF9800),
-        };
+        return {'icon': Icons.hourglass_top, 'text': '等待确认...'};
       case 'preparing':
-        return {
-          'icon': Icons.inventory_2,
-          'text': '正在精心准备中...',
-          'color': const Color(0xFF4CAF50),
-        };
+        return {'icon': Icons.inventory_2_outlined, 'text': '正在精心准备中...'};
       case 'shipping':
-        return {
-          'icon': Icons.local_shipping,
-          'text': '飞速配送中...',
-          'color': const Color(0xFF2196F3),
-        };
+        return {'icon': Icons.local_shipping_outlined, 'text': '正在送往 TA 那里...'};
       case 'delivered':
-        return {
-          'icon': Icons.auto_awesome,
-          'text': '已送达！',
-          'color': const Color(0xFF9C27B0),
-        };
+        return {'icon': Icons.auto_awesome_outlined, 'text': '已送达 TA 手中'};
       default:
-        return {
-          'icon': Icons.help_outline,
-          'text': status,
-          'color': cs.onSurfaceVariant,
-        };
+        return {'icon': Icons.help_outline, 'text': status};
     }
   }
 
-  List<Color> _getCardColors(String category) {
-    final cs = Theme.of(context).colorScheme;
-    switch (category) {
-      case 'food':
-        return [
-          cs.surfaceContainerLow,
-          cs.surfaceContainerLow,
-        ];
-      case 'express':
-        return [
-          cs.surfaceContainerLow,
-          cs.surfaceContainerLow,
-        ];
-      case 'gift':
-      default:
-        return [
-          cs.surfaceContainerLow,
-          cs.surfaceContainerLow,
-        ];
-    }
-  }
-
-  Color _getEmojiBackground(String category) {
-    final cs = Theme.of(context).colorScheme;
-    switch (category) {
-      case 'food':
-        return cs.surfaceContainerLow;
-      case 'express':
-        return cs.surfaceContainerLow;
-      default:
-        return cs.surfaceContainerLow;
-    }
-  }
-
-  IconData _getItemIcon(String itemId) {
-    switch (itemId) {
-      case 'gift_01': return Icons.cake_outlined;
-      case 'gift_02': return Icons.toys_outlined;
-      case 'gift_03': return Icons.local_florist;
-      case 'gift_04': return Icons.cookie_outlined;
-      case 'gift_05': return Icons.diamond_outlined;
-      case 'gift_06': return Icons.auto_stories;
-      case 'gift_07': return Icons.music_note;
-      case 'gift_08': return Icons.local_florist;
-      case 'gift_09': return Icons.blur_circular;
-      case 'gift_10': return Icons.favorite_outline;
-      case 'food_01': return Icons.local_cafe;
-      case 'food_02': return Icons.cake;
-      case 'food_03': return Icons.lunch_dining;
-      case 'food_04': return Icons.soup_kitchen_outlined;
-      case 'food_05': return Icons.set_meal_outlined;
-      case 'food_06': return Icons.icecream_outlined;
-      case 'food_07': return Icons.local_grocery_store;
-      case 'food_08': return Icons.outdoor_grill;
-      case 'food_09': return Icons.local_pizza;
-      case 'food_10': return Icons.ramen_dining;
-      case 'express_01': return Icons.whatshot_outlined;
-      case 'express_02': return Icons.checkroom;
-      case 'express_03': return Icons.menu_book;
-      case 'express_04': return Icons.mail_outline;
-      case 'express_05': return Icons.headphones;
-      case 'express_06': return Icons.local_fire_department_outlined;
-      case 'express_07': return Icons.directions_walk;
-      case 'express_08': return Icons.card_giftcard;
-      case 'express_09': return Icons.nights_stay_outlined;
-      case 'express_10': return Icons.weekend_outlined;
-      default: return Icons.shopping_bag_outlined;
-    }
-  }
-
-  Color _getItemColor(String itemId) {
-    final cs = Theme.of(context).colorScheme;
-    switch (itemId) {
-      case 'gift_01': return Colors.pink;
-      case 'gift_02': return Colors.brown;
-      case 'gift_03': return Colors.red;
-      case 'gift_04': return Colors.brown.shade700;
-      case 'gift_05': return Colors.amber;
-      case 'gift_06': return Colors.orange;
-      case 'gift_07': return Colors.purple;
-      case 'gift_08': return Colors.pinkAccent;
-      case 'gift_09': return Colors.cyan;
-      case 'gift_10': return Colors.redAccent;
-      case 'food_01': return Colors.brown;
-      case 'food_02': return Colors.pink;
-      case 'food_03': return Colors.orange;
-      case 'food_04': return Colors.red;
-      case 'food_05': return Colors.teal;
-      case 'food_06': return Colors.pinkAccent;
-      case 'food_07': return Colors.green;
-      case 'food_08': return Colors.deepOrange;
-      case 'food_09': return Colors.orange;
-      case 'food_10': return Colors.amber;
-      case 'express_01': return Colors.orange;
-      case 'express_02': return Colors.indigo;
-      case 'express_03': return Colors.blue;
-      case 'express_04': return Colors.pink;
-      case 'express_05': return Colors.grey.shade800;
-      case 'express_06': return Colors.amber;
-      case 'express_07': return Colors.brown;
-      case 'express_08': return Colors.purple;
-      case 'express_09': return Colors.indigo;
-      case 'express_10': return Colors.teal;
-      default: return cs.onSurfaceVariant;
-    }
-  }
-
-  Color _getStatusBgColor(String status, ColorScheme cs) {
-    switch (status) {
-      case 'pending':
-        return const Color(0xFFFF9800).withOpacity(0.12);
-      case 'preparing':
-        return const Color(0xFF4CAF50).withOpacity(0.12);
-      case 'shipping':
-        return const Color(0xFF2196F3).withOpacity(0.12);
-      case 'delivered':
-        return const Color(0xFF9C27B0).withOpacity(0.12);
-      default:
-        return cs.onSurfaceVariant.withOpacity(0.1);
-    }
+  String _getItemEmoji(String itemId) {
+    const emojiMap = <String, String>{
+      'gift_01': '🍭', 'gift_02': '🧸', 'gift_03': '🌹', 'gift_04': '🍫',
+      'gift_05': '💎', 'gift_06': '📖', 'gift_07': '🎵', 'gift_08': '🌸',
+      'gift_09': '🔮', 'gift_10': '💕',
+      'food_01': '🧋', 'food_02': '🎂', 'food_03': '🍗', 'food_04': '🍲',
+      'food_05': '🍣', 'food_06': '🍦', 'food_07': '🍎', 'food_08': '🍖',
+      'food_09': '🍕', 'food_10': '🥟',
+      'express_01': '🧤', 'express_02': '🧣', 'express_03': '📚',
+      'express_04': '💌', 'express_05': '🎧', 'express_06': '🕯️',
+      'express_07': '🩴', 'express_08': '🎁', 'express_09': '🌌',
+      'express_10': '🛋️',
+    };
+    return emojiMap[itemId] ?? '🎁';
   }
 
   String? _formatTime(DateTime? time) {
@@ -630,6 +483,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
 
 /// 脉动动画节点 - 当前状态
 class _PulsingNode extends StatefulWidget {
+  final Color color;
+  const _PulsingNode({required this.color});
+
   @override
   State<_PulsingNode> createState() => _PulsingNodeState();
 }
@@ -673,10 +529,10 @@ class _PulsingNodeState extends State<_PulsingNode>
         height: 14,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: const Color(0xFFF9A825),
+          color: widget.color,
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFFF9A825).withOpacity(0.5),
+              color: widget.color.withValues(alpha: 0.5),
               blurRadius: 8,
               spreadRadius: 2,
             ),
