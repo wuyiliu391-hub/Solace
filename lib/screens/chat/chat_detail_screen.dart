@@ -156,16 +156,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return session.novelMode == 1;
   }
 
-  /// 切换当前会话的小说模式（三态循环：跟随全局→开启→关闭→跟随全局）
-  Future<void> _toggleSessionNovelMode() async {
+  /// 切换当前会话的小说模式（显式开/关，不再走「跟随全局」三态）
+  ///
+  /// 旧三态：-1→1→0→-1。当全局小说模式为开且会话为 -1 时，
+  /// 用户点「关」会先变成 1（开），离开再进又因跟随全局再次打开。
+  Future<void> _toggleSessionNovelMode(bool enabled) async {
     final session = _currentSession ?? widget.session;
-    final current = session.novelMode;
-    // -1(跟随全局) → 1(开启) → 0(关闭) → -1(跟随全局)
-    final next = current == -1 ? 1 : (current == 1 ? 0 : -1);
+    final next = enabled ? 1 : 0;
+    if (session.novelMode == next) return;
     final updated = session.copyWith(novelMode: next);
     setState(() => _currentSession = updated);
-    await RepositoryProvider.of<LocalStorageRepository>(context)
-        .saveChatSession(updated);
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    await storage.saveChatSession(updated);
+    // 关闭时同步关掉全局，避免其它入口/历史逻辑仍按全局开判定
+    if (!enabled && storage.isChatStyleNovelModeEnabled()) {
+      await storage.setChatStyleMode(false);
+    }
   }
 
   @override

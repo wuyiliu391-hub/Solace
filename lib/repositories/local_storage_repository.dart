@@ -457,6 +457,8 @@ class LocalStorageRepository {
       'streakDays': 'INTEGER NOT NULL DEFAULT 0',
       'isInFriction': 'INTEGER NOT NULL DEFAULT 0',
       'frictionDaysLeft': 'INTEGER NOT NULL DEFAULT 0',
+      // -1=跟随全局，0=本会话关闭，1=本会话开启
+      'novelMode': 'INTEGER NOT NULL DEFAULT -1',
     },
     'chat_messages': {
       'chatId': 'TEXT NOT NULL DEFAULT ""',

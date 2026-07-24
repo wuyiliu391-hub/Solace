@@ -21,8 +21,8 @@ class ModeControlMiniPanel extends StatelessWidget {
   /// 当前会话小说模式是否开启（从 session.novelMode 读取）
   final bool novelModeEnabled;
 
-  /// 切换当前会话小说模式的回调
-  final VoidCallback? onNovelModeToggle;
+  /// 切换当前会话小说模式的回调（传入目标开关状态）
+  final ValueChanged<bool>? onNovelModeToggle;
 
   const ModeControlMiniPanel({
     super.key,
@@ -131,10 +131,10 @@ class ModeControlMiniPanel extends StatelessWidget {
           novelModeEnabled,
           onNovelModeToggle != null
               ? (v) async {
-                  // 会话级开关，由外部处理切换
-                  onNovelModeToggle!();
+                  // 会话级开关：按 Switch 目标状态写入，避免三态循环误开
+                  onNovelModeToggle!(v);
                   if (!ctx.mounted) return;
-                  final msg = v ? '小说模式已开启（仅本会话）' : '小说模式已关闭（仅本会话）';
+                  final msg = v ? '小说模式已开启（本会话）' : '小说模式已关闭（本会话）';
                   ScaffoldMessenger.of(ctx)
                     ..hideCurrentSnackBar()
                     ..showSnackBar(

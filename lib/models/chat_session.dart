@@ -249,8 +249,22 @@ class ChatSession extends Equatable {
       streakDays: map['streakDays'] as int? ?? 0,
       isInFriction: map['isInFriction'] == 1 || map['isInFriction'] == true,
       frictionDaysLeft: map['frictionDaysLeft'] as int? ?? 0,
-      novelMode: map['novelMode'] as int? ?? -1,
+      novelMode: _parseNovelMode(map['novelMode']),
     );
+  }
+
+  /// SQLite / JSON 可能给出 int / bool / string，统一成 -1/0/1
+  static int _parseNovelMode(dynamic raw) {
+    if (raw == null) return -1;
+    if (raw is int) return raw;
+    if (raw is bool) return raw ? 1 : 0;
+    if (raw is String) {
+      final n = int.tryParse(raw);
+      if (n != null) return n;
+      if (raw == 'true') return 1;
+      if (raw == 'false') return 0;
+    }
+    return -1;
   }
 
   @override
