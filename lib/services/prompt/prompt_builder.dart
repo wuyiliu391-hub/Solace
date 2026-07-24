@@ -1205,6 +1205,9 @@ try {
 
       memoryMode: memoryMode,
 
+      // 默认打开社交记忆层，便于角色间互通
+      includeSocial: !pureAiMode,
+
     );
 
     if (memoryPrompt.isNotEmpty) {
@@ -1217,6 +1220,25 @@ try {
 
     } else {
       debugPrint('AIService: 记忆为空，mode=$memoryMode');
+    }
+
+    // 跨角色互通：用户提到其他真实角色时，注入对方档案/亲密度/记忆
+    if (!pureAiMode && memoryMode != 'off') {
+      try {
+        final cross = await _memoryEngine.buildCrossCharacterContext(
+          speaker: character,
+          userId: userId,
+          userMessage: currentTopic,
+          maxOthers: memoryMode == 'token_saver' ? 1 : 2,
+        );
+        if (cross.isNotEmpty) {
+          debugPrint(
+              'AIService: 跨角色互通注入成功，长度=${cross.length}');
+          buffer.writeln(cross);
+        }
+      } catch (e) {
+        debugPrint('AIService: 跨角色互通注入失败 — $e');
+      }
     }
 
     // v3：记忆→情绪反向通路
