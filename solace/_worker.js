@@ -285,7 +285,6 @@ export default {
       if (path === '/api/v1/download') {
         const serverETag = `"apk-${VERSION_DATA.latestVersion}-${VERSION_DATA.buildNumber}"`;
 
-        // ETag 缓存检查
         const ifNoneMatch = request.headers.get('If-None-Match');
         if (ifNoneMatch === serverETag) {
           return new Response(null, { status: 304 });
@@ -295,15 +294,15 @@ export default {
         const gzRes = await env.ASSETS.fetch(gzReq);
         if (!gzRes.ok) return gzRes;
 
-        const ds = new DecompressionStream('gzip');
-        const streamed = gzRes.body.pipeThrough(ds);
-
+        // 直接返回 gzip 文件，让 CF 自动解压
         const headers = new Headers(COMMON_HEADERS);
         headers.set('Content-Type', 'application/vnd.android.package-archive');
         headers.set('Content-Disposition', `attachment; filename="Solace-${VERSION_DATA.latestVersion}.apk"`);
         headers.set('Cache-Control', 'public, max-age=3600');
         headers.set('ETag', serverETag);
-        return new Response(streamed, { status: 200, headers });
+        // 告知 CF 这是 gzip 压缩流，需要解压后下发
+        headers.set('Content-Encoding', 'gzip');
+        return new Response(gzRes.body, { status: 200, headers });
       }
 
       // ==================== 静态资源处理 ====================
