@@ -12,13 +12,10 @@ import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/memory_engine.dart';
 import '../../services/memory_rebuild_service.dart';
-import '../../widgets/graph/graph_node.dart';
-import '../../widgets/graph/webview_graph_view.dart';
-import '../../widgets/graph/memory_graph_builder.dart';
 
 // ─────────────────────────────────────────────────────────
-// MemoryScreen — 记忆页面完整重构
-// 视觉风格：粉色主题、圆润卡片、热度指示、轻量动画
+// MemoryScreen — 记忆页面（纵向卡片流）
+// 视觉风格：时间轴色条 + 玻璃感卡片，无图谱连线
 // ─────────────────────────────────────────────────────────
 
 class MemoryScreen extends StatefulWidget {
@@ -44,10 +41,6 @@ class _MemoryScreenState extends State<MemoryScreen>
   late String _userId;
   StreamSubscription<MemoryRebuildProgress>? _rebuildSub;
 
-  // 图谱数据
-  List<GraphNode> _graphNodes = [];
-  List<GraphEdge> _graphEdges = [];
-  String? _selectedNodeId;
   Memory? _selectedMemory;
 
   // 缓存分类计数
@@ -208,7 +201,7 @@ class _MemoryScreenState extends State<MemoryScreen>
           .toList();
     }
 
-    // 按重要性+热度排序，取前 N 个防止天文数字记忆卡死
+    // 按重要性+热度排序，取前 N 个防止列表过长卡顿
     filtered.sort((a, b) {
       final scoreA = a.importance.index * 10 + a.weight;
       final scoreB = b.importance.index * 10 + b.weight;
@@ -218,28 +211,12 @@ class _MemoryScreenState extends State<MemoryScreen>
     });
 
     final truncated = filtered.length > _maxGraphNodes;
-
-    // 构建图谱 — 异步避免阻塞 UI
     final selected = filtered.take(_maxGraphNodes).toList();
     
-    // 先更新过滤结果，图谱数据稍后异步推送
     setState(() {
       _filteredMemories = selected;
-      _selectedNodeId = null;
       _selectedMemory = null;
       _truncatedCount = truncated ? filtered.length : null;
-    });
-
-    // 异步构建图谱（不阻塞 UI 线程）
-    Future.microtask(() {
-      final nodes = MemoryGraphBuilder.buildNodes(selected);
-      final edges = MemoryGraphBuilder.buildEdges(nodes, selected, maxEdges: 50);
-      if (mounted) {
-        setState(() {
-          _graphNodes = nodes;
-          _graphEdges = edges;
-        });
-      }
     });
   }
 
@@ -254,19 +231,18 @@ class _MemoryScreenState extends State<MemoryScreen>
     });
   }
 
-  void _onNodeTapped(String nodeId) {
-    final memory = _filteredMemories.where((m) => m.id == nodeId).firstOrNull;
-    setState(() {
-      _selectedNodeId = nodeId;
-      _selectedMemory = memory;
-    });
-  }
-
-  void _onBackgroundTapped() {
-    setState(() {
-      _selectedNodeId = null;
-      _selectedMemory = null;
-    });
+  void _onMemoryTap(Memory memory) {
+    setState(() => _selectedMemory = memory);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return _buildMemoryDetailSheet(cs, isDark);
+      },
+    );
   }
 
   @override
@@ -295,9 +271,7 @@ class _MemoryScreenState extends State<MemoryScreen>
                   ],
                 ),
               ),
-              SliverFillRemaining(
-                child: _buildContent(cs, isDark),
-              ),
+              _buildContent(cs, isDark),
             ],
           ),
         ),
@@ -440,7 +414,7 @@ class _MemoryScreenState extends State<MemoryScreen>
                   ),
                 if (_truncatedCount != null)
                   Text(
-                    '图谱最多显示 200 条（按重要性排序），使用筛选缩小范围',
+                    '最多展示 200 条精选记忆（按重要性排序），使用筛选缩小范围',
                     style: TextStyle(fontSize: 11, color: cs.primary.withOpacity(0.7)),
                   ),
               ],
@@ -1008,42 +982,55 @@ class _MemoryScreenState extends State<MemoryScreen>
   // ── 内容区域 ──
   Widget _buildContent(ColorScheme cs, bool isDark) {
     if (_isLoading) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation(cs.primary),
+      return SliverFillRemaining(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  valueColor: AlwaysStoppedAnimation(cs.primary),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '加载记忆中...',
-              style: TextStyle(
-                fontSize: 14,
-                color: cs.onSurfaceVariant.withOpacity(0.5),
+              const SizedBox(height: 16),
+              Text(
+                '加载记忆中...',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: cs.onSurfaceVariant.withOpacity(0.5),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
 
     if (_filteredMemories.isEmpty) {
-      return _buildEmptyState(cs, isDark);
+      return SliverFillRemaining(child: _buildEmptyState(cs, isDark));
     }
 
-    return WebViewGraphView(
-      key: ValueKey('graph_${isDark ? 'dark' : 'light'}'),
-      nodes: _graphNodes,
-      edges: _graphEdges,
-      isDark: isDark,
-      onNodeTap: _onNodeTapped,
-      onBackgroundTap: _onBackgroundTapped,
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final memory = _filteredMemories[index];
+            return _MemoryCard(
+              memory: memory,
+              typeConfig: _typeConfigs.firstWhere(
+                (c) => c.type == memory.type,
+                orElse: () => _typeConfigs.first,
+              ),
+              onTap: () => _onMemoryTap(memory),
+            );
+          },
+          childCount: _filteredMemories.length,
+        ),
+      ),
     );
   }
 
@@ -1281,11 +1268,22 @@ class _MemoryScreenState extends State<MemoryScreen>
           ),
           const SizedBox(height: 20),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildDetailStat(Icons.favorite_rounded, '\ 度', cs),
-              _buildDetailStat(Icons.touch_app_rounded, '\ 次', cs),
-              _buildDetailStat(Icons.star_rounded, m.importance.name, cs),
+              _buildDetailStat(Icons.star_rounded, m.importance.label, cs),
+              _buildDetailStat(Icons.scale_rounded, '权重 ${m.weight.toStringAsFixed(1)}', cs),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _showEditSheet(m);
+                },
+                icon: const Icon(Icons.edit_rounded, size: 16),
+                label: const Text('编辑'),
+                style: TextButton.styleFrom(
+                  foregroundColor: cs.primary,
+                  textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
             ],
           ),
         ],
@@ -1294,11 +1292,12 @@ class _MemoryScreenState extends State<MemoryScreen>
   }
 
   Widget _buildDetailStat(IconData icon, String label, ColorScheme cs) {
-    return Column(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 18, color: cs.primary.withOpacity(0.6)),
-        const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withOpacity(0.6))),
+        Icon(icon, size: 14, color: cs.primary.withOpacity(0.7)),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant.withOpacity(0.7))),
       ],
     );
   }
@@ -2046,5 +2045,253 @@ extension _MemoryScreenImportance on _MemoryScreenState {
       MemoryImportance.crucial =>
         const _ImportanceConfig(3, '关键', Color(0xFFEF5350)),
     };
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ── 记忆卡片组件 ──
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class _MemoryCard extends StatelessWidget {
+  final Memory memory;
+  final _MemoryTypeConfig typeConfig;
+  final VoidCallback onTap;
+
+  const _MemoryCard({
+    required this.memory,
+    required this.typeConfig,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final typeColor = typeConfig.color ?? cs.primary;
+
+    final now = DateTime.now();
+    final diff = now.difference(memory.createdAt);
+    final timeLabel = _formatRelativeTime(diff);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark
+                    ? cs.outlineVariant.withOpacity(0.3)
+                    : cs.outlineVariant.withOpacity(0.5),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 左侧类型色条
+                Container(
+                  width: 4,
+                  margin: const EdgeInsets.only(top: 12, bottom: 12, left: 0),
+                  decoration: BoxDecoration(
+                    color: typeColor,
+                    borderRadius: const BorderRadius.only(
+                      topRight: Radius.circular(2),
+                      bottomRight: Radius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // 右侧内容
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 12, 14, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 顶行：类型 chip + 时间
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: typeColor.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(typeConfig.icon,
+                                      size: 12, color: typeColor),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    typeConfig.label,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: typeColor,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              timeLabel,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: cs.onSurfaceVariant.withOpacity(0.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        // 正文（最多 4 行）
+                        Text(
+                          memory.content,
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            height: 1.5,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        // 摘要（若有且不同）
+                        if (memory.summary != null &&
+                            memory.summary!.trim().isNotEmpty &&
+                            memory.summary!.trim() != memory.content.trim()) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            memory.summary!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                              color: cs.onSurface.withOpacity(0.6),
+                            ),
+                          ),
+                        ],
+                        // 底行：关键词 + 重要性
+                        if (memory.keywords.isNotEmpty ||
+                            memory.importance != MemoryImportance.normal) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              if (memory.keywords.isNotEmpty)
+                                Expanded(
+                                  child: Wrap(
+                                    spacing: 4,
+                                    runSpacing: 4,
+                                    children: memory.keywords
+                                        .take(3)
+                                        .map(
+                                          (kw) => Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color:
+                                                  typeColor.withOpacity(0.08),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              kw,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: typeColor,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                        .toList()
+                                      ..addAll(memory.keywords.length > 3
+                                          ? [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 2),
+                                                child: Text(
+                                                  '+${memory.keywords.length - 3}',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: cs.onSurfaceVariant
+                                                        .withOpacity(0.5),
+                                                  ),
+                                                ),
+                                              ),
+                                            ]
+                                          : []),
+                                  ),
+                                ),
+                              if (memory.importance !=
+                                  MemoryImportance.normal) ...[
+                                const SizedBox(width: 8),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.star_rounded,
+                                      size: 12,
+                                      color: typeColor.withOpacity(0.7),
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      memory.importance.label,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: typeColor.withOpacity(0.7),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatRelativeTime(Duration diff) {
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
+    if (diff.inHours < 24) return '${diff.inHours} 小时前';
+    if (diff.inDays < 7) return '${diff.inDays} 天前';
+    if (diff.inDays < 30) return '${(diff.inDays / 7).floor()} 周前';
+    if (diff.inDays < 365) return '${(diff.inDays / 30).floor()} 个月前';
+    return '${(diff.inDays / 365).floor()} 年前';
+  }
+}
+
+extension on MemoryImportance {
+  String get label {
+    switch (this) {
+      case MemoryImportance.crucial:
+        return '关键';
+      case MemoryImportance.important:
+        return '重要';
+      case MemoryImportance.normal:
+        return '普通';
+      case MemoryImportance.trivial:
+        return '次要';
+    }
   }
 }
