@@ -1222,14 +1222,16 @@ try {
       debugPrint('AIService: 记忆为空，mode=$memoryMode');
     }
 
-    // 跨角色互通：用户提到其他真实角色时，注入对方档案/亲密度/记忆
+    // 跨角色互通：用户提到 1~N 个真实角色时，注入档案/亲密度/记忆（多方压缩）
     if (!pureAiMode && memoryMode != 'off') {
       try {
         final cross = await _memoryEngine.buildCrossCharacterContext(
           speaker: character,
           userId: userId,
           userMessage: currentTopic,
-          maxOthers: memoryMode == 'token_saver' ? 1 : 2,
+          maxOthers: memoryMode == 'token_saver'
+              ? MemoryEngine.maxCrossCharactersTokenSaver
+              : MemoryEngine.maxCrossCharactersFull,
         );
         if (cross.isNotEmpty) {
           debugPrint(

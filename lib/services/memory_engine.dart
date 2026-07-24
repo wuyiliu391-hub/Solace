@@ -2063,10 +2063,17 @@ ${userMessages.join('\n')}
 
   // ===================== 跨角色互通 =====================
 
-  /// 从用户消息中识别提到的其他角色（按名称/别名最长匹配）
+  /// 单轮最多识别/注入的其他角色数（full 模式）
+  static const int maxCrossCharactersFull = 5;
+
+  /// token 节省模式最多注入数
+  static const int maxCrossCharactersTokenSaver = 2;
+
+  /// 从用户消息中识别提到的其他角色（按名称/别名最长匹配，再按出现顺序）
   Future<List<AICharacter>> resolveMentionedCharacters({
     required String text,
     required String currentCharacterId,
+    int maxHits = maxCrossCharactersFull,
   }) async {
     final raw = text.trim();
     if (raw.isEmpty) return const [];
@@ -2094,44 +2101,83 @@ ${userMessages.join('\n')}
     // 长名优先，避免「小明」抢「小明明」
     candidates.sort((a, b) => b.len.compareTo(a.len));
 
-    final hitIds = <String>{};
-    final hits = <AICharacter>[];
+    // 记录每个角色最早出现位置，便于按用户提及顺序排序
+    final firstPos = <String, int>{};
+    final byId = <String, AICharacter>{};
     final lowerRaw = raw.toLowerCase();
     for (final item in candidates) {
-      if (hitIds.contains(item.c.id)) continue;
+      if (byId.containsKey(item.c.id)) continue;
       final alias = item.alias;
-      final matched = raw.contains(alias) ||
-          lowerRaw.contains(alias.toLowerCase());
-      if (!matched) continue;
-      hitIds.add(item.c.id);
-      hits.add(item.c);
-      if (hits.length >= 3) break; // 单轮最多互通 3 个角色，控 token
+      var idx = raw.indexOf(alias);
+      if (idx < 0) {
+        idx = lowerRaw.indexOf(alias.toLowerCase());
+      }
+      if (idx < 0) continue;
+      byId[item.c.id] = item.c;
+      firstPos[item.c.id] = idx;
+    }
+
+    final ordered = byId.keys.toList()
+      ..sort((a, b) => (firstPos[a] ?? 0).compareTo(firstPos[b] ?? 0));
+
+    final hits = <AICharacter>[];
+    for (final id in ordered) {
+      hits.add(byId[id]!);
+      if (hits.length >= maxHits) break;
     }
     return hits;
   }
 
   /// 构建「用户提到其他角色」时的真实互通上下文。
+  /// 支持 1~N 个角色：多角色时自动压缩单人档案，并附多方关系速览。
   /// 只注入真实存在的角色数据与记忆，禁止模型另编一个同名路人。
   Future<String> buildCrossCharacterContext({
     required AICharacter speaker,
     required String userId,
     required String userMessage,
-    int maxOthers = 2,
+    int maxOthers = maxCrossCharactersFull,
   }) async {
     final mentioned = await resolveMentionedCharacters(
       text: userMessage,
       currentCharacterId: speaker.id,
+      maxHits: maxOthers,
     );
     if (mentioned.isEmpty) return '';
 
+    final multi = mentioned.length >= 2;
+    // 多角色时压缩每人细节，避免 prompt 爆炸
+    final memLimit = multi ? (mentioned.length >= 4 ? 2 : 3) : 5;
+    final socialLimit = multi ? 2 : 4;
+    final personalityLen = multi ? 40 : 80;
+    final lastMsgLen = multi ? 40 : 60;
+
     final buffer = StringBuffer();
     buffer.writeln('\n【跨角色互通 — 真实角色档案（禁止编造）】');
-    buffer.writeln(
-        '用户提到了以下你认识的真实角色。这些是同一个世界里的既有角色，不是路人，也不是新编角色。');
+    if (multi) {
+      buffer.writeln(
+          '用户本轮提到了 ${mentioned.length} 个真实角色：${mentioned.map((c) => c.name).join('、')}。');
+      buffer.writeln('这是多方关系语境，不是一对一闲聊。');
+    } else {
+      buffer.writeln(
+          '用户提到了以下你认识的真实角色。这些是同一个世界里的既有角色，不是路人，也不是新编角色。');
+    }
     buffer.writeln('规则：');
     buffer.writeln('1. 只能使用下列档案与记忆中的事实，禁止另编姓名、关系、经历。');
     buffer.writeln('2. 若档案里没有某细节，就承认不清楚，不要脑补。');
     buffer.writeln('3. 你是${speaker.name}，用你自己的视角谈对方，不要变成对方本人。');
+    if (multi) {
+      buffer.writeln('4. 多人同时出现时：分别对齐每人与用户的真实关系，不要张冠李戴。');
+      buffer.writeln('5. 不要把 B 的记忆安到 C 头上；谈「我们几个」时按各自亲密度与事实回应。');
+    }
+
+    // 预取 speaker 社交记忆，多方复用
+    List<Memory> speakerSocial = const [];
+    try {
+      speakerSocial = await loadSocialMemories(speaker.id);
+    } catch (_) {}
+
+    // 收集多方速览行
+    final rosterLines = <String>[];
 
     var count = 0;
     for (final other in mentioned) {
@@ -2146,7 +2192,9 @@ ${userMessages.join('\n')}
         final sessions =
             await _storage.getChatSessionsByCharacterId(other.id);
         final mine = sessions.where((s) => s.userId == userId).toList();
-        final session = mine.isNotEmpty ? mine.first : (sessions.isNotEmpty ? sessions.first : null);
+        final session = mine.isNotEmpty
+            ? mine.first
+            : (sessions.isNotEmpty ? sessions.first : null);
         if (session != null) {
           intimacy = session.intimacyLevel;
           lastMessage = session.lastMessage;
@@ -2157,6 +2205,9 @@ ${userMessages.join('\n')}
       }
 
       final relation = _intimacyRelationLabel(intimacy);
+      rosterLines.add(
+          '${other.name}（用户关系：$relation，$intimacy/100）');
+
       buffer.writeln('');
       buffer.writeln('── 角色：${other.name} ──');
       buffer.writeln('- 身份：真实存在的 AI 角色（id 已绑定，不可替换）');
@@ -2166,7 +2217,7 @@ ${userMessages.join('\n')}
       if ((other.personality).trim().isNotEmpty) {
         final p = other.personality.trim();
         buffer.writeln(
-            '- 性格要点：${p.length > 80 ? '${p.substring(0, 80)}…' : p}');
+            '- 性格要点：${p.length > personalityLen ? '${p.substring(0, personalityLen)}…' : p}');
       }
       if ((other.userNickname ?? '').trim().isNotEmpty) {
         buffer.writeln('- 对方对用户的称呼：${other.userNickname}');
@@ -2174,7 +2225,8 @@ ${userMessages.join('\n')}
       buffer.writeln('- 用户与${other.name}的关系：$relation（亲密度 $intimacy/100）');
       if (lastMessage != null && lastMessage.trim().isNotEmpty) {
         final lm = lastMessage.trim();
-        final snippet = lm.length > 60 ? '${lm.substring(0, 60)}…' : lm;
+        final snippet =
+            lm.length > lastMsgLen ? '${lm.substring(0, lastMsgLen)}…' : lm;
         final when = lastTime != null
             ? '${lastTime.month}/${lastTime.day} ${lastTime.hour.toString().padLeft(2, '0')}:${lastTime.minute.toString().padLeft(2, '0')}'
             : '';
@@ -2187,7 +2239,7 @@ ${userMessages.join('\n')}
         final mems = await _storage.getMemories(
           characterId: other.id,
           userId: userId,
-          limit: 12,
+          limit: multi ? 8 : 12,
         );
         final picks = <String>[];
         for (final m in mems) {
@@ -2196,7 +2248,7 @@ ${userMessages.join('\n')}
           if (c.isEmpty) continue;
           if (looksLikeBtAgentPayload(c)) continue;
           picks.add(c.length > 70 ? '${c.substring(0, 70)}…' : c);
-          if (picks.length >= 5) break;
+          if (picks.length >= memLimit) break;
         }
         if (picks.isNotEmpty) {
           buffer.writeln('- ${other.name}与用户相关的真实记忆：');
@@ -2212,14 +2264,13 @@ ${userMessages.join('\n')}
 
       // speaker 与 other 的社交记忆（若有）
       try {
-        final social = await loadSocialMemories(speaker.id);
-        final related = social
+        final related = speakerSocial
             .where((m) =>
                 m.userId == other.id ||
                 m.content.contains(other.name) ||
                 ((other.userAlias ?? '').isNotEmpty &&
                     m.content.contains(other.userAlias!)))
-            .take(4)
+            .take(socialLimit)
             .toList();
         if (related.isNotEmpty) {
           buffer.writeln('- 你（${speaker.name}）与${other.name}之间的社交记忆：');
@@ -2233,6 +2284,24 @@ ${userMessages.join('\n')}
       } catch (e) {
         debugPrint('cross-char social memories failed: $e');
       }
+    }
+
+    // 多方关系速览 + 点名未展开的提示
+    if (multi) {
+      buffer.writeln('');
+      buffer.writeln('【多方关系速览】');
+      buffer.writeln('- 说话人：${speaker.name}');
+      for (final line in rosterLines) {
+        buffer.writeln('- $line');
+      }
+      buffer.writeln(
+          '- 用户同时谈及多人时：先对齐各自关系，再回应群体事件；禁止把所有人当成同一种关系。');
+    }
+
+    // 若消息里像还点了更多名字但被截断
+    if (mentioned.length >= maxOthers) {
+      buffer.writeln(
+          '- 提示：本轮已注入 $maxOthers 个角色档案；若用户还提到其他人，只承认名字存在，不编造细节。');
     }
 
     buffer.writeln('');
