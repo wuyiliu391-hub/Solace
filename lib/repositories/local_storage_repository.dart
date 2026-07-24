@@ -3844,6 +3844,25 @@ class LocalStorageRepository {
     return _prefs?.getBool(PrefKeys.daoModeEnabled) ?? false;
   }
 
+  /// 虚拟手机桌面壳（主界面）。未设置过时默认 false（使用经典底部导航）。
+  bool isPhoneDesktopShellEnabled() {
+    return _prefs?.getBool(PrefKeys.phoneDesktopShell) ?? false;
+  }
+
+  Future<void> setPhoneDesktopShellEnabled(bool enabled) async {
+    await _prefs?.setBool(PrefKeys.phoneDesktopShell, enabled);
+    modeSettingsNotifier.value++;
+  }
+
+  String getPhoneWallpaperThemeId() {
+    return _prefs?.getString(PrefKeys.phoneWallpaperTheme) ?? 'dawn';
+  }
+
+  Future<void> setPhoneWallpaperThemeId(String id) async {
+    await _prefs?.setString(PrefKeys.phoneWallpaperTheme, id);
+    modeSettingsNotifier.value++;
+  }
+
   Future<void> setChatStyleMode(bool enabled) async {
     await _prefs?.setBool(PrefKeys.chatStyleMode, enabled);
     modeSettingsNotifier.value++;
