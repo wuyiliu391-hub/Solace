@@ -40,11 +40,15 @@
 html { scroll-behavior: smooth; }
 body {
   font-family: var(--font);
+  font-size: 16px;
   background: var(--snow);
   color: var(--ink);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
+
+/* 全局 SVG 尺寸保护 — 防止无尺寸 SVG 巨大化 */
+svg { max-width: 100%; max-height: 100%; }
 
 ::selection { background: var(--lavender); color: var(--pure); }
 
@@ -223,6 +227,7 @@ body {
   max-width: 1200px; width: 100%;
   display: grid; grid-template-columns: 1fr 1fr;
   gap: 80px; align-items: center;
+  position: relative; z-index: 1;
 }
 
 .section-label {
@@ -273,7 +278,8 @@ body {
 .feature-item h4 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
 .feature-item p { font-size: 14px; color: var(--stone); line-height: 1.7; margin: 0; }
 
-/* 视觉区 — 3D 悬浮元素 */
+.section-content.reverse { direction: rtl; }
+.section-content.reverse > * { direction: ltr; }
 .visual-area {
   position: relative; display: flex; align-items: center; justify-content: center;
   min-height: 500px;
@@ -304,7 +310,7 @@ body {
 .device-3d:hover { transform: perspective(1000px) rotateY(-4deg) rotateX(2deg) scale(1.02); }
 
 .device-3d::before {
-  content: ''; position: absolute; inset: 0;
+  content: ''; position: absolute; inset: 0; left: -100%;
   background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.4) 50%, transparent 60%);
   animation: shine-sweep 4s ease-in-out infinite;
 }
