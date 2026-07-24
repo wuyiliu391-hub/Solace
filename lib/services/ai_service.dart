@@ -1681,13 +1681,17 @@ class AIService {
       }
     }
 
-    final historyContextLimit =
-        isCompactContextModel ? 12 : Limit.chatHistoryContext;
-    final recentMessages = chatHistory.length > historyContextLimit
-        ? chatHistory.sublist(chatHistory.length - historyContextLimit)
-        : chatHistory;
-
-    final filteredMessages = recentMessages.where((m) {
+    final historyContextLimit = isCompactContextModel
+        ? Limit.chatHistoryContextCompact
+        : Limit.chatHistoryContext;
+    // 先过滤无效消息，再截最近 N 条，避免 hidden/系统消息挤占上下文配额
+    final usableHistory = chatHistory.where((m) {
+      if (m.isHidden || m.isGhost || m.isSystem) return false;
+      if (m.senderId == 'system' ||
+          m.senderId == 'system_risk' ||
+          m.senderId == 'system_tool') {
+        return false;
+      }
       if (m.isFromAI &&
           m.metadata != null &&
           m.metadata!['isProactive'] == true) {
@@ -1712,8 +1716,15 @@ class AIService {
       if (MessageSanitizer.isLikelyUnreadableGibberish(m.content)) {
         return false;
       }
+      final text = m.content.trim();
+      if (text.isEmpty) return false;
       return true;
     }).toList();
+
+    final recentMessages = usableHistory.length > historyContextLimit
+        ? usableHistory.sublist(usableHistory.length - historyContextLimit)
+        : usableHistory;
+    final filteredMessages = recentMessages;
 
     final lastMsg = filteredMessages.isNotEmpty ? filteredMessages.last : null;
     final needAppendUserMessage = lastMsg == null ||
@@ -1734,6 +1745,18 @@ class AIService {
             '【风格重置】当前已开启小说模式。以下历史对话仅提供事实连续性，不作为回复长度或格式的参考。即使历史中多为短句，你也必须使用完整小说叙事风格回复。',
       });
     }
+
+    // 连续性铁律：有历史时禁止“失忆式”开场
+    if (!pureAiModeEarly && filteredMessages.isNotEmpty) {
+      messages.add({
+        'role': 'system',
+        'content':
+            '【对话连续性】你与用户已有进行中的对话，不是初次见面。'
+            '必须承接以下历史消息中的人物关系、已确认事实、称呼、约定与当前话题。'
+            '禁止说“不认识你/第一次聊天/你是谁/我们刚认识”。'
+            '若某细节不在近期历史中，可依据记忆段落推断，但不要否认已知事实。',
+      });
+    }
     for (final msg in filteredMessages) {
       // 语音消息：用 metadata 中的原始文本替代文件路径，防止 AI 复读路径
       String content = msg.content;
@@ -1751,7 +1774,8 @@ class AIService {
         if (config != null && BuiltInAIProviders.isGlmZ19B(config.id, config.modelName)) {
           // 不截断，保留完整 AI 回复
         } else {
-          final maxAiLen = novelModeEarly ? 600 : 400;
+          // 过短截断会丢掉关键事实（约定/称呼/剧情），放大“失忆”感
+          final maxAiLen = novelModeEarly ? 1200 : 800;
           if (content.length > maxAiLen) {
             content = '${content.substring(0, maxAiLen)}…';
           }

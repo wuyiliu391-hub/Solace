@@ -354,21 +354,19 @@ class PureAIService {
       });
     }
 
-    // 加载聊天历史
-    final recentMessages = chatHistory.length > Limit.chatHistoryContext
-        ? chatHistory.sublist(chatHistory.length - Limit.chatHistoryContext)
-        : chatHistory;
-
-    // 过滤系统指令和乱码污染消息，防止旧失败兜底进入 prompt
-    final filteredMessages = recentMessages.where((m) {
+    // 先过滤再截断，避免无效消息挤占上下文
+    final usableHistory = chatHistory.where((m) {
       if (m.metadata != null && m.metadata!['isSystemDirective'] == true) {
         return false;
       }
       if (MessageSanitizer.isLikelyUnreadableGibberish(m.content)) {
         return false;
       }
-      return true;
+      return m.content.trim().isNotEmpty;
     }).toList();
+    final filteredMessages = usableHistory.length > Limit.chatHistoryContext
+        ? usableHistory.sublist(usableHistory.length - Limit.chatHistoryContext)
+        : usableHistory;
 
     for (final msg in filteredMessages) {
       messages.add({

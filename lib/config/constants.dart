@@ -335,12 +335,17 @@ class PrefKeys {
 class Limit {
   Limit._();
 
-  static const int memoryFetch = 20;
+  static const int memoryFetch = 40;
   static const int profileMemory = 50;
   static const int similarMemory = 30;
-  static const int chatHistoryContext = 30;
-  static const int relevantMemoriesPrompt = 8;
-  static const int memoriesFallback = 8;
+  /// 发给模型的最近对话条数（过小会表现为“失忆”）
+  static const int chatHistoryContext = 60;
+  /// 精简模型的历史条数（小模型也需足够连贯）
+  static const int chatHistoryContextCompact = 28;
+  /// 读库时为 AI 准备的消息上限（应 ≥ chatHistoryContext）
+  static const int chatHistoryLoadForAI = 120;
+  static const int relevantMemoriesPrompt = 12;
+  static const int memoriesFallback = 12;
   static const int preferencesMax = 8;
   static const int eventsMax = 5;
   static const int emotionsMax = 5;

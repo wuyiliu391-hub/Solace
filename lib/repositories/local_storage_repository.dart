@@ -3168,13 +3168,11 @@ class LocalStorageRepository {
           }
         }
       }
-      messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      if (offset > 0 || limit < messages.length) {
-        final start = offset.clamp(0, messages.length);
-        final end = (offset + limit).clamp(0, messages.length);
-        return messages.sublist(start, end);
-      }
-      return messages;
+      // 与 SQLite 一致：先取最新 limit 条，再按时间正序返回
+      messages.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final page = messages.skip(offset).take(limit).toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      return page;
     } else {
       try {
         final db = await _ensureDb();

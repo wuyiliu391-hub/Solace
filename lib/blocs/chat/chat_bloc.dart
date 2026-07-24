@@ -572,8 +572,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     if (validMessages.length < 2) return '';
 
-    final recent = validMessages.length > 14
-        ? validMessages.sublist(validMessages.length - 14)
+    final recent = validMessages.length > 24
+        ? validMessages.sublist(validMessages.length - 24)
         : validMessages;
     final facts = <String>[];
 
@@ -1948,6 +1948,28 @@ $tail
 
     // 确认会发起 AI 请求后再显示「等待中」
     emit(ChatAITyping(messages, character.name));
+
+    // 为 AI 额外拉一截更长历史，避免 UI 默认 50 条截断导致“失忆”
+    try {
+      final aiHistory = await _storage.getChatMessages(
+        event.chatId,
+        limit: Limit.chatHistoryLoadForAI,
+      );
+      if (aiHistory.length > messages.length) {
+        messages = aiHistory;
+        // 确保刚发送的用户消息仍在列表中
+        if (!messages.any((m) => m.id == userMsg.id)) {
+          messages = [...messages, userMsg]
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        }
+      }
+    } catch (e) {
+      LogService.instance.w(
+        'Bloc',
+        '加载 AI 历史失败，回退当前列表: $e',
+        chatId: event.chatId,
+      );
+    }
 
     final memories = await _storage.getMemories(
       characterId: character.id,
