@@ -31,11 +31,11 @@ void callbackDispatcher() {
     try {
       switch (taskName) {
         case bgTaskMomentPost:
-          return await _handleMomentPost(inputData);
+          return await handleMomentPostTask(inputData);
         case bgTaskCommentReply:
-          return await _handleCommentReply(inputData);
+          return await handleCommentReplyTask(inputData);
         case bgTaskMomentInteract:
-          return await _handleMomentInteract(inputData);
+          return await handleMomentInteractTask(inputData);
         case bgTaskLetter:
           return await _handleLetterPost(inputData);
         case bgTaskName:
@@ -48,6 +48,18 @@ void callbackDispatcher() {
     }
   });
 }
+
+/// 前台兜底 / 测试入口：角色主动发动态
+Future<bool> handleMomentPostTask(Map<String, dynamic>? inputData) =>
+    _handleMomentPost(inputData);
+
+/// 前台兜底：角色回复评论
+Future<bool> handleCommentReplyTask(Map<String, dynamic>? inputData) =>
+    _handleCommentReply(inputData);
+
+/// 前台兜底：角色互动用户动态
+Future<bool> handleMomentInteractTask(Map<String, dynamic>? inputData) =>
+    _handleMomentInteract(inputData);
 
 // ─── Shared helpers ───
 
@@ -1922,6 +1934,8 @@ String _buildMomentPrompt({
     timeContext = '夜晚（$hour点左右）';
   }
 
+  final lifestyleHint = _lifestyleHintForHour(hour, personality);
+
   final buf = StringBuffer();
   buf.writeln('你是$name，现在想发一条朋友圈动态。');
   buf.writeln('你的性格：$personality');
@@ -1929,8 +1943,9 @@ String _buildMomentPrompt({
   buf.writeln('你的说话风格：$languageStyle');
   if (userNickname.isNotEmpty) buf.writeln('你对用户的称呼：$userNickname');
   if (catchphrases.isNotEmpty) buf.writeln('你的口头禅：$catchphrases');
-  if (backgroundStory.isNotEmpty) buf.writeln('你的经历：$backgroundStory');
+  if (backgroundStory.isNotEmpty) buf.writeln('你的经历/人设背景：$backgroundStory');
   buf.writeln('当前时间：$timeContext');
+  buf.writeln('生活规律参考：$lifestyleHint');
   buf.writeln('关系亲密度：$intimacyLevel/100');
 
   if (recentContext.isNotEmpty) {
@@ -1942,13 +1957,52 @@ String _buildMomentPrompt({
 
   buf.writeln('''
 要求：
-1. 完全以你的性格和当前心情来决定发什么，像真人发朋友圈想到什么发什么
-2. 内容要自然、真实，可以分享心情、日常、感悟、吐槽、看到的东西
-3. 1-3句话，用口语化表达
-4. 不要用括号描写动作或情绪
+1. 结合你的人设、生活规律和当前时段决定发什么，像真人随手发
+2. 内容自然真实：日常、心情、工作/学习间隙、见闻、吐槽、小感悟都可以
+3. 可隐约呼应最近聊天或记忆，但不要写成私聊复述，也不要直呼系统设定
+4. 1-3句话，口语化；不要用括号描写动作或情绪
 5. 只输出动态内容本身''');
 
   return buf.toString();
+}
+
+String _lifestyleHintForHour(int hour, String personality) {
+  final p = personality.toLowerCase();
+  final nightOwl = p.contains('夜猫') ||
+      p.contains('熬夜') ||
+      p.contains('夜') ||
+      p.contains('程序员') ||
+      p.contains('创作');
+  final earlyBird = p.contains('早起') ||
+      p.contains('健身') ||
+      p.contains('自律') ||
+      p.contains('运动');
+
+  if (hour >= 5 && hour < 9) {
+    return earlyBird
+        ? '清晨作息：可能刚起床/晨跑/洗漱准备出门'
+        : '清晨：可能刚醒、赖床、通勤路上';
+  }
+  if (hour >= 9 && hour < 12) {
+    return '上午：工作/学习/出门办事的节奏';
+  }
+  if (hour >= 12 && hour < 14) {
+    return '午间：吃饭、休息、刷手机';
+  }
+  if (hour >= 14 && hour < 18) {
+    return '下午：继续忙碌或摸鱼、喝下午茶';
+  }
+  if (hour >= 18 && hour < 21) {
+    return '傍晚：下班/放学、回家、晚饭、散步';
+  }
+  if (hour >= 21 && hour < 24) {
+    return nightOwl
+        ? '夜晚：仍在活动/创作/打游戏，适合碎碎念'
+        : '夜晚：放松、洗漱、准备休息';
+  }
+  return nightOwl
+      ? '深夜：夜猫子仍可能清醒，语气可偏安静或疲惫'
+      : '深夜：多数人该睡了，若发动态应偏简短、困倦';
 }
 
 // ─── Handler: AI 回复用户评论 ───
@@ -1998,17 +2052,29 @@ Future<bool> _handleCommentReply(Map<String, dynamic>? inputData) async {
     }
     if (targetComment == null) return false;
 
-    // 检查是否已有 AI 回复（防重复）
+    // 防重复：仅跳过「已对同一条 commentId 回复过」的情况，允许多轮互评
     final targetUserId = targetComment['userId'] as String? ?? '';
     final targetUserName = targetComment['userName'] as String? ?? '';
     for (final c in comments) {
       final comment = c as Map<String, dynamic>;
       if (comment['userId'] == characterId &&
-          comment['replyToUserId'] == targetUserId &&
-          comment['replyToUserName'] == targetUserName) {
-        debugPrint('AI 已回复过此评论，跳过');
+          comment['replyToCommentId'] == commentId) {
+        debugPrint('AI 已回复过该条评论($commentId)，跳过');
         return true;
       }
+    }
+    // 同一用户连发时：若最近 2 分钟内已回过同一用户，短暂冷却
+    final now = DateTime.now();
+    for (final c in comments.reversed) {
+      final comment = c as Map<String, dynamic>;
+      if (comment['userId'] != characterId) continue;
+      if (comment['replyToUserId'] != targetUserId) continue;
+      final created = DateTime.tryParse(comment['createdAt'] as String? ?? '');
+      if (created != null && now.difference(created).inMinutes < 2) {
+        debugPrint('AI 近期已回复过该用户，冷却中');
+        return true;
+      }
+      break;
     }
 
     // 获取角色信息
@@ -2051,13 +2117,14 @@ Future<bool> _handleCommentReply(Map<String, dynamic>? inputData) async {
 
     if (replyContent.isEmpty) return false;
 
-    // 添加回复
+    // 添加回复（带 replyToCommentId 支持多轮线程）
     final reply = {
       'id': 'comment_${DateTime.now().millisecondsSinceEpoch}_ai',
       'userId': characterId,
       'userName': charName,
       'replyToUserId': targetUserId,
       'replyToUserName': targetUserName,
+      'replyToCommentId': commentId,
       'content': replyContent,
       'createdAt': DateTime.now().toIso8601String(),
     };
@@ -2109,7 +2176,7 @@ String _buildCommentPrompt({
     intimacyTone = '不太熟悉，保持客气';
   }
 
-  return '''你是$characterName，看到了${userNickname.isNotEmpty ? userNickname : commenterName}在你的朋友圈下的评论。
+  return '''你是$characterName，正在和${userNickname.isNotEmpty ? userNickname : commenterName}在朋友圈评论区聊天（可多轮继续聊）。
 
 你的性格：$personality
 ${immutableAnchor.isNotEmpty ? '你的不可变身份锚点：$immutableAnchor' : ''}
@@ -2117,13 +2184,13 @@ ${immutableAnchor.isNotEmpty ? '你的不可变身份锚点：$immutableAnchor' 
 ${catchphrases.isNotEmpty ? '你的口头禅：$catchphrases' : ''}
 关系亲密度：$intimacyLevel/100（$intimacyTone）
 
-你的朋友圈内容："$momentContent"
-$commenterName的评论："$commentContent"
+相关动态："$momentContent"
+对方最新评论："$commentContent"
 
 请回复这条评论，要求：
-1. 以你的性格和与对方的关系来回复
-2. 自然真诚，1-2句话
-3. 要引用评论的具体内容来回复，不要泛泛而谈
+1. 以你的性格和与对方的关系来回复，像真人回评论
+2. 自然真诚，1-2句话，可接话、反问、调侃，推动多轮
+3. 要引用评论的具体内容，不要泛泛而谈
 4. 不要用括号描写动作或情绪
 5. 只输出回复内容''';
 }

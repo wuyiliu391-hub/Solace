@@ -22,3 +22,7 @@ Future<void> scheduleMomentInteractionTask({
 Future<void> scheduleLetterTask() async {
   debugPrint('Web 平台不支持 WorkManager，跳过 AI 来信后台调度');
 }
+
+Future<void> scheduleMomentPostTask() async {
+  debugPrint('Web 平台不支持 WorkManager，跳过 AI 朋友圈周期任务');
+}

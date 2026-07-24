@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -5,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../models/moment.dart';
 import '../../repositories/local_storage_repository.dart';
+import '../../services/moment_interaction_service.dart';
 
 
 class MomentDetailScreen extends StatefulWidget {
@@ -61,12 +63,13 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
     await _refresh();
   }
 
-  void _showCommentDialog() async {
+  void _showCommentDialog({MomentComment? replyTo}) async {
     if (_moment.source != MomentSource.normal) return;
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthAuthenticated) return;
     final user = authState.user;
     final textController = TextEditingController();
+    final hint = replyTo == null ? '评论...' : '回复 ${replyTo.userName}...';
 
     final result = await showModalBottomSheet<bool>(
       context: context,
@@ -100,7 +103,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
                     controller: textController,
                     autofocus: true,
                     decoration: InputDecoration(
-                      hintText: '评论...',
+                      hintText: hint,
                       filled: true,
                       fillColor: Colors.grey[100],
                       border: OutlineInputBorder(
@@ -150,6 +153,8 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
         id: 'comment_${DateTime.now().millisecondsSinceEpoch}',
         userId: user.id,
         userName: user.nickname,
+        replyToUserId: replyTo?.userId,
+        replyToUserName: replyTo?.userName,
         content: textController.text.trim(),
         createdAt: DateTime.now(),
       );
@@ -158,6 +163,13 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
         comments: [..._moment.comments, comment],
       );
       await storage.saveMoment(updatedMoment);
+
+      unawaited(MomentInteractionService.instance.onUserCommented(
+        storage: storage,
+        moment: updatedMoment,
+        comment: comment,
+        userId: user.id,
+      ));
 
       await _refresh();
     } catch (e) {
@@ -421,35 +433,38 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: _moment.comments.map((comment) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: RichText(
-            text: TextSpan(
-              style: TextStyle(
-                  fontSize: 14,
-                  color: colorScheme.onSurface.withOpacity(0.85),
-                  height: 1.4),
-              children: [
-                TextSpan(
-                  text: comment.userName,
-                  style: TextStyle(
-                      color: colorScheme.primary.withOpacity(0.9),
-                      fontWeight: FontWeight.w500),
-                ),
-                if (comment.replyToUserName != null) ...[
+        return InkWell(
+          onTap: () => _showCommentDialog(replyTo: comment),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: RichText(
+              text: TextSpan(
+                style: TextStyle(
+                    fontSize: 14,
+                    color: colorScheme.onSurface.withOpacity(0.85),
+                    height: 1.4),
+                children: [
                   TextSpan(
-                      text: ' 回复 ',
-                      style: TextStyle(
-                          color: colorScheme.onSurface.withOpacity(0.6))),
-                  TextSpan(
-                    text: comment.replyToUserName,
+                    text: comment.userName,
                     style: TextStyle(
                         color: colorScheme.primary.withOpacity(0.9),
                         fontWeight: FontWeight.w500),
                   ),
+                  if (comment.replyToUserName != null) ...[
+                    TextSpan(
+                        text: ' 回复 ',
+                        style: TextStyle(
+                            color: colorScheme.onSurface.withOpacity(0.6))),
+                    TextSpan(
+                      text: comment.replyToUserName,
+                      style: TextStyle(
+                          color: colorScheme.primary.withOpacity(0.9),
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                  TextSpan(text: '：${comment.content}'),
                 ],
-                TextSpan(text: '：${comment.content}'),
-              ],
+              ),
             ),
           ),
         );

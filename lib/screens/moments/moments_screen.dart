@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -7,6 +8,8 @@ import '../../blocs/auth/auth_bloc.dart';
 import '../../models/moment.dart';
 import '../../repositories/local_storage_repository.dart';
 
+import '../../services/background_service.dart';
+import '../../services/moment_interaction_service.dart';
 import '../../services/permission_service.dart';
 import '../../widgets/safe_widget.dart';
 import 'create_moment_screen.dart';
@@ -70,8 +73,16 @@ class _MomentsScreenState extends State<MomentsScreen> {
   }
 
   Future<void> _triggerAIMoments(LocalStorageRepository storage) async {
-    // AI moment service has been removed
-    _isTriggeringAI = false;
+    if (_isTriggeringAI) return;
+    _isTriggeringAI = true;
+    try {
+      // 打开朋友圈时轻量触发：让角色按周期规则尝试发动态（前台兜底）
+      await handleMomentPostTask(null);
+    } catch (e) {
+      debugPrint('触发 AI 发动态失败: $e');
+    } finally {
+      _isTriggeringAI = false;
+    }
   }
 
   @override
@@ -656,6 +667,17 @@ class _MomentsScreenState extends State<MomentsScreen> {
                         );
 
                         await storage.saveMoment(updatedMoment);
+
+                        // 用户评论 → 角色延迟回复（支持多轮）
+                        unawaited(
+                          MomentInteractionService.instance.onUserCommented(
+                            storage: storage,
+                            moment: updatedMoment,
+                            comment: comment,
+                            userId: user.id,
+                          ),
+                        );
+
                         if (context.mounted) {
                           Navigator.pop(context);
                         }

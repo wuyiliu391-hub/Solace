@@ -97,4 +97,28 @@ Future<void> scheduleLetterTask() async {
   }
 }
 
+/// 角色按人设/生活规律主动发朋友圈（约每 6 小时检查一次）
+Future<void> scheduleMomentPostTask() async {
+  if (!_supportsWorkmanager) {
+    debugPrint('当前平台不支持 WorkManager，跳过 AI 朋友圈周期任务');
+    return;
+  }
+
+  try {
+    await Workmanager().registerPeriodicTask(
+      'ai_moment_post_periodic',
+      bgTaskMomentPost,
+      frequency: const Duration(hours: 6),
+      initialDelay: const Duration(minutes: 20),
+      constraints: Constraints(networkType: NetworkType.connected),
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      backoffPolicy: BackoffPolicy.linear,
+      backoffPolicyDelay: const Duration(minutes: 15),
+    );
+    debugPrint('已安排 AI 朋友圈主动发布周期任务');
+  } catch (e) {
+    debugPrint('安排 AI 朋友圈任务失败: $e');
+  }
+}
+
 bool get _supportsWorkmanager => Platform.isAndroid || Platform.isIOS;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -7,6 +8,7 @@ import '../../blocs/auth/auth_bloc.dart';
 import '../../models/moment.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/permission_service.dart';
+import '../../services/moment_interaction_service.dart';
 
 
 class CreateMomentScreen extends StatefulWidget {
@@ -212,7 +214,12 @@ class _CreateMomentScreenState extends State<CreateMomentScreen> {
 
       await storage.saveMoment(moment);
 
-      _triggerAIInteraction(moment, storage);
+      // 角色按人设延迟点赞/评论用户动态
+      unawaited(MomentInteractionService.instance.onUserPostedMoment(
+        storage: storage,
+        moment: moment,
+        userId: user.id,
+      ));
 
       if (mounted) {
         Navigator.pop(context);
@@ -580,8 +587,4 @@ class _CreateMomentScreenState extends State<CreateMomentScreen> {
     );
   }
 
-  void _triggerAIInteraction(
-      Moment moment, LocalStorageRepository storage) async {
-    // AI moment service has been removed
   }
-}
