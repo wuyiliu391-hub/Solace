@@ -125,18 +125,23 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
 
   Future<void> _updateSession() async {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final bg = (_backgroundImage == null || _backgroundImage!.trim().isEmpty)
+        ? null
+        : _backgroundImage!.trim();
     debugPrint(
-        '保存会话设置 - backgroundImage: $_backgroundImage, lastMessage: ${_localSession.lastMessage}');
+        '保存会话设置 - backgroundImage: $bg, lastMessage: ${_localSession.lastMessage}');
     final updatedSession = _localSession.copyWith(
       isMuted: _isMuted,
       isPinned: _isPinned,
-      backgroundImage: _backgroundImage,
+      backgroundImage: bg,
+      clearBackgroundImage: bg == null,
       updatedAt: DateTime.now(),
     );
     _localSession = updatedSession;
     await storage.saveChatSession(updatedSession);
     _hasChanges = true;
-    debugPrint('会话设置保存完成 - lastMessage: ${updatedSession.lastMessage}');
+    debugPrint(
+        '会话设置保存完成 - backgroundImage: ${updatedSession.backgroundImage}');
   }
 
   Future<void> _autoSave() async {
@@ -149,20 +154,42 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     }
   }
 
+  bool _isLocalBackgroundPath(String path) {
+    final p = path.trim();
+    if (p.isEmpty) return false;
+    if (p.startsWith('http://') || p.startsWith('https://')) return false;
+    // Android absolute /data/... ; Windows C:\... ; content:// handled as non-file
+    if (p.startsWith('content://')) return false;
+    return p.startsWith('/') ||
+        p.contains(':\\') ||
+        p.startsWith('file://') ||
+        !p.contains('://');
+  }
+
+  String _normalizeLocalPath(String path) {
+    if (path.startsWith('file://')) {
+      return Uri.parse(path).toFilePath();
+    }
+    return path;
+  }
+
+  Future<void> _evictBackgroundCache(String? path) async {
+    if (path == null || path.isEmpty) return;
+    try {
+      final local = _isLocalBackgroundPath(path);
+      final provider = local
+          ? FileImage(File(_normalizeLocalPath(path))) as ImageProvider
+          : NetworkImage(path) as ImageProvider;
+      await provider.evict();
+    } catch (_) {}
+  }
+
   Future<void> _pickBackgroundImage() async {
     try {
-      bool hasPermission = await PermissionService.hasStoragePermission();
+      // 选图前尽量申请权限，但不因 has* 误判直接拦截（部分机型会误报）
+      final hasPermission = await PermissionService.hasStoragePermission();
       if (!hasPermission) {
-        hasPermission = await PermissionService.requestStoragePermission();
-      }
-
-      if (!hasPermission) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('需要存储权限才能选择图片')),
-          );
-        }
-        return;
+        await PermissionService.requestStoragePermission();
       }
 
       final picker = ImagePicker();
@@ -173,21 +200,54 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         imageQuality: 85,
       );
 
-      if (pickedFile != null) {
-        // 复制到持久化目录，避免临时文件被系统清理导致闪退
-        final dir = await getApplicationDocumentsDirectory();
-        final bgDir = Directory('${dir.path}/chat_backgrounds');
-        if (!await bgDir.exists()) await bgDir.create(recursive: true);
-        final ext = pickedFile.path.contains('.')
-            ? pickedFile.path.split('.').last
-            : 'jpg';
-        final destPath = '${bgDir.path}/${widget.session.id}.$ext';
-        await File(pickedFile.path).copy(destPath);
+      if (pickedFile == null) return;
 
-        setState(() {
-          _backgroundImage = destPath;
-        });
-        await _autoSave();
+      // 复制到持久化目录；文件名带时间戳，避免同路径 FileImage 缓存不刷新
+      final dir = await getApplicationDocumentsDirectory();
+      final bgDir = Directory('${dir.path}/chat_backgrounds');
+      if (!await bgDir.exists()) await bgDir.create(recursive: true);
+      final rawExt = pickedFile.path.contains('.')
+          ? pickedFile.path.split('.').last.toLowerCase()
+          : 'jpg';
+      final ext = (rawExt == 'jpeg' ||
+              rawExt == 'jpg' ||
+              rawExt == 'png' ||
+              rawExt == 'webp' ||
+              rawExt == 'heic' ||
+              rawExt == 'heif')
+          ? rawExt
+          : 'jpg';
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final destPath =
+          '${bgDir.path}/${widget.session.id}_$stamp.$ext';
+      await File(pickedFile.path).copy(destPath);
+
+      // 清理旧背景文件 + 缓存
+      final oldPath = _backgroundImage;
+      if (oldPath != null &&
+          oldPath.isNotEmpty &&
+          _isLocalBackgroundPath(oldPath) &&
+          oldPath != destPath) {
+        await _evictBackgroundCache(oldPath);
+        try {
+          final oldFile = File(_normalizeLocalPath(oldPath));
+          if (await oldFile.exists()) await oldFile.delete();
+        } catch (_) {}
+      }
+      await _evictBackgroundCache(destPath);
+
+      if (!mounted) return;
+      setState(() {
+        _backgroundImage = destPath;
+      });
+      await _autoSave();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('聊天背景已更新'),
+            duration: Duration(seconds: 1),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -196,6 +256,24 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         );
       }
     }
+  }
+
+  Future<void> _clearBackgroundImage() async {
+    final oldPath = _backgroundImage;
+    if (oldPath != null &&
+        oldPath.isNotEmpty &&
+        _isLocalBackgroundPath(oldPath)) {
+      await _evictBackgroundCache(oldPath);
+      try {
+        final f = File(_normalizeLocalPath(oldPath));
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _backgroundImage = null;
+    });
+    await _autoSave();
   }
 
   void _showTransferToUserDialog() {
@@ -1323,9 +1401,12 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               borderRadius: BorderRadius.circular(8),
               image: _backgroundImage != null && _backgroundImage!.isNotEmpty
                   ? DecorationImage(
-                      image: _backgroundImage!.startsWith('/') &&
-                              File(_backgroundImage!).existsSync()
-                          ? FileImage(File(_backgroundImage!)) as ImageProvider
+                      image: _isLocalBackgroundPath(_backgroundImage!) &&
+                              File(_normalizeLocalPath(_backgroundImage!))
+                                  .existsSync()
+                          ? FileImage(
+                                  File(_normalizeLocalPath(_backgroundImage!)))
+                              as ImageProvider
                           : NetworkImage(_backgroundImage!),
                       fit: BoxFit.cover,
                     )
@@ -1337,7 +1418,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
           title: const Text('设置聊天背景'),
           subtitle: Text(
-            _backgroundImage != null ? '已设置自定义背景' : '使用默认背景',
+            (_backgroundImage != null && _backgroundImage!.isNotEmpty)
+                ? '已设置自定义背景'
+                : '使用默认背景',
             style: TextStyle(
               fontSize: 12,
               color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
@@ -1354,12 +1437,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               '恢复默认背景',
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
-            onTap: () async {
-              setState(() {
-                _backgroundImage = '';
-              });
-              await _autoSave();
-            },
+            onTap: _clearBackgroundImage,
           ),
       ],
     );

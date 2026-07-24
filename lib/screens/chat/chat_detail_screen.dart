@@ -1310,21 +1310,46 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  Widget _buildBackgroundImage(ColorScheme colorScheme) {
-    final bgImage = _currentSession!.backgroundImage!;
+  bool _isLocalBgPath(String path) {
+    final p = path.trim();
+    if (p.isEmpty) return false;
+    if (p.startsWith('http://') || p.startsWith('https://')) return false;
+    if (p.startsWith('content://')) return false;
+    return p.startsWith('/') ||
+        p.contains(':\\') ||
+        p.startsWith('file://') ||
+        !p.contains('://');
+  }
 
-    if (bgImage.startsWith('/')) {
-      final file = File(bgImage);
+  String _normalizeBgPath(String path) {
+    if (path.startsWith('file://')) {
+      return Uri.parse(path).toFilePath();
+    }
+    return path;
+  }
+
+  Widget _buildBackgroundImage(ColorScheme colorScheme) {
+    final raw = _currentSession?.backgroundImage?.trim() ?? '';
+    if (raw.isEmpty) {
+      return Container(color: colorScheme.surface);
+    }
+
+    final isLocal = _isLocalBgPath(raw);
+    final localPath = isLocal ? _normalizeBgPath(raw) : raw;
+    if (isLocal) {
+      final file = File(localPath);
       if (!file.existsSync()) {
         return Container(color: colorScheme.surface);
       }
     }
 
-    final imageProvider = bgImage.startsWith('/')
-        ? FileImage(File(bgImage)) as ImageProvider
-        : NetworkImage(bgImage);
+    // key 绑定路径，换图后强制重建，避免 FileImage 缓存残留
+    final imageProvider = isLocal
+        ? FileImage(File(localPath)) as ImageProvider
+        : NetworkImage(raw) as ImageProvider;
 
     return Container(
+      key: ValueKey('chat_bg_$raw'),
       decoration: BoxDecoration(
         image: DecorationImage(
           image: imageProvider,
@@ -1622,14 +1647,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     var updatedSession = await storage.getChatSession(widget.session.id);
 
     if (updatedSession != null && mounted) {
-      // 检查背景图片是否有效
-      if (updatedSession.backgroundImage != null &&
-          updatedSession.backgroundImage!.isNotEmpty &&
-          updatedSession.backgroundImage!.startsWith('/')) {
-        final file = File(updatedSession.backgroundImage!);
-        if (!file.existsSync()) {
-          updatedSession = updatedSession.copyWith(backgroundImage: null);
-          await storage.saveChatSession(updatedSession);
+      // 检查背景图片是否有效（兼容 file://、Windows 路径）
+      final bg = updatedSession.backgroundImage?.trim() ?? '';
+      if (bg.isNotEmpty) {
+        final isLocal = !(bg.startsWith('http://') ||
+            bg.startsWith('https://') ||
+            bg.startsWith('content://'));
+        if (isLocal) {
+          final path =
+              bg.startsWith('file://') ? Uri.parse(bg).toFilePath() : bg;
+          final file = File(path);
+          if (!file.existsSync()) {
+            updatedSession =
+                updatedSession.copyWith(clearBackgroundImage: true);
+            await storage.saveChatSession(updatedSession);
+          }
         }
       }
 
@@ -2971,6 +3003,33 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
         final updatedSession = await storage.getChatSession(widget.session.id);
         if (updatedSession != null && mounted) {
+          // 换背景后清掉旧图缓存，确保立刻生效
+          final oldBg = _currentSession?.backgroundImage;
+          final newBg = updatedSession.backgroundImage;
+          if (oldBg != null && oldBg.isNotEmpty && oldBg != newBg) {
+            try {
+              final p = oldBg.startsWith('file://')
+                  ? Uri.parse(oldBg).toFilePath()
+                  : oldBg;
+              if (!(oldBg.startsWith('http://') ||
+                  oldBg.startsWith('https://'))) {
+                await FileImage(File(p)).evict();
+              } else {
+                await NetworkImage(oldBg).evict();
+              }
+            } catch (_) {}
+          }
+          if (newBg != null && newBg.isNotEmpty) {
+            try {
+              final p = newBg.startsWith('file://')
+                  ? Uri.parse(newBg).toFilePath()
+                  : newBg;
+              if (!(newBg.startsWith('http://') ||
+                  newBg.startsWith('https://'))) {
+                await FileImage(File(p)).evict();
+              }
+            } catch (_) {}
+          }
           setState(() {
             _currentSession = updatedSession;
             _isBlockedByAI = updatedSession.isBlocked &&

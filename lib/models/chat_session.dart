@@ -99,6 +99,7 @@ class ChatSession extends Equatable {
     String? blockReason,
     String? sessionType,
     bool clearBlock = false,
+    bool clearBackgroundImage = false,
     String? intimacyMode,
     int? streakDays,
     bool? isInFriction,
@@ -121,7 +122,9 @@ class ChatSession extends Equatable {
       updatedAt: updatedAt ?? this.updatedAt,
       isMuted: isMuted ?? this.isMuted,
       isPinned: isPinned ?? this.isPinned,
-      backgroundImage: backgroundImage ?? this.backgroundImage,
+      backgroundImage: clearBackgroundImage
+          ? null
+          : (backgroundImage ?? this.backgroundImage),
       isHidden: isHidden ?? this.isHidden,
       aiIsOnline: aiIsOnline ?? this.aiIsOnline,
       aiCurrentStatus: aiCurrentStatus ?? this.aiCurrentStatus,
