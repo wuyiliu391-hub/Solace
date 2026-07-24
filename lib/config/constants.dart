@@ -179,6 +179,11 @@ class PrefKeys {
   static const String lastSeenAnnouncementId = 'last_seen_announcement_id';
   static const String themeMode = 'app_theme_mode';
   static const String visualStyle = 'app_visual_style';
+  /// 是否使用虚拟手机桌面壳作为主界面（false=经典底部导航）
+  /// 默认 true：新用户直接进入小手机系统
+  static const String phoneDesktopShell = 'phone_desktop_shell_enabled';
+  /// 小手机壁纸主题：dawn / dusk / night
+  static const String phoneWallpaperTheme = 'phone_wallpaper_theme';
   static const String lockTextColor = 'lock_screen_text_color';
   static const String globalResponseStyle = 'global_response_style';
   static const String globalMemoryMode = 'global_memory_mode';
@@ -365,7 +370,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 56;
+  static const int dbVersion = 58;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;

@@ -458,7 +458,8 @@ class LocalStorageRepository {
       'isInFriction': 'INTEGER NOT NULL DEFAULT 0',
       'frictionDaysLeft': 'INTEGER NOT NULL DEFAULT 0',
       // -1=跟随全局，0=本会话关闭，1=本会话开启
-      'novelMode': 'INTEGER NOT NULL DEFAULT -1',
+      // ALTER 兼容：不要用 NOT NULL，避免旧库补列失败
+      'novelMode': 'INTEGER DEFAULT -1',
     },
     'chat_messages': {
       'chatId': 'TEXT NOT NULL DEFAULT ""',
@@ -939,15 +940,21 @@ class LocalStorageRepository {
           final colName = colEntry.key;
           final colDef = colEntry.value;
           if (!existingCols.contains(colName)) {
-            debugPrint(': $table $colName ($colDef)');
-            await db.execute('ALTER TABLE $table ADD COLUMN $colName $colDef');
-            if (colName == 'isUser' && table == 'chat_messages') {
-              needsIsUserRepair = true;
+            debugPrint('[schema] add column: $table.$colName ($colDef)');
+            try {
+              await db.execute(
+                  'ALTER TABLE $table ADD COLUMN $colName $colDef');
+              if (colName == 'isUser' && table == 'chat_messages') {
+                needsIsUserRepair = true;
+              }
+            } catch (e) {
+              // 单列失败不阻断同表其它列（如 novelMode）
+              debugPrint('[schema] add column failed: $table.$colName $e');
             }
           }
         }
       } catch (e) {
-        debugPrint(' $table $e');
+        debugPrint('[schema] reconcile table failed: $table $e');
       }
     }
     // 修复 isUser 字段：首次添加列时修复，或通过标记强制修复一次旧版本用户
@@ -1657,6 +1664,12 @@ class LocalStorageRepository {
       await _addColumnIfNotExists(
           db, 'chat_sessions', 'lastOnlineAt', 'TEXT');
       debugPrint(' v57 迁移: chat_sessions.lastOnlineAt 已添加');
+    }
+    if (oldVersion < 58) {
+      // v58: 确保 chat_sessions.novelMode 存在（旧库缺列会导致新建角色写会话崩溃）
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'novelMode', 'INTEGER DEFAULT -1');
+      debugPrint(' v58 迁移: chat_sessions.novelMode 已添加');
     }
   }
 
@@ -2737,12 +2750,37 @@ class LocalStorageRepository {
       }
     } else {
       final db = await _ensureDb();
-      final map = session.toMap();
+      // 写库前确保 novelMode 列存在，避免 table chat_sessions has no column named novelMode
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'novelMode', 'INTEGER DEFAULT -1');
+      final map = await _filterMapToExistingColumns(
+        db,
+        'chat_sessions',
+        session.toMap(),
+      );
       final updateCount = await db.update('chat_sessions', map,
           where: 'id = ?', whereArgs: [session.id]);
       if (updateCount == 0) {
         await db.insert('chat_sessions', map);
       }
+    }
+  }
+
+  /// 只保留表中真实存在的列，防止模型字段超前于旧库 schema 时 insert/update 崩溃
+  Future<Map<String, dynamic>> _filterMapToExistingColumns(
+    Database db,
+    String table,
+    Map<String, dynamic> map,
+  ) async {
+    try {
+      final info = await db.rawQuery('PRAGMA table_info($table)');
+      if (info.isEmpty) return map;
+      final cols = info.map((r) => r['name'] as String).toSet();
+      return Map<String, dynamic>.fromEntries(
+        map.entries.where((e) => cols.contains(e.key)),
+      );
+    } catch (_) {
+      return map;
     }
   }
 
