@@ -52,6 +52,10 @@ class AIService {
   /// 会话级小说模式覆盖：由 ChatBloc 在调用前设置，null 表示使用全局设置
   bool? _novelModeOverride;
 
+  /// 最近一次请求的角色性别/名字（用于输出侧人称轻量纠错）
+  String? _lastCharacterGender;
+  String? _lastCharacterName;
+
   /// 设置当前会话的小说模式覆盖（null = 跟随全局）
   void setNovelModeOverride(bool? override) {
     _novelModeOverride = override;
@@ -869,6 +873,15 @@ class AIService {
     cleaned = cleaned.replaceAll(
         RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]'), '');
 
+    // 人称代词轻量纠错（依赖最近一次 build 时缓存的角色性别）
+    if (_lastCharacterGender != null || _lastCharacterName != null) {
+      cleaned = MessageSanitizer.fixGenderPronouns(
+        cleaned,
+        characterGender: _lastCharacterGender,
+        characterName: _lastCharacterName,
+      );
+    }
+
     if (MessageSanitizer.isLikelyUnreadableGibberish(cleaned)) {
       cleaned = '';
     }
@@ -1603,6 +1616,10 @@ class AIService {
         config != null && _isCompactContextModel(config.modelName) &&
         !BuiltInAIProviders.isGlmZ19B(config.id, config.modelName);
 
+    // 缓存角色性别，供 _cleanResponse 人称纠错
+    _lastCharacterGender = character.gender;
+    _lastCharacterName = character.name;
+
     final systemPrompt = await _buildSystemPrompt(
       character: character,
       userId: userId,
@@ -1755,6 +1772,22 @@ class AIService {
             '必须承接以下历史消息中的人物关系、已确认事实、称呼、约定与当前话题。'
             '禁止说“不认识你/第一次聊天/你是谁/我们刚认识”。'
             '若某细节不在近期历史中，可依据记忆段落推断，但不要否认已知事实。',
+      });
+    }
+
+    // 每轮再钉人称/主体，对抗长上下文漂移
+    if (!pureAiModeEarly) {
+      final g = character.gender?.trim() ?? '';
+      final genderHint = g.isEmpty
+          ? '第三人称代词必须与你的人设性别一致'
+          : '你的性别是$g，第三人称指代你自己必须用正确的「他/她」';
+      messages.add({
+        'role': 'system',
+        'content':
+            '【本轮人称与主体复核】你是${character.name}。$genderHint。'
+            '第一人称用「我」，称呼用户用「你」。'
+            '用户消息的主语、计划、行为只属于用户；禁止抢夺用户主语、禁止把用户台词改写成你自己的。'
+            '例如用户问「什么时候搬」，应理解为在问用户或双方相关安排，不要变成你单方面替用户夺舍发言。',
       });
     }
     for (final msg in filteredMessages) {

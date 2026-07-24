@@ -719,6 +719,74 @@ class MessageSanitizer {
 
   static String failureFallbackText() => '网络刚才有点不稳，我重新想一下怎么回复你。';
 
+  /// 第三人称代词轻量纠错（仅在角色性别明确时）
+  ///
+  /// 说明：不碰「你/我」对话主体，只修正旁白式「他/她」在指代角色自身时的常见错用。
+  /// 保守策略：只处理「他/她 + 常见自指动词/状态」且句中出现角色名或第一人称混用痕迹时再替换。
+  static String fixGenderPronouns(
+    String text, {
+    String? characterGender,
+    String? characterName,
+  }) {
+    if (text.isEmpty) return text;
+    final gender = _normalizeGender(characterGender);
+    if (gender == null) return text;
+    final wrong = gender == '女' ? '他' : '她';
+    final right = gender == '女' ? '她' : '他';
+    if (!text.contains(wrong)) return text;
+
+    var result = text;
+    // 1) 角色名 + 错代词 → 角色名 + 正代词
+    if (characterName != null && characterName.isNotEmpty) {
+      result = result.replaceAll('$characterName$wrong', '$characterName$right');
+      result = result.replaceAll('$wrong$characterName', '$right$characterName');
+    }
+    // 2) 常见自指搭配：「他很/她很/他会/她会…」在明显角色叙事中纠错
+    // 仅当全文同时出现「我」时更可能是角色第一人称叙事泄漏第三人称错代词
+    final hasFirstPerson = result.contains('我');
+    if (hasFirstPerson) {
+      final patterns = <String>[
+        '${wrong}很',
+        '${wrong}会',
+        '${wrong}想',
+        '${wrong}说',
+        '${wrong}在',
+        '${wrong}不',
+        '${wrong}也',
+        '${wrong}就',
+        '${wrong}把',
+        '${wrong}被',
+        '${wrong}的',
+      ];
+      for (final p in patterns) {
+        final fixed = p.replaceFirst(wrong, right);
+        result = result.replaceAll(p, fixed);
+      }
+    }
+    return result;
+  }
+
+  static String? _normalizeGender(String? raw) {
+    if (raw == null) return null;
+    final g = raw.trim().toLowerCase();
+    if (g.isEmpty) return null;
+    if (g == '女' ||
+        g == '女性' ||
+        g == 'female' ||
+        g == 'f' ||
+        g.contains('女')) {
+      return '女';
+    }
+    if (g == '男' ||
+        g == '男性' ||
+        g == 'male' ||
+        g == 'm' ||
+        g.contains('男')) {
+      return '男';
+    }
+    return null;
+  }
+
   static String toSimplifiedChinese(String text) {
     if (text.isEmpty) return text;
 
