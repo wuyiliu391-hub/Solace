@@ -114,7 +114,7 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
 
   @override
   Widget build(BuildContext context) {
-    final palette = SolacePalettes.of(_wallpaper);
+    final palette = PhoneWallpaperPalette.of(_wallpaper);
     return Scaffold(
       backgroundColor: palette.mid,
       body: AnimatedBuilder(
@@ -360,7 +360,7 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('关闭小手机？'),
-        content: const Text('将回到经典底部导航。可在设置 → 外观中再次开启。'),
+        content: const Text('将回到经典底部导航。之后可在 设置 → 外观设置 → 虚拟手机桌面 再次开启。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -590,7 +590,7 @@ class _StatusBar extends StatelessWidget {
 class _BigClock extends StatelessWidget {
   final String time;
   final double breath;
-  final SolacePalette palette;
+  final PhoneWallpaperPalette palette;
   const _BigClock({
     required this.time,
     this.breath = 1,
@@ -737,7 +737,7 @@ class _Avatar extends StatelessWidget {
   }
 
   Widget _letter(String letter) => Container(
-        color: SolacePalettes.dawn.accent.withValues(alpha: 0.55),
+        color: const Color(0xFF8FD0EA),
         alignment: Alignment.center,
         child: Text(
           letter,
@@ -888,7 +888,7 @@ class _SwitchWorldBar extends StatelessWidget {
                             : '?';
                         return ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: SolacePalettes.dawn.accent.withValues(alpha: 0.45),
+                            backgroundColor: const Color(0xFF8FD0EA),
                             child: Text(letter,
                                 style: const TextStyle(color: Colors.white)),
                           ),

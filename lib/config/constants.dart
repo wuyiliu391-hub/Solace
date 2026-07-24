@@ -180,7 +180,7 @@ class PrefKeys {
   static const String themeMode = 'app_theme_mode';
   static const String visualStyle = 'app_visual_style';
   /// 是否使用虚拟手机桌面壳作为主界面（false=经典底部导航）
-  /// 默认 true：新用户直接进入小手机系统
+  /// 默认 false：未设置时走经典底部导航，用户可在设置中开启小手机
   static const String phoneDesktopShell = 'phone_desktop_shell_enabled';
   /// 小手机壁纸主题：dawn / dusk / night
   static const String phoneWallpaperTheme = 'phone_wallpaper_theme';

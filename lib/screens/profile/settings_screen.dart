@@ -11,6 +11,7 @@ import '../../config/tts_config.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../settings/ai_config_screen.dart';
 import '../settings/about_screen.dart';
+import '../phone/phone_icon_preview_screen.dart';
 
 import '../../utils/safe_file_picker.dart';
 
@@ -29,6 +30,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int? _userAge;
   String _globalMemoryMode = 'full';
   bool _autoParagraphEnabled = true;
+  bool _phoneDesktopShell = false;
 
   @override
   void initState() {
@@ -38,10 +40,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadAgeAndModeSettings() async {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final phoneDesktop = storage.isPhoneDesktopShellEnabled();
     final age = storage.getUserAge();
 
     if (mounted) {
       setState(() {
+        _phoneDesktopShell = phoneDesktop;
         _userAge = age;
         _isAdult = age != null && age >= 18;
         _globalMemoryMode = storage.getGlobalMemoryMode();
@@ -346,6 +350,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 14),
+              Divider(height: 1, color: colorScheme.outlineVariant.withOpacity(0.5)),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.phone_iphone_rounded,
+                      size: 20, color: colorScheme.primary),
+                ),
+                title: const Text('虚拟手机桌面',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                subtitle: const Text(
+                    '默认关闭。开启后主界面切换为小手机系统，可随时关闭回经典底部导航',
+                    style: TextStyle(fontSize: 12)),
+                value: _phoneDesktopShell,
+                onChanged: (v) async {
+                  final storage =
+                      RepositoryProvider.of<LocalStorageRepository>(context);
+                  await storage.setPhoneDesktopShellEnabled(v);
+                  setState(() => _phoneDesktopShell = v);
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(v
+                          ? '已开启小手机桌面。返回主界面即可看到；小手机内可点「关闭手机」退出。'
+                          : '已关闭小手机桌面，主界面恢复经典底部导航。'),
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: colorScheme.tertiary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.apps_rounded,
+                      size: 20, color: colorScheme.tertiary),
+                ),
+                title: const Text('桌面图标预览',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                subtitle: const Text('查看玻璃软图标效果',
+                    style: TextStyle(fontSize: 12)),
+                trailing: const Icon(Icons.chevron_right, size: 20),
+                onTap: () => Navigator.push(
+                  context,
+                  PhoneIconPreviewScreen.route(),
+                ),
               ),
             ],
           ),
