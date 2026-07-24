@@ -290,23 +290,22 @@ export default {
           return new Response(null, { status: 304 });
         }
 
-        const gzReq = new Request(`${url.origin}/app-release.apk.gz?v=${VERSION_DATA.buildNumber}`, request);
-        const gzRes = await env.ASSETS.fetch(gzReq);
-        if (!gzRes.ok) return gzRes;
-
-        // 手动解压 gzip 再返回原始 APK 字节流，Flutter 才能直接解析
-        const buf = await gzRes.arrayBuffer();
-        const ds = new DecompressionStream('gzip');
-        const blob = new Response(buf).body.pipeThrough(ds);
-        const apkBuf = await new Response(blob).arrayBuffer();
+        // 直接下载原始 APK（不加 gzip 后缀）
+        // deploy.sh 会先将 .gz 解压后部署，或直接部署原始 APK
+        // 但 Pages 限制 25MB，所以这里返回 gzip 并让浏览器/系统解压
+        // Flutter 的 http 库会自动处理 Content-Encoding: gzip
+        const apkReq = new Request(`${url.origin}/app-release.apk.gz?v=${VERSION_DATA.buildNumber}`, request);
+        const apkRes = await env.ASSETS.fetch(apkReq);
+        if (!apkRes.ok) return apkRes;
 
         const headers = new Headers(COMMON_HEADERS);
         headers.set('Content-Type', 'application/vnd.android.package-archive');
         headers.set('Content-Disposition', `attachment; filename="Solace-${VERSION_DATA.latestVersion}.apk"`);
         headers.set('Cache-Control', 'public, max-age=3600');
         headers.set('ETag', serverETag);
-        headers.set('Content-Length', apkBuf.byteLength.toString());
-        return new Response(apkBuf, { status: 200, headers });
+        // 标记为 gzip，Flutter http 包会自动解压
+        headers.set('Content-Encoding', 'gzip');
+        return new Response(apkRes.body, { status: 200, headers });
       }
 
       // ==================== 静态资源处理 ====================
