@@ -1374,8 +1374,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
     _scrollController.addListener(_onScroll);
     _messageFocusNode.addListener(() {
-      if (mounted)
-        setState(() => _showTopics = _messageController.text.isEmpty);
+      if (!mounted) return;
+      // 仅在可见性真正变化时 setState，避免收起键盘时无意义重建卡顿
+      final next = _messageController.text.isEmpty;
+      if (next != _showTopics) {
+        setState(() => _showTopics = next);
+      }
     });
     _initialize();
     BuiltinStickerService.loadDefaultPack();
@@ -2091,11 +2095,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
-  void _sendMessage() async {
+  void _sendMessage() {
     tapHaptic();
-    final raw = _messageController.text;
-    final content = raw.trim();
+    final content = _messageController.text.trim();
+    if (content.isEmpty) return;
+
     final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
+    // 不再在发送后 requestFocus：用户收起键盘或 IME 发送键 unfocus 时，
+    // 强拉焦点会与键盘动画 + 消息列表重建叠成卡死。
 
     Map<String, dynamic>? replyMetadata;
     if (_replyToMessage != null) {
@@ -2110,27 +2117,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       setState(() => _replyToMessage = null);
     }
 
-    if (content.isNotEmpty) {
-      // 检测括号「（动作/旁白描写）」
-      // 包含中文全角括号且括号内有文字 → 标记为动作/旁白消息
-      final hasActionBracket = RegExp(r'（[^（）]+）').hasMatch(content) ||
-          RegExp(r'\([^()]+\)').hasMatch(content);
-      final effectiveMetadata = {
-        ...?replyMetadata,
-        if (hasActionBracket) 'hasActionBracket': true,
-      };
-      _chatBloc.add(ChatSendMessage(
-        chatId: widget.session.id,
-        userId: user.id,
-        content: content,
-        metadata: effectiveMetadata.isNotEmpty ? effectiveMetadata : null,
-        enableWebSearch: _webSearchEnabled,
-      ));
-      _messageController.clear();
-      _canSendNotifier.value = false;
-    }
+    // 检测括号「（动作/旁白描写）」
+    // 包含中文全角括号且括号内有文字 → 标记为动作/旁白消息
+    final hasActionBracket = RegExp(r'（[^（）]+）').hasMatch(content) ||
+        RegExp(r'\([^()]+\)').hasMatch(content);
+    final effectiveMetadata = {
+      ...?replyMetadata,
+      if (hasActionBracket) 'hasActionBracket': true,
+    };
+    _chatBloc.add(ChatSendMessage(
+      chatId: widget.session.id,
+      userId: user.id,
+      content: content,
+      metadata: effectiveMetadata.isNotEmpty ? effectiveMetadata : null,
+      enableWebSearch: _webSearchEnabled,
+    ));
+    _messageController.clear();
+    _canSendNotifier.value = false;
 
-    _messageFocusNode.requestFocus();
     _userScrolledUp = false;
     _scrollToBottom(force: true);
     _resetSilenceTimer();
@@ -2697,12 +2701,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     _showNewMessageBannerNotifier.value = false;
 
-    Future.delayed(const Duration(milliseconds: 100), () {
+    void jump() {
       if (!mounted) return;
       if (!_scrollController.hasClients) return;
       if (!force && _userScrolledUp) return;
+      try {
+        // reverse:true 列表底部为 0
+        if (_scrollController.offset != 0) {
+          _scrollController.jumpTo(0);
+        }
+      } catch (_) {
+        // 键盘动画/列表重建时 position 可能短暂不可用
+      }
+    }
 
-      _scrollController.jumpTo(0);
+    // 先等本帧布局，再补一帧应对键盘 viewInsets 二次布局，避免与 IME 动画抢滚动
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      jump();
+      WidgetsBinding.instance.addPostFrameCallback((_) => jump());
     });
   }
 
@@ -3471,6 +3487,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                     ),
                                     textInputAction: TextInputAction.send,
                                     onSubmitted: (_) => _sendMessage(),
+                                    onTapOutside: (_) {
+                                      // 点空白处自然收起，不在发送路径上抢焦点
+                                      _messageFocusNode.unfocus();
+                                    },
                                     maxLines: null,
                                     onChanged: (v) {
                                       final canSend = v.trim().isNotEmpty;
