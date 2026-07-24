@@ -3,12 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>帮助 — Solace</title>
-<meta name="description" content="Solace 帮助中心，常见问题解答和入门指南。">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%237C6BFF'/%3E%3Cpath d='M50 28c-12 0-22 8-22 20 0 8 4 14 10 18 1 4 2 8 2 10 0 2 2 3 4 2l6-4c2 0 4 0 6 0 12 0 22-8 22-20s-10-20-22-20z' fill='white'/%3E%3C/svg%3E">
+<title>帮助中心 — Solace</title>
+<meta name="description" content="Solace 帮助文档。常见问题、使用指南、故障排除。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%239333ea'/%3E%3Cpath d='M50 28c-12 0-22 8-22 20 0 8 4 14 10 18 1 4 2 8 2 10 0 2 2 3 4 2l6-4c2 0 4 0 6 0 12 0 22-8 22-20s-10-20-22-20z' fill='white'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<div class="ambient-bg">
+  <div class="ambient-orb orb-purple"></div>
+  <div class="ambient-orb orb-pink"></div>
+  <div class="ambient-orb orb-blue"></div>
+  <div class="ambient-orb orb-mint"></div>
+</div>
 
 <nav class="nav" id="nav">
   <div class="nav-inner">
@@ -47,95 +54,76 @@
 
 <div class="page-header">
   <h1>帮助中心</h1>
-  <p>常见问题解答和入门指南</p>
+  <p>遇到问题？这里可能有答案</p>
 </div>
 
-<section class="s">
-  <div class="container" style="max-width:900px;">
-    <div class="help-section">
-      <h2>入门指南</h2>
-      <div class="help-card">
-        <h3>如何安装？</h3>
-        <ol style="margin-top:8px;">
-          <li>下载 APK 文件到你的 Android 手机</li>
-          <li>在手机「设置」→「安全」中开启「允许安装未知来源应用」</li>
-          <li>打开下载的 APK 文件，点击安装</li>
-        </ol>
-      </div>
-      <div class="help-card">
-        <h3>如何配置 API？</h3>
-        <p>首次使用需要配置 API 密钥：</p>
-        <ol style="margin-top:8px;">
-          <li>前往 <a href="https://siliconflow.cn" target="_blank" style="color:var(--p-600)">SiliconFlow</a> 注册账号并获取 API Key</li>
-          <li>在 Solace 的「设置」→「API 配置」中填入 API Key</li>
-          <li>选择模型（推荐 minimax-m2.7 或 gpt-4o-mini）</li>
-        </ol>
-      </div>
-      <div class="help-card">
-        <h3>如何创建角色？</h3>
-        <ol style="margin-top:8px;">
-          <li>点击底部「联系人」→「创建角色」</li>
-          <li>填写角色名称、性格、心愿等信息</li>
-          <li>保存后即可开始对话</li>
-        </ol>
-      </div>
+<div class="page-body">
+  <div class="help-section reveal">
+    <h2>快速开始</h2>
+    <div class="help-card">
+      <h3>如何配置 API Key？</h3>
+      <p>推荐使用 <a href="https://siliconflow.cn" target="_blank" rel="noopener" style="color:var(--p-600);font-weight:700;">SiliconFlow</a>（国内可用，新用户有免费额度）：</p>
+      <ol>
+        <li>注册 SiliconFlow 账号</li>
+        <li>在控制台创建 API Key</li>
+        <li>打开 Solace → 设置 → API 配置</li>
+        <li>填入 API 地址和密钥</li>
+      </ol>
     </div>
-    <div class="help-section">
-      <h2>常见问题</h2>
-      <div class="help-card">
-        <h3>数据存储在哪里？</h3>
-        <p>所有数据仅存储在你的设备本地 SQLite 数据库中，不上传至任何服务器。API Key 也仅保存在本地。</p>
-      </div>
-      <div class="help-card">
-        <h3>为什么需要 API Key？</h3>
-        <p>AI 对话需要调用大语言模型的接口。我们不提供内置模型（不像 Lovemo 那样），这样你可以自由选择 API 服务商和模型，费用更透明。</p>
-      </div>
-      <div class="help-card">
-        <h3>应用闪退怎么办？</h3>
-        <p>尝试以下步骤：</p>
-        <ol style="margin-top:8px;">
-          <li>清除应用缓存（不删除数据）</li>
-          <li>检查是否有足够的存储空间</li>
-          <li>确保 Android 版本 >= 7.0</li>
-          <li>重新安装应用</li>
-        </ol>
-      </div>
+    <div class="help-card">
+      <h3>如何创建角色？</h3>
+      <p>在「角色」页面点击右上角 + 号，可以：</p>
+      <ul>
+        <li>手动创建：填写角色名称、性格、背景故事</li>
+        <li>从回忆创建：上传聊天记录和照片，AI 自动分析性格</li>
+      </ul>
     </div>
   </div>
-</section>
+
+  <div class="help-section reveal">
+    <h2>常见问题</h2>
+    <div class="help-card">
+      <h3>为什么 AI 不回复？</h3>
+      <p>检查以下几点：</p>
+      <ul>
+        <li>API Key 是否正确配置</li>
+        <li>网络连接是否正常</li>
+        <li>API 额度是否用完</li>
+        <li>尝试切换备用模型</li>
+      </ul>
+    </div>
+    <div class="help-card">
+      <h3>数据会丢失吗？</h3>
+      <p>所有数据存储在本地 SQLite 数据库中。建议定期备份：</p>
+      <ul>
+        <li>设置 → 数据管理 → 导出备份</li>
+        <li>备份文件保存在手机存储中</li>
+      </ul>
+    </div>
+  </div>
+</div>
 
 <footer class="site-footer">
   <div class="footer-grid">
-    <div class="footer-brand"><div class="logo" style="font-size:22px;font-weight:800;">Solace</div><p>让每一次交流都有温度。一款零后端、纯本地的 AI 陪伴应用，所有数据仅存储在你的设备上。</p></div>
+    <div class="footer-brand"><div class="logo">Solace</div><p>让每一次交流都有温度。</p></div>
     <div class="footer-col"><h4>产品</h4><a href="features.html">功能介绍</a><a href="download.html">下载中心</a><a href="help.html">帮助中心</a></div>
-    <div class="footer-col"><h4>关于</h4><a href="about.html">关于作者</a><a href="about.html#tech">技术架构</a></div>
+    <div class="footer-col"><h4>关于</h4><a href="about.html">关于作者</a></div>
     <div class="footer-col"><h4>法律</h4><a href="privacy.html">隐私政策</a><a href="terms.html">用户协议</a></div>
   </div>
-  <div class="footer-bottom"><p>&copy; 2026 Solace. All rights reserved.</p><div class="legal-links"><a href="privacy.html">隐私</a><a href="terms.html">条款</a></div></div>
+  <div class="footer-bottom">
+    <p>&copy; 2026 Solace. All rights reserved.</p>
+    <div class="legal-links"><a href="privacy.html">隐私</a><a href="terms.html">条款</a></div>
+  </div>
 </footer>
 
 <script>
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('theme', next);
-}
-(function() {
-  const saved = localStorage.getItem('theme');
-  if (saved) document.documentElement.setAttribute('data-theme', saved);
-})();
-function toggleMenu() {
-  document.getElementById('mobileMenu').classList.toggle('open');
-  document.querySelector('.hamburger').classList.toggle('active');
-}
-function closeMenu() {
-  document.getElementById('mobileMenu').classList.remove('open');
-  document.querySelector('.hamburger').classList.remove('active');
-}
-window.addEventListener('scroll', () => {
-  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 10);
-});
+function toggleTheme() { const c = document.documentElement.getAttribute('data-theme'); const n = c === 'dark' ? 'light' : 'dark'; document.documentElement.setAttribute('data-theme', n); localStorage.setItem('theme', n); }
+(function(){ const s = localStorage.getItem('theme'); if(s) document.documentElement.setAttribute('data-theme', s); })();
+function toggleMenu(){ document.getElementById('mobileMenu').classList.toggle('open'); document.querySelector('.hamburger').classList.toggle('active'); }
+function closeMenu(){ document.getElementById('mobileMenu').classList.remove('open'); document.querySelector('.hamburger').classList.remove('active'); }
+window.addEventListener('scroll', () => { document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 10); });
+const io = new IntersectionObserver((entries) => { entries.forEach(e => { if(e.isIntersecting){ e.target.classList.add('visible'); io.unobserve(e.target); } }); }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+document.querySelectorAll('.reveal').forEach(el => io.observe(el));
 </script>
 
 </body>
