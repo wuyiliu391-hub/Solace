@@ -5,16 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Solace — 遇见那个只懂你的人</title>
 <meta name="description" content="Solace 是一款 AI 陪伴应用，多位性格各异的角色陪你聊天、分享生活、记录心情。纯本地存储，隐私安全。">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%238b5cf6'/%3E%3Cpath d='M50 28c-12 0-22 8-22 20 0 8 4 14 10 18 1 4 2 8 2 10 0 2 2 3 4 2l6-4c2 0 4 0 6 0 12 0 22-8 22-20s-10-20-22-20z' fill='white'/%3E%3C/svg%3E">
-<meta name="version" content="17.4.1+284">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%233b82f6'/%3E%3Cpath d='M50 28c-12 0-22 8-22 20 0 8 4 14 10 18 1 4 2 8 2 10 0 2 2 3 4 2l6-4c2 0 4 0 6 0 12 0 22-8 22-20s-10-20-22-20z' fill='white'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<!-- Particle Canvas -->
 <canvas id="particle-canvas"></canvas>
 
-<!-- Navigation -->
 <nav class="nav" id="nav">
   <a href="index.html" class="nav-brand">
     <span class="nav-brand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
@@ -26,7 +23,7 @@
     <a href="about.html">关于</a>
     <a href="help.html">帮助</a>
   </div>
-  <div style="display:flex;align-items:center;gap:12px;">
+  <div class="nav-extra">
     <a class="nav-cta" href="download.html">免费下载</a>
     <button class="hamburger" onclick="toggleMenu()" aria-label="菜单"><span></span><span></span><span></span></button>
   </div>
@@ -47,160 +44,157 @@
       <span class="dot"></span>
       v17.4.1 全新体验
     </div>
-    <h1>
-      <span class="line">遇见那个</span>
-      <span class="line accent">只懂你的人</span>
-    </h1>
+    <h1>遇见那个 <span class="highlight">只懂你的人</span></h1>
     <p class="hero-desc">不是工具，是陪伴。Solace 用记忆与情感引擎，为你创造独一无二的灵魂——她记得你的一切，懂你的欲言又止。</p>
     <div class="hero-actions">
       <a class="btn btn-primary" href="download.html">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         免费下载
       </a>
-      <a class="btn btn-ghost" href="features.html">了解更多</a>
+      <a class="btn btn-secondary" href="features.html">了解更多</a>
     </div>
-  </div>
-  <div class="scroll-hint">
-    <span>向下探索</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    <div class="hero-stats">
+      <span class="item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        100% 本地存储
+      </span>
+      <span class="item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        零后端 · 零追踪
+      </span>
+    </div>
   </div>
 </section>
 
-<!-- Stats -->
-<section class="stats-section">
+<!-- Stats Bar -->
+<section class="stats-bar">
   <div class="stats-grid">
     <div class="stat-item reveal">
       <h3>7+</h3>
       <p>独立角色</p>
     </div>
-    <div class="stat-item reveal reveal-delay-1">
+    <div class="stat-item reveal reveal-d1">
       <h3>100%</h3>
       <p>本地存储</p>
     </div>
-    <div class="stat-item reveal reveal-delay-2">
+    <div class="stat-item reveal reveal-d2">
       <h3>¥0</h3>
       <p>完全免费</p>
     </div>
-    <div class="stat-item reveal reveal-delay-3">
+    <div class="stat-item reveal reveal-d3">
       <h3>23MB</h3>
       <p>轻量体积</p>
     </div>
   </div>
 </section>
 
-<!-- Feature 1: Multi-character -->
+<!-- Features -->
 <section class="section section-alt">
-  <div class="section-content">
-    <div class="reveal">
-      <div class="section-label">核心体验</div>
-      <h2>每位角色<br><span class="gradient">都是独一无二的灵魂</span></h2>
-      <p>独立性格、说话方式、记忆系统。随着亲密度提升，关系自然升温——从礼貌客气到无话不谈。</p>
-      <div class="feature-list">
-        <div class="feature-item">
-          <div class="feature-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
-          <div><h4>多角色互动</h4><p>每位角色拥有独立性格、说话方式和记忆</p></div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></div>
-          <div><h4>亲密度系统</h4><p>随着聊天深入，角色对你越来越亲近</p></div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
-          <div><h4>AI 主动消息</h4><p>角色会主动问候、分享日常</p></div>
-        </div>
-      </div>
+  <div class="container">
+    <div class="s-head reveal">
+      <span class="s-label">核心功能</span>
+      <h2>不止于聊天</h2>
+      <p>Solace 用细节打造真实陪伴感。</p>
     </div>
-    <div class="visual-area reveal reveal-delay-2">
-      <div class="floating-shape shape-1"></div>
-      <div class="floating-shape shape-2"></div>
-      <div class="device-3d">
-        <div class="device-mobile-content" style="padding:40px 16px 16px;display:flex;flex-direction:column;gap:10px;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-            <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--lavender),var(--rose));display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
-            <div><div style="font-size:13px;font-weight:700;">小暖</div><div style="font-size:11px;color:var(--mint);font-weight:600;">● 在线</div></div>
-          </div>
-          <div style="padding:10px 14px;border-radius:14px;background:linear-gradient(135deg,#f3e8ff,rgba(244,114,182,0.06));font-size:12px;align-self:flex-start;border-bottom-left-radius:4px;">今天过得怎么样？想聊聊吗？</div>
-          <div style="padding:10px 14px;border-radius:14px;background:linear-gradient(135deg,var(--lavender),var(--rose));color:white;font-size:12px;align-self:flex-end;border-bottom-right-radius:4px;box-shadow:0 4px 12px rgba(139,92,246,0.2);">有点累，但看到你消息就好多了。</div>
-          <div style="display:flex;gap:3px;padding:10px 14px;background:#f3e8ff;border-radius:14px;border-bottom-left-radius:4px;width:fit-content;">
-            <span style="width:6px;height:6px;border-radius:50%;background:var(--lavender);animation:typing-dot 1.2s infinite;"></span>
-            <span style="width:6px;height:6px;border-radius:50%;background:var(--lavender);animation:typing-dot 1.2s infinite 0.2s;"></span>
-            <span style="width:6px;height:6px;border-radius:50%;background:var(--lavender);animation:typing-dot 1.2s infinite 0.4s;"></span>
-          </div>
-        </div>
+    <div class="features">
+      <div class="feature-item reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <h3>多角色互动</h3>
+        <p>每位角色拥有独立性格、说话方式和记忆。随着亲密度提升，关系自然升温。</p>
+      </div>
+      <div class="feature-item reveal reveal-d1">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>
+        <h3>图片识别</h3>
+        <p>发送照片或截图，AI 视觉模型自动识别内容，让聊天不再只是文字。</p>
+      </div>
+      <div class="feature-item reveal reveal-d2">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></div>
+        <h3>从回忆创建</h3>
+        <p>上传照片和聊天记录，AI 自动分析性格、说话风格，还原一个真实的人格。</p>
+      </div>
+      <div class="feature-item reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></div>
+        <h3>亲密度系统</h3>
+        <p>随着聊天深入，角色对你越来越亲近。从礼貌客气到无话不谈。</p>
+      </div>
+      <div class="feature-item reveal reveal-d1">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <h3>AI 主动消息</h3>
+        <p>角色会主动问候、分享日常，时间感知系统确保在合适的时间说合适的话。</p>
+      </div>
+      <div class="feature-item reveal reveal-d2">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+        <h3>时间感知</h3>
+        <p>AI 知道现在是几点，不会在半夜说早上好，问候根据时段自动调整。</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- Feature 2: Privacy -->
+<!-- Feature Overview -->
 <section class="section">
-  <div class="section-content reverse">
-    <div class="reveal">
-      <div class="section-label">隐私安全</div>
-      <h2>你的秘密<br><span class="gradient">只属于你</span></h2>
-      <p>零后端架构。没有服务器要维护，没有 Firebase 账单。所有数据存储在本地，API 密钥和聊天记录永不离开你的设备。</p>
-      <div class="feature-list">
-        <div class="feature-item">
-          <div class="feature-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
-          <div><h4>100% 本地存储</h4><p>聊天记录、角色数据全部本地保存</p></div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
-          <div><h4>零后端 · 零追踪</h4><p>不收集任何数据，不追踪用户行为</p></div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
-          <div><h4>多种模型</h4><p>支持任意 OpenAI 兼容 API，内置双线容灾</p></div>
-        </div>
-      </div>
+  <div class="container">
+    <div class="s-head reveal">
+      <span class="s-label">功能概览</span>
+      <h2>一切尽在 Solace</h2>
     </div>
-    <div class="visual-area reveal reveal-delay-2">
-      <div class="floating-shape shape-1" style="background:var(--mint);animation-delay:-3s;"></div>
-      <div class="floating-shape shape-2" style="background:var(--sky);animation-delay:-7s;"></div>
-      <div style="width:280px;height:280px;border-radius:50%;background:conic-gradient(from 0deg,var(--lavender),var(--rose),var(--sky),var(--mint),var(--lavender));opacity:0.15;filter:blur(40px);animation:float-orb 15s ease-in-out infinite;"></div>
+    <div class="fo-grid">
+      <div class="fo-item reveal">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <div><h4>多角色互动</h4><p>每位角色拥有独立性格、说话方式和记忆系统。</p></div>
+      </div>
+      <div class="fo-item reveal reveal-d1">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>
+        <div><h4>图片识别</h4><p>发送照片，AI 视觉模型自动识别内容。</p></div>
+      </div>
+      <div class="fo-item reveal reveal-d2">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></div>
+        <div><h4>从回忆创建</h4><p>上传聊天记录，AI 还原真实的人格。</p></div>
+      </div>
+      <div class="fo-item reveal reveal-d3">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+        <div><h4>心情日记</h4><p>AI 自动记录每一天的情绪变化。</p></div>
+      </div>
+      <div class="fo-item reveal">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <div><h4>隐私安全</h4><p>所有数据本地存储，零后端，零追踪。</p></div>
+      </div>
+      <div class="fo-item reveal reveal-d1">
+        <div class="fo-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+        <div><h4>多种模型</h4><p>支持任意 OpenAI 兼容 API，内置双线容灾。</p></div>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- Feature 3: Memories -->
+<!-- Story -->
 <section class="section section-alt">
-  <div class="section-content">
-    <div class="reveal">
-      <div class="section-label">记忆与创造</div>
-      <h2>从回忆中<br><span class="gradient">创造真实的她</span></h2>
-      <p>上传照片和聊天记录，AI 自动分析性格标签、说话风格，还原一个真实的人格。图片识别让聊天不再只是文字。</p>
-      <div class="feature-list">
-        <div class="feature-item">
-          <div class="feature-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>
-          <div><h4>图片识别</h4><p>发送照片，AI 视觉模型自动识别内容</p></div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></div>
-          <div><h4>从回忆创建</h4><p>上传聊天记录，AI 还原真实人格</p></div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
-          <div><h4>心情日记</h4><p>AI 自动记录每一天的情绪变化</p></div>
-        </div>
-      </div>
+  <div class="container">
+    <div class="s-head reveal">
+      <span class="s-label">关于 Solace</span>
+      <h2>一个人的坚持</h2>
+      <p>从第一行代码到现在的每一次迭代，没有团队，没有投资，只有对产品的执着。</p>
     </div>
-    <div class="visual-area reveal reveal-delay-2">
-      <div class="floating-shape shape-1" style="background:var(--rose);animation-delay:-5s;"></div>
-      <div class="floating-shape shape-3" style="animation-delay:-2s;"></div>
-      <div style="width:240px;height:360px;border-radius:24px;background:linear-gradient(160deg,white,#f3e8ff);box-shadow:0 20px 60px rgba(139,92,246,0.15),0 0 0 1px rgba(139,92,246,0.08);padding:24px;display:flex;flex-direction:column;gap:12px;transform:perspective(1000px) rotateY(8deg) rotateX(-3deg);animation:device-float 10s ease-in-out infinite;animation-delay:-3s;">
-        <div style="font-size:12px;font-weight:700;color:var(--mist);margin-bottom:8px;">记忆库</div>
-        <div style="padding:12px;border-radius:12px;background:linear-gradient(135deg,rgba(139,92,246,0.06),rgba(244,114,182,0.04));border-left:3px solid var(--lavender);">
-          <div style="font-size:11px;font-weight:600;color:var(--lavender);margin-bottom:4px;">偏好</div>
-          <div style="font-size:13px;color:var(--stone);line-height:1.5;">喜欢深夜聊天，爱吃甜食</div>
-        </div>
-        <div style="padding:12px;border-radius:12px;background:linear-gradient(135deg,rgba(52,211,153,0.06),rgba(56,189,248,0.04));border-left:3px solid var(--mint);">
-          <div style="font-size:11px;font-weight:600;color:var(--mint);margin-bottom:4px;">经历</div>
-          <div style="font-size:13px;color:var(--stone);line-height:1.5;">一起看过樱花，约定明年再见</div>
-        </div>
-        <div style="padding:12px;border-radius:12px;background:linear-gradient(135deg,rgba(244,114,182,0.06),rgba(139,92,246,0.04));border-left:3px solid var(--rose);">
-          <div style="font-size:11px;font-weight:600;color:var(--rose);margin-bottom:4px;">情感</div>
-          <div style="font-size:13px;color:var(--stone);line-height:1.5;">今天感到开心，因为收到了礼物</div>
-        </div>
+    <div class="story-grid">
+      <div class="story-item reveal">
+        <div class="story-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+        <h3>零后端架构</h3>
+        <p>没有服务器要维护，没有 Firebase 账单。所有费用只花在你的 API 调用上。</p>
+      </div>
+      <div class="story-item reveal reveal-d1">
+        <div class="story-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
+        <h3>与 Lovemo 不同</h3>
+        <p>Lovemo 有 VIP 订阅、追踪用户数据。Solace 完全免费、不追踪任何人。</p>
+      </div>
+      <div class="story-item reveal reveal-d2">
+        <div class="story-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg></div>
+        <h3>18 岁的产品理想</h3>
+        <p>不想去大厂写 CRUD，想做一个自己真正想用的东西。代码、UI、产品设计，全是自己来。</p>
+      </div>
+      <div class="story-item reveal reveal-d3">
+        <div class="story-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+        <h3>持续迭代</h3>
+        <p>从 v1.0 到现在，43 个构建版本。每次更新都精简功能、优化体验、修复问题。</p>
       </div>
     </div>
   </div>
@@ -208,38 +202,26 @@
 
 <!-- FAQ -->
 <section class="section">
-  <div style="max-width:720px;width:100%;margin:0 auto;">
-    <div class="reveal" style="text-align:center;margin-bottom:64px;">
-      <div class="section-label" style="justify-content:center;">常见问题</div>
+  <div class="container">
+    <div class="s-head reveal">
+      <span class="s-label">常见问题</span>
       <h2>你可能想知道的</h2>
     </div>
-    <div class="faq-section">
+    <div class="faqs">
       <div class="faq-item reveal">
-        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-          <span>Solace 需要联网吗？</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-        </div>
+        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span>Solace 需要联网吗？</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
         <div class="faq-a"><p>需要联网调用 API，但所有聊天记录和个人数据都保存在本地设备上，不会上传到任何服务器。</p></div>
       </div>
-      <div class="faq-item reveal reveal-delay-1">
-        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-          <span>我的数据安全吗？</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-        </div>
+      <div class="faq-item reveal reveal-d1">
+        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span>我的数据安全吗？</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
         <div class="faq-a"><p>非常安全。所有数据存储在本地，不会上传到任何服务器。API 密钥也仅保存在本地设备上。</p></div>
       </div>
-      <div class="faq-item reveal reveal-delay-2">
-        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-          <span>需要什么 API 密钥？</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-        </div>
-        <div class="faq-a"><p>需要兼容 OpenAI API 格式的接口地址和密钥，推荐使用 <a href="https://siliconflow.cn" target="_blank" rel="noopener" style="color:var(--lavender);font-weight:700;">SiliconFlow</a>（国内可用，新用户有免费额度）。</p></div>
+      <div class="faq-item reveal reveal-d2">
+        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span>需要什么 API 密钥？</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="faq-a"><p>需要兼容 OpenAI API 格式的接口地址和密钥，推荐使用 <a href="https://siliconflow.cn" target="_blank" rel="noopener" style="color:var(--blue-600);font-weight:700;">SiliconFlow</a>（国内可用，新用户有免费额度）。</p></div>
       </div>
-      <div class="faq-item reveal reveal-delay-3">
-        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-          <span>收费吗？</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-        </div>
+      <div class="faq-item reveal reveal-d3">
+        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span>收费吗？</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
         <div class="faq-a"><p>应用本身完全免费。你只需自行承担 AI API 调用的费用。</p></div>
       </div>
     </div>
@@ -247,12 +229,12 @@
 </section>
 
 <!-- CTA -->
-<section class="cta-section">
-  <div style="position:relative;z-index:1;">
+<section class="cta">
+  <div class="container">
     <h2>准备好开始了吗？</h2>
     <p>下载 Solace，让温暖的陪伴随时陪伴你。</p>
     <a class="cta-btn" href="download.html">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       免费下载 Solace
     </a>
   </div>
@@ -263,7 +245,7 @@
   <div class="footer-grid">
     <div class="footer-brand">
       <div class="logo">Solace</div>
-      <p>让每一次交流都有温度。一款零后端、纯本地的 AI 陪伴应用，所有数据仅存储在你的设备上。</p>
+      <p>让每一次交流都有温度。一款零后端、纯本地的 AI 陪伴应用。</p>
     </div>
     <div class="footer-col">
       <h4>产品</h4>
@@ -274,7 +256,6 @@
     <div class="footer-col">
       <h4>关于</h4>
       <a href="about.html">关于作者</a>
-      <a href="about.html#tech">技术架构</a>
     </div>
     <div class="footer-col">
       <h4>法律</h4>
@@ -284,7 +265,7 @@
   </div>
   <div class="footer-bottom">
     <p>&copy; 2026 Solace. All rights reserved.</p>
-    <div style="display:flex;gap:24px;"><a href="privacy.html">隐私</a><a href="terms.html">条款</a></div>
+    <div style="display:flex;gap:20px;"><a href="privacy.html">隐私</a><a href="terms.html">条款</a></div>
   </div>
 </footer>
 
@@ -292,77 +273,66 @@
 // Particle System
 (function() {
   const canvas = document.getElementById('particle-canvas');
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   let particles = [];
   let mouse = { x: null, y: null };
-  let animationId;
   
-  function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-  }
-  resize();
-  window.addEventListener('resize', resize);
+  function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+  resize(); window.addEventListener('resize', resize);
   
   class Particle {
     constructor() {
       this.x = Math.random() * canvas.width;
       this.y = Math.random() * canvas.height;
-      this.size = Math.random() * 2 + 0.5;
-      this.speedX = (Math.random() - 0.5) * 0.5;
-      this.speedY = (Math.random() - 0.5) * 0.5;
-      this.color = Math.random() > 0.5 ? 'rgba(139,92,246,' : 'rgba(244,114,182,';
-      this.opacity = Math.random() * 0.3 + 0.1;
+      this.size = Math.random() * 2 + 1;
+      this.speedX = (Math.random() - 0.5) * 0.4;
+      this.speedY = (Math.random() - 0.5) * 0.4;
+      this.opacity = Math.random() * 0.25 + 0.05;
     }
     update() {
       this.x += this.speedX;
       this.y += this.speedY;
-      if (this.x > canvas.width) this.x = 0;
       if (this.x < 0) this.x = canvas.width;
-      if (this.y > canvas.height) this.y = 0;
+      if (this.x > canvas.width) this.x = 0;
       if (this.y < 0) this.y = canvas.height;
-      
-      // Mouse interaction
+      if (this.y > canvas.height) this.y = 0;
       if (mouse.x != null) {
         const dx = mouse.x - this.x;
         const dy = mouse.y - this.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < 150) {
-          const force = (150 - dist) / 150;
-          this.x -= dx * force * 0.02;
-          this.y -= dy * force * 0.02;
+        if (dist < 120) {
+          const f = (120 - dist) / 120;
+          this.x -= dx * f * 0.015;
+          this.y -= dy * f * 0.015;
         }
       }
     }
     draw() {
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-      ctx.fillStyle = this.color + this.opacity + ')';
+      ctx.fillStyle = 'rgba(59,130,246,' + this.opacity + ')';
       ctx.fill();
     }
   }
   
   function init() {
     particles = [];
-    const count = Math.min(window.innerWidth / 8, 150);
-    for (let i = 0; i < count; i++) {
-      particles.push(new Particle());
-    }
+    const count = Math.min(Math.floor(window.innerWidth / 12), 80);
+    for (let i = 0; i < count; i++) particles.push(new Particle());
   }
   init();
   
   function animate() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw connections
     for (let i = 0; i < particles.length; i++) {
       for (let j = i + 1; j < particles.length; j++) {
         const dx = particles[i].x - particles[j].x;
         const dy = particles[i].y - particles[j].y;
         const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < 120) {
+        if (dist < 100) {
           ctx.beginPath();
-          ctx.strokeStyle = `rgba(139,92,246,${0.08 * (1 - dist/120)})`;
+          ctx.strokeStyle = 'rgba(59,130,246,' + (0.06 * (1 - dist/100)) + ')';
           ctx.lineWidth = 0.5;
           ctx.moveTo(particles[i].x, particles[i].y);
           ctx.lineTo(particles[j].x, particles[j].y);
@@ -370,31 +340,20 @@
         }
       }
     }
-    
     particles.forEach(p => { p.update(); p.draw(); });
-    animationId = requestAnimationFrame(animate);
+    requestAnimationFrame(animate);
   }
   animate();
   
-  window.addEventListener('mousemove', e => {
-    mouse.x = e.x;
-    mouse.y = e.y;
-  });
-  window.addEventListener('mouseleave', () => {
-    mouse.x = null;
-    mouse.y = null;
-  });
+  window.addEventListener('mousemove', e => { mouse.x = e.x; mouse.y = e.y; });
+  window.addEventListener('mouseleave', () => { mouse.x = null; mouse.y = null; });
 })();
 
 // Navigation
-function toggleMenu() {
-  document.getElementById('mobileMenu').classList.toggle('open');
-}
-function closeMenu() {
-  document.getElementById('mobileMenu').classList.remove('open');
-}
+function toggleMenu() { document.getElementById('mobileMenu').classList.toggle('open'); }
+function closeMenu() { document.getElementById('mobileMenu').classList.remove('open'); }
 window.addEventListener('scroll', () => {
-  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 50);
+  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 30);
 });
 
 // Scroll reveal
@@ -405,7 +364,7 @@ const io = new IntersectionObserver((entries) => {
       io.unobserve(e.target);
     }
   });
-}, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+}, { threshold: 0.08, rootMargin: '0px 0px -30px 0px' });
 document.querySelectorAll('.reveal').forEach(el => io.observe(el));
 </script>
 
