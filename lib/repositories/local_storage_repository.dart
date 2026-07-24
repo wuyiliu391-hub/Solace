@@ -5234,10 +5234,23 @@ class LocalStorageRepository {
   Future<List<ShopItem>> getAllShopItems() async {
     try {
       final db = await _ensureDb();
-      final maps = await db.query('shop_items', orderBy: 'sortOrder ASC');
+      // shop_items 表无 sortOrder 列，按分类 + 价格排序
+      final maps = await db.query(
+        'shop_items',
+        orderBy: 'category ASC, price ASC, name ASC',
+      );
       return maps.map((m) => ShopItem.fromMap(m)).toList();
     } catch (e) {
-      return [];
+      debugPrint('getAllShopItems 失败: $e');
+      // 兜底：无 orderBy 再读一次，避免黑屏空页
+      try {
+        final db = await _ensureDb();
+        final maps = await db.query('shop_items');
+        return maps.map((m) => ShopItem.fromMap(m)).toList();
+      } catch (e2) {
+        debugPrint('getAllShopItems 兜底失败: $e2');
+        return [];
+      }
     }
   }
 

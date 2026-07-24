@@ -53,9 +53,22 @@ class _ShopScreenState extends State<ShopScreen>
     });
     _selectedSessionId = widget.chatSessionId;
     _selectedReceiverId = widget.receiverId;
-    _loadUserCoins();
-    _loadChatSessions();
-    context.read<ShopBloc>().add(const ShopLoadItems());
+    // 延后到首帧，确保祖先 BlocProvider 已挂载，避免 ProviderNotFound 黑屏
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadUserCoins();
+      _loadChatSessions();
+      _shopBlocOrNull()?.add(const ShopLoadItems());
+    });
+  }
+
+  ShopBloc? _shopBlocOrNull() {
+    try {
+      return context.read<ShopBloc>();
+    } catch (e) {
+      debugPrint('ShopScreen: ShopBloc 未注入: $e');
+      return null;
+    }
   }
 
   Future<void> _loadUserCoins() async {
@@ -87,7 +100,7 @@ class _ShopScreenState extends State<ShopScreen>
   void _filterItems() {
     final categories = ['all', 'gift', 'food', 'express'];
     final category = categories[_selectedIndex];
-    context.read<ShopBloc>().add(ShopLoadItemsByCategory(category));
+    _shopBlocOrNull()?.add(ShopLoadItemsByCategory(category));
   }
 
   @override
@@ -98,6 +111,19 @@ class _ShopScreenState extends State<ShopScreen>
 
   @override
   Widget build(BuildContext context) {
+    // 若祖先未提供 ShopBloc，则本页自建，避免 ProviderNotFound 导致全黑屏
+    final existing = _shopBlocOrNull();
+    if (existing != null) {
+      return _buildScaffold(context);
+    }
+    final storage = context.read<LocalStorageRepository>();
+    return BlocProvider(
+      create: (_) => ShopBloc(storage)..add(const ShopLoadItems()),
+      child: Builder(builder: (ctx) => _buildScaffold(ctx)),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: cs.surface,
@@ -112,11 +138,12 @@ class _ShopScreenState extends State<ShopScreen>
             tooltip: '我的订单',
             icon: const Icon(Icons.receipt_long_outlined),
             onPressed: () {
+              final bloc = context.read<ShopBloc>();
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => BlocProvider.value(
-                    value: context.read<ShopBloc>(),
+                    value: bloc,
                     child: const OrderTrackingScreen(),
                   ),
                 ),

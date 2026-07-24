@@ -41,6 +41,8 @@ import 'screens/games/lucky_wheel_screen.dart';
 import 'screens/games/music_companion_screen.dart';
 import 'screens/story/story_shelf_screen.dart';
 import 'screens/novel/novel_shelf_screen.dart';
+import 'screens/phone/phone_home_shell.dart';
+import 'screens/shop/shop_screen.dart';
 
 import 'screens/group_chat/group_chat_list_screen.dart';
 import 'blocs/group_chat/group_chat_bloc.dart';
@@ -49,6 +51,7 @@ import 'screens/usage/usage_screen.dart';
 import 'screens/operit/operit_home_screen.dart';
 import 'blocs/chat/chat_bloc.dart';
 import 'blocs/pure_ai/pure_ai_chat_bloc.dart';
+import 'blocs/shop/shop_bloc.dart';
 import 'services/permission_service.dart';
 import 'services/notification_service.dart';
 import 'services/update_service.dart';
@@ -355,11 +358,13 @@ class _MainShell extends StatefulWidget {
   State<_MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<_MainShell> {
+class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
   int _currentIndex = 0;
   int _contactsKeyCounter = 0;
   final Map<int, Widget> _pageCache = {};
-  
+  bool _phoneDesktop = false;
+  bool _shellPrefLoaded = false;
+
   // 修复：复用 ChatBloc 实例，避免每次切换 Tab 都重建导致状态丢失
   ChatBloc? _chatBloc;
   AIService? _aiService;
@@ -367,12 +372,17 @@ class _MainShellState extends State<_MainShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // P2: 世界功能暂不开放，跳过 WorldEngine 初始化
       // _initWorldEngine();
 
       // 初始化 ChatBloc（修复：避免每次切换 Tab 都重建）
       _initChatBloc();
+      await _loadShellPref();
+      try {
+        context.read<LocalStorageRepository>().modeSettingsNotifier.addListener(_loadShellPref);
+      } catch (_) {}
 
       // 强制模式确认 — 必须在所有其他提示之前，阻塞直到用户确认
       await _showForceModeConfirm();
@@ -380,6 +390,27 @@ class _MainShellState extends State<_MainShell> {
       _showBtNoticeIfNeeded();
       _checkPendingMemoryRebuild();
     });
+  }
+
+  Future<void> _loadShellPref() async {
+    try {
+      final storage = context.read<LocalStorageRepository>();
+      final enabled = storage.isPhoneDesktopShellEnabled();
+      if (mounted) {
+        setState(() {
+          _phoneDesktop = enabled;
+          _shellPrefLoaded = true;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _shellPrefLoaded = true);
+    }
+  }
+
+  Future<void> _setPhoneDesktop(bool enabled) async {
+    final storage = context.read<LocalStorageRepository>();
+    await storage.setPhoneDesktopShellEnabled(enabled);
+    if (mounted) setState(() => _phoneDesktop = enabled);
   }
   
   /// 初始化 ChatBloc，确保 userId 正确获取
@@ -409,7 +440,18 @@ class _MainShellState extends State<_MainShell> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadShellPref();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    try {
+      context.read<LocalStorageRepository>().modeSettingsNotifier.removeListener(_loadShellPref);
+    } catch (_) {}
     // 修复：释放 ChatBloc 实例
     _chatBloc?.close();
     super.dispose();
@@ -705,15 +747,45 @@ class _MainShellState extends State<_MainShell> {
   }
 
   void _onNavigate(String route) {
+    // 桌面壳内：消息/通讯录以独立页打开，保留桌面壳在栈底
+    if (_phoneDesktop) {
+      if (_chatBloc == null) _initChatBloc();
+      if (route == '/chat_list' || route == '/chat') {
+        Navigator.push(
+          context,
+          CupertinoPageRoute(
+            builder: (_) => BlocProvider.value(
+              value: _chatBloc!,
+              child: const ChatListScreen(),
+            ),
+          ),
+        );
+        return;
+      }
+      if (route == '/contacts') {
+        Navigator.push(
+          context,
+          CupertinoPageRoute(
+            builder: (_) => ContactsScreen(
+              key: ValueKey('contacts_push_$_contactsKeyCounter'),
+            ),
+          ),
+        );
+        return;
+      }
+    }
     final storage = context.read<LocalStorageRepository>();
     final aiService = context.read<AIService>();
     final page = _resolveRoute(route, storage, aiService);
     if (page != null) {
       Navigator.push(context, CupertinoPageRoute(builder: (_) => page))
           .then((_) {
-        // 从创建角色返回时刷新通讯录和消息列表
         if (route == '/create_character' && mounted) {
           setState(() => _contactsKeyCounter++);
+        }
+        // 从设置返回时同步桌面壳开关
+        if (route == '/settings' && mounted) {
+          _loadShellPref();
         }
       });
     }
@@ -733,6 +805,7 @@ class _MainShellState extends State<_MainShell> {
       case '/mailbox':
         return const AIMailboxScreen();
       case '/diary':
+      case '/ai_diary':
         return const AIDiaryScreen();
       case '/bookmarks':
         return const BookmarkListScreen();
@@ -752,6 +825,17 @@ class _MainShellState extends State<_MainShell> {
         return TarotScreen(storage: storage);
       case '/story':
         return const StoryShelfScreen();
+      case '/novel':
+        return const NovelShelfScreen();
+      case '/shop':
+        // ShopBloc 已在根 MultiBlocProvider 注入；此处再包一层保证独立路由可用
+        return BlocProvider(
+          create: (_) => ShopBloc(storage),
+          child: const ShopScreen(),
+        );
+      case '/music':
+      case '/music_companion':
+        return const MusicCompanionScreen();
       // 已隐藏：日记模块前端入口暂不展示
       // case '/forum':
       //   return const ForumScreen();
@@ -759,8 +843,6 @@ class _MainShellState extends State<_MainShell> {
         return const LuckyWheelScreen();
       case '/group_chat':
         return const GroupChatListScreen();
-      case '/music_companion':
-        return const MusicCompanionScreen();
       // P2: 世界功能暂不开放
       // case '/world':
       //   return const WorldHomeScreen();
@@ -772,6 +854,34 @@ class _MainShellState extends State<_MainShell> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+
+    // 虚拟手机桌面壳
+    if (_shellPrefLoaded && _phoneDesktop) {
+      return Scaffold(
+        body: Column(
+          children: [
+            StreamBuilder<MemoryRebuildProgress>(
+              stream: MemoryRebuildService.instance.progressStream,
+              builder: (context, snapshot) {
+                final progress = snapshot.data;
+                if (progress == null ||
+                    progress.state != MemoryRebuildState.rebuilding) {
+                  return const SizedBox.shrink();
+                }
+                return _GlobalRebuildBanner(progress: progress);
+              },
+            ),
+            Expanded(
+              child: PhoneHomeShell(
+                onNavigate: _onNavigate,
+                onExitToClassic: () => _setPhoneDesktop(false),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
       body: Column(
         children: [
@@ -1206,6 +1316,9 @@ class SolaceApp extends StatelessWidget {
           ),
           BlocProvider(
             create: (_) => GroupChatBloc(storageRepo),
+          ),
+          BlocProvider(
+            create: (_) => ShopBloc(storageRepo),
           ),
         ],
         child: BlocBuilder<ThemeBloc, ThemeState>(
