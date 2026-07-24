@@ -52,7 +52,7 @@ body {
    PARTICLE CANVAS — 粒子宇宙背景
    ═══════════════════════════════════════════ */
 #particle-canvas {
-  position: fixed; inset: 0; z-index: 0;
+  position: fixed; inset: 0; z-index: -1;
   pointer-events: none;
 }
 
