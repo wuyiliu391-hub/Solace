@@ -350,6 +350,7 @@ class LocalStorageRepository {
       'location': 'TEXT',
       'bio': 'TEXT',
       'status': 'TEXT',
+      'backgroundImage': 'TEXT',
       'coins': 'INTEGER NOT NULL DEFAULT 100',
       'totalCoinsEarned': 'INTEGER NOT NULL DEFAULT 100',
       'totalCoinsSpent': 'INTEGER NOT NULL DEFAULT 0',
@@ -360,6 +361,8 @@ class LocalStorageRepository {
       'lockScreenFontSize': 'REAL NOT NULL DEFAULT 1.0',
       'currentWeather': 'TEXT',
       'lastWeatherUpdate': 'TEXT',
+      // 兼容旧库：toMap 会写 sync_seq，缺列会直接炸
+      'sync_seq': 'INTEGER DEFAULT 0',
     },
     'ai_characters': {
       'name': 'TEXT NOT NULL DEFAULT ""',
@@ -399,19 +402,21 @@ class LocalStorageRepository {
       'styleLock': 'TEXT NOT NULL DEFAULT "anime"',
       'age': 'INTEGER',
       'structuredTraits': 'TEXT',
+      'sync_seq': 'INTEGER DEFAULT 0',
     },
     'ai_configs': {
       'providerName': 'TEXT NOT NULL DEFAULT ""',
       'baseUrl': 'TEXT NOT NULL DEFAULT ""',
       'apiKey': 'TEXT NOT NULL DEFAULT ""',
-      'extraApiKeys': 'TEXT NOT NULL DEFAULT ""',
+      'extraApiKeys': 'TEXT DEFAULT ""',
       'modelName': 'TEXT NOT NULL DEFAULT ""',
       'temperature': 'REAL NOT NULL DEFAULT 0.7',
       'maxTokens': 'INTEGER NOT NULL DEFAULT 2048',
       'isActive': 'INTEGER NOT NULL DEFAULT 1',
-      'isThinkingModel': 'INTEGER NOT NULL DEFAULT 1',
+      'isThinkingModel': 'INTEGER DEFAULT 1',
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'updatedAt': 'TEXT',
+      'sync_seq': 'INTEGER DEFAULT 0',
     },
     'ai_letters': {
       'userId': 'TEXT NOT NULL DEFAULT ""',
@@ -460,6 +465,7 @@ class LocalStorageRepository {
       // -1=跟随全局，0=本会话关闭，1=本会话开启
       // ALTER 兼容：不要用 NOT NULL，避免旧库补列失败
       'novelMode': 'INTEGER DEFAULT -1',
+      'sync_seq': 'INTEGER DEFAULT 0',
     },
     'chat_messages': {
       'chatId': 'TEXT NOT NULL DEFAULT ""',
@@ -479,7 +485,8 @@ class LocalStorageRepository {
       'pokeSuffix': 'TEXT',
       'stickerId': 'TEXT',
       'stickerPath': 'TEXT',
-      'isBookmark': 'INTEGER NOT NULL DEFAULT 0',
+      'isBookmark': 'INTEGER DEFAULT 0',
+      'sync_seq': 'INTEGER DEFAULT 0',
     },
     'intimacy_events': {
       'chatId': 'TEXT NOT NULL DEFAULT ""',
@@ -494,6 +501,7 @@ class LocalStorageRepository {
       'sentimentLabel': 'TEXT',
       'sentimentType': 'TEXT',
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'sync_seq': 'INTEGER DEFAULT 0',
     },
     'memories': {
       'characterId': 'TEXT NOT NULL DEFAULT ""',
@@ -505,9 +513,9 @@ class LocalStorageRepository {
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'lastAccessedAt': 'TEXT',
       'accessCount': 'INTEGER NOT NULL DEFAULT 0',
-      'sync_seq': 'INTEGER NOT NULL DEFAULT 0',
-      'weight': 'REAL NOT NULL DEFAULT 1.0',
-      'pinned': 'INTEGER NOT NULL DEFAULT 0',
+      'sync_seq': 'INTEGER DEFAULT 0',
+      'weight': 'REAL DEFAULT 1.0',
+      'pinned': 'INTEGER DEFAULT 0',
       'lastRecalledAt': 'TEXT',
       'summary': 'TEXT',
       'updatedAt': 'TEXT',
@@ -525,22 +533,23 @@ class LocalStorageRepository {
       'updatedAt': 'TEXT',
       'isFromAI': 'INTEGER NOT NULL DEFAULT 0',
       'visibility': 'INTEGER NOT NULL DEFAULT 0',
-      'source': 'INTEGER NOT NULL DEFAULT 0',
+      'source': 'INTEGER DEFAULT 0',
       'replyToCommentId': 'TEXT',
       'replyToContent': 'TEXT',
-      'aiLiked': 'INTEGER NOT NULL DEFAULT 0',
+      'aiLiked': 'INTEGER DEFAULT 0',
       'parentKey': 'TEXT',
       'retweetKey': 'TEXT',
       'quoteKey': 'TEXT',
-      'retweetCount': 'INTEGER NOT NULL DEFAULT 0',
-      'replyCount': 'INTEGER NOT NULL DEFAULT 0',
-      'bookmarkCount': 'INTEGER NOT NULL DEFAULT 0',
-      'viewCount': 'INTEGER NOT NULL DEFAULT 0',
+      'retweetCount': 'INTEGER DEFAULT 0',
+      'replyCount': 'INTEGER DEFAULT 0',
+      'bookmarkCount': 'INTEGER DEFAULT 0',
+      'viewCount': 'INTEGER DEFAULT 0',
       'tags': 'TEXT',
       'userHandle': 'TEXT',
       'userGender': 'TEXT',
-      'userVerified': 'INTEGER NOT NULL DEFAULT 0',
-      'customLikeCount': 'INTEGER NOT NULL DEFAULT 0',
+      'userVerified': 'INTEGER DEFAULT 0',
+      'customLikeCount': 'INTEGER DEFAULT 0',
+      'sync_seq': 'INTEGER DEFAULT 0',
     },
     'sticker_packs': {
       'name': 'TEXT NOT NULL DEFAULT ""',
@@ -549,6 +558,7 @@ class LocalStorageRepository {
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'updatedAt': 'TEXT',
       'isDefault': 'INTEGER NOT NULL DEFAULT 0',
+      'sync_seq': 'INTEGER DEFAULT 0',
     },
     'story_books': {
       'id': 'TEXT PRIMARY KEY',
@@ -1671,6 +1681,106 @@ class LocalStorageRepository {
           db, 'chat_sessions', 'novelMode', 'INTEGER DEFAULT -1');
       debugPrint(' v58 迁移: chat_sessions.novelMode 已添加');
     }
+    if (oldVersion < 59) {
+      // v59: 老用户升级全面补列（toMap 会写 sync_seq / moments.source 等）
+      // 原则：全部用可空/DEFAULT，避免 ALTER 失败
+      await _addColumnIfNotExists(db, 'users', 'backgroundImage', 'TEXT');
+      await _addColumnIfNotExists(db, 'users', 'sync_seq', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'sync_seq', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'ai_configs', 'extraApiKeys', 'TEXT DEFAULT ""');
+      await _addColumnIfNotExists(
+          db, 'ai_configs', 'isThinkingModel', 'INTEGER DEFAULT 1');
+      await _addColumnIfNotExists(
+          db, 'ai_configs', 'sync_seq', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'sync_seq', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'novelMode', 'INTEGER DEFAULT -1');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'lastOnlineAt', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'sync_seq', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'isBookmark', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(db, 'chat_messages', 'pokeSuffix', 'TEXT');
+      await _addColumnIfNotExists(db, 'chat_messages', 'stickerId', 'TEXT');
+      await _addColumnIfNotExists(db, 'chat_messages', 'stickerPath', 'TEXT');
+      await _addColumnIfNotExists(db, 'chat_messages', 'isUser', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'isSystem', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'isHidden', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'isGhost', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(db, 'chat_messages', 'reasoning', 'TEXT');
+      await _addColumnIfNotExists(db, 'memories', 'summary', 'TEXT');
+      await _addColumnIfNotExists(db, 'memories', 'keywords', 'TEXT');
+      await _addColumnIfNotExists(db, 'memories', 'lastAccessedAt', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'memories', 'accessCount', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'memories', 'weight', 'REAL DEFAULT 1.0');
+      await _addColumnIfNotExists(
+          db, 'memories', 'pinned', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(db, 'memories', 'lastRecalledAt', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'memories', 'sync_seq', 'INTEGER DEFAULT 0');
+      // moments：早期表只有基础字段，X 风格扩展列必须补齐
+      await _addColumnIfNotExists(
+          db, 'moments', 'source', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'sync_seq', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(db, 'moments', 'replyToCommentId', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'replyToContent', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'moments', 'aiLiked', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(db, 'moments', 'parentKey', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'retweetKey', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'quoteKey', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'moments', 'retweetCount', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'replyCount', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'bookmarkCount', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'viewCount', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(db, 'moments', 'tags', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'userHandle', 'TEXT');
+      await _addColumnIfNotExists(db, 'moments', 'userGender', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'moments', 'userVerified', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'customLikeCount', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'sticker_packs', 'sync_seq', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'ai_wallets', 'sync_seq', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'shop_orders', 'sync_seq', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'structuredTraits', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'userAlias', 'TEXT');
+      // 缺表兜底（老安装可能只有核心表）
+      await createMissingTable(db, 'shop_items');
+      await createMissingTable(db, 'shop_orders');
+      await createMissingTable(db, 'social_memories');
+      await createMissingTable(db, 'moment_bookmarks');
+      await createMissingTable(db, 'moment_notifications');
+      await createMissingTable(db, 'trending_tags');
+      await createMissingTable(db, 'intimacy_events');
+      await createMissingTable(db, 'group_chat_sessions');
+      await createMissingTable(db, 'group_chat_messages');
+      await createMissingTable(db, 'pure_ai_sessions');
+      await createMissingTable(db, 'pure_ai_messages');
+      await createMissingTable(db, 'novels');
+      await createMissingTable(db, 'novel_chapters');
+      await createMissingTable(db, 'story_books');
+      await createMissingTable(db, 'virtual_phones');
+      debugPrint(' v59 迁移: 核心表补列 + 缺表兜底完成');
+    }
   }
 
   /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
@@ -1936,9 +2046,13 @@ class LocalStorageRepository {
       await _prefs?.setString(PrefKeys.currentUserId, user.id);
     } else {
       final db = await _ensureDb();
+      // 老库可能缺 backgroundImage/sync_seq 等列
+      await _addColumnIfNotExists(db, 'users', 'backgroundImage', 'TEXT');
+      await _addColumnIfNotExists(db, 'users', 'sync_seq', 'INTEGER DEFAULT 0');
+      final map = await _filterMapToExistingColumns(db, 'users', user.toMap());
       await db.insert(
         DbTables.users,
-        user.toMap(),
+        map,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
@@ -2325,7 +2439,13 @@ class LocalStorageRepository {
       }
     } else {
       final db = await _ensureDb();
-      final map = character.toMap();
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'structuredTraits', 'TEXT');
+      await _addColumnIfNotExists(db, 'ai_characters', 'userAlias', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'sync_seq', 'INTEGER DEFAULT 0');
+      final map = await _filterMapToExistingColumns(
+          db, 'ai_characters', character.toMap());
       final updateCount = await db.update('ai_characters', map,
           where: 'id = ?', whereArgs: [character.id]);
       if (updateCount == 0) {
@@ -2666,9 +2786,17 @@ class LocalStorageRepository {
       }
     } else {
       final db = await _ensureDb();
+      await _addColumnIfNotExists(
+          db, 'ai_configs', 'extraApiKeys', 'TEXT DEFAULT ""');
+      await _addColumnIfNotExists(
+          db, 'ai_configs', 'isThinkingModel', 'INTEGER DEFAULT 1');
+      await _addColumnIfNotExists(
+          db, 'ai_configs', 'sync_seq', 'INTEGER DEFAULT 0');
+      final map =
+          await _filterMapToExistingColumns(db, 'ai_configs', config.toMap());
       await db.insert(
         'ai_configs',
-        config.toMap(),
+        map,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
@@ -3000,9 +3128,18 @@ class LocalStorageRepository {
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
         final db = await _ensureDb();
+        // 老库可能缺 isBookmark/sync_seq/sticker* 等
+        await _addColumnIfNotExists(
+            db, 'chat_messages', 'isBookmark', 'INTEGER DEFAULT 0');
+        await _addColumnIfNotExists(
+            db, 'chat_messages', 'sync_seq', 'INTEGER DEFAULT 0');
+        await _addColumnIfNotExists(db, 'chat_messages', 'stickerId', 'TEXT');
+        await _addColumnIfNotExists(db, 'chat_messages', 'stickerPath', 'TEXT');
+        final map = await _filterMapToExistingColumns(
+            db, 'chat_messages', message.toMap());
         await db.insert(
           'chat_messages',
-          message.toMap(),
+          map,
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
         // 写后验证：确认消息确实可读
@@ -3531,11 +3668,13 @@ class LocalStorageRepository {
       }
     } else {
       final db = await _ensureDb();
-      // 兼容：旧库缺列时 INSERT 会炸；补列后重试一次
+      // 兼容：旧库缺列时 INSERT 会炸；先补列再过滤字段
       try {
+        final map =
+            await _filterMapToExistingColumns(db, 'memories', memory.toMap());
         await db.insert(
           'memories',
-          memory.toMap(),
+          map,
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       } catch (e) {
@@ -3545,15 +3684,19 @@ class LocalStorageRepository {
           await _addColumnIfNotExists(db, 'memories', 'keywords', 'TEXT');
           await _addColumnIfNotExists(db, 'memories', 'lastAccessedAt', 'TEXT');
           await _addColumnIfNotExists(
-              db, 'memories', 'accessCount', 'INTEGER NOT NULL DEFAULT 0');
+              db, 'memories', 'accessCount', 'INTEGER DEFAULT 0');
           await _addColumnIfNotExists(
-              db, 'memories', 'weight', 'REAL NOT NULL DEFAULT 1.0');
+              db, 'memories', 'weight', 'REAL DEFAULT 1.0');
           await _addColumnIfNotExists(
-              db, 'memories', 'pinned', 'INTEGER NOT NULL DEFAULT 0');
+              db, 'memories', 'pinned', 'INTEGER DEFAULT 0');
           await _addColumnIfNotExists(db, 'memories', 'lastRecalledAt', 'TEXT');
+          await _addColumnIfNotExists(
+              db, 'memories', 'sync_seq', 'INTEGER DEFAULT 0');
+          final map = await _filterMapToExistingColumns(
+              db, 'memories', memory.toMap());
           await db.insert(
             'memories',
-            memory.toMap(),
+            map,
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
         } else {
@@ -4900,7 +5043,12 @@ class LocalStorageRepository {
   Future<void> saveMoment(Moment moment) async {
     try {
       final db = await _ensureDb();
-      final map = moment.toMap();
+      // 老库 moments 可能缺 source / X 风格扩展列
+      await _addColumnIfNotExists(db, 'moments', 'source', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'sync_seq', 'INTEGER DEFAULT 0');
+      final map =
+          await _filterMapToExistingColumns(db, 'moments', moment.toMap());
       final updated = await db
           .update('moments', map, where: 'id = ?', whereArgs: [moment.id]);
       if (updated == 0) {
@@ -4915,12 +5063,21 @@ class LocalStorageRepository {
   Future<List<Moment>> getAllMoments() async {
     try {
       final db = await _ensureDb();
-      final maps = await db.query(
-        'moments',
-        where: 'source = ?',
-        whereArgs: [_normalMomentSource],
-        orderBy: 'createdAt DESC',
-      );
+      // 老库可能没有 source 列
+      await _addColumnIfNotExists(db, 'moments', 'source', 'INTEGER DEFAULT 0');
+      List<Map<String, Object?>> maps;
+      try {
+        maps = await db.query(
+          'moments',
+          where: 'source = ?',
+          whereArgs: [_normalMomentSource],
+          orderBy: 'createdAt DESC',
+        );
+      } catch (e) {
+        // 兜底：不带 source 条件读全表
+        debugPrint('getAllMoments source 过滤失败，降级全表: $e');
+        maps = await db.query('moments', orderBy: 'createdAt DESC');
+      }
       return maps.map((map) => Moment.fromMap(map)).toList();
     } catch (e) {
       debugPrint('getAllMoments 失败: $e');
