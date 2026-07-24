@@ -488,7 +488,28 @@ body {
   100% { left: 200%; }
 }
 
-/* Scroll reveal */
+/* Mobile device mockup - flat version */
+@media (max-width: 1024px) {
+  .device-3d {
+    transform: none !important;
+    animation: none !important;
+    box-shadow: 0 8px 32px rgba(139,92,246,0.15) !important;
+  }
+  .device-3d::before { display: none; }
+  .device-3d::after { display: none; }
+}
+
+@media (max-width: 640px) {
+  .device-3d {
+    width: 220px !important;
+    height: 440px !important;
+    border-radius: 28px !important;
+    transform: none !important;
+    animation: none !important;
+    margin: 0 auto;
+  }
+  .device-mobile-content { padding: 32px 14px 14px !important; }
+}
 .reveal { opacity: 0; transform: translateY(30px); transition: all 0.8s var(--ease-expo); }
 .reveal.visible { opacity: 1; transform: translateY(0); }
 .reveal-delay-1 { transition-delay: 0.1s; }
@@ -506,7 +527,11 @@ body {
   .section p { margin: 0 auto; }
   .feature-list { align-items: center; }
   .feature-item { text-align: left; }
-  .visual-area { min-height: 400px; }
+  .visual-area { min-height: 350px; }
+  /* 平板也隐藏 3D 斜向元素 */
+  .device-3d,
+  .visual-area > div[style*="perspective"],
+  .floating-shape { display: none !important; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 40px; }
   .footer-grid { grid-template-columns: 1fr 1fr; gap: 40px; }
   .nav-links, .nav-cta { display: none; }
@@ -516,15 +541,31 @@ body {
 @media (max-width: 640px) {
   .nav { padding: 16px 20px; }
   .nav.scrolled { padding: 12px 20px; }
-  .section { padding: 100px 20px; }
-  .hero h1 { font-size: 40px; letter-spacing: -1px; }
-  .hero-desc { font-size: 16px; }
+  .section { padding: 80px 20px; min-height: auto; }
+  .hero { min-height: 90vh; padding-top: 80px; }
+  .hero h1 { font-size: 36px; letter-spacing: -1px; }
+  .hero-desc { font-size: 15px; }
   .hero-actions { flex-direction: column; align-items: center; }
   .btn { width: 100%; max-width: 280px; justify-content: center; }
-  .stats-grid { grid-template-columns: 1fr 1fr; gap: 32px; }
-  .stat-item h3 { font-size: 36px; }
+  /* 手机彻底隐藏所有 3D/斜向视觉元素 */
+  .device-3d,
+  .floating-shape,
+  .floating-orb,
+  .visual-area > div:not(.device-3d):not(.floating-shape):not(.floating-orb),
+  .visual-area > div[style*="perspective"],
+  .visual-area > div[style*="rotateY"],
+  .visual-area > div[style*="rotateX"],
+  .visual-area > div[style*="conic-gradient"] { display: none !important; }
+  .visual-area { min-height: auto; padding: 20px 0; }
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: 24px; }
+  .stat-item h3 { font-size: 32px; }
   .footer-grid { grid-template-columns: 1fr; gap: 32px; }
   .footer-bottom { flex-direction: column; gap: 12px; text-align: center; }
   .page-hero { padding: 120px 20px 60px; }
   .page-body { padding: 60px 20px; }
+  .scroll-hint { display: none; }
+  /* 简化 feature-list 间距 */
+  .feature-list { gap: 20px; }
+  .feature-item { gap: 14px; }
+  .feature-item-icon { width: 40px; height: 40px; border-radius: 12px; }
 }
