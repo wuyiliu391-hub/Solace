@@ -294,15 +294,19 @@ export default {
         const gzRes = await env.ASSETS.fetch(gzReq);
         if (!gzRes.ok) return gzRes;
 
-        // 直接返回 gzip 文件，让 CF 自动解压
+        // 手动解压 gzip 再返回原始 APK 字节流，Flutter 才能直接解析
+        const buf = await gzRes.arrayBuffer();
+        const ds = new DecompressionStream('gzip');
+        const blob = new Response(buf).body.pipeThrough(ds);
+        const apkBuf = await new Response(blob).arrayBuffer();
+
         const headers = new Headers(COMMON_HEADERS);
         headers.set('Content-Type', 'application/vnd.android.package-archive');
         headers.set('Content-Disposition', `attachment; filename="Solace-${VERSION_DATA.latestVersion}.apk"`);
         headers.set('Cache-Control', 'public, max-age=3600');
         headers.set('ETag', serverETag);
-        // 告知 CF 这是 gzip 压缩流，需要解压后下发
-        headers.set('Content-Encoding', 'gzip');
-        return new Response(gzRes.body, { status: 200, headers });
+        headers.set('Content-Length', apkBuf.byteLength.toString());
+        return new Response(apkBuf, { status: 200, headers });
       }
 
       // ==================== 静态资源处理 ====================
