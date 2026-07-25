@@ -392,6 +392,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     String? userStatus,
     SentimentResult? sentiment,
     String? imageDescription,
+    List<String>? imagePaths,
     bool isBlockedByAI = false,
     String? blockReason,
     bool enableWebSearch = false,
@@ -422,6 +423,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         intimacyLevel: intimacyLevel,
         sentiment: sentiment,
         imageDescription: imageDescription,
+        imagePaths: imagePaths,
         isBlockedByAI: isBlockedByAI,
         blockReason: blockReason,
         enableWebSearch: enableWebSearch,
@@ -437,6 +439,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       intimacyLevel: intimacyLevel,
       sentiment: sentiment,
       imageDescription: imageDescription,
+      imagePaths: imagePaths,
       isBlockedByAI: isBlockedByAI,
       blockReason: blockReason,
       enableWebSearch: enableWebSearch,
@@ -475,6 +478,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     String? userStatus,
     SentimentResult? sentiment,
     String? imageDescription,
+    List<String>? imagePaths,
     bool isBlockedByAI = false,
     String? blockReason,
     bool enableWebSearch = false,
@@ -505,6 +509,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         intimacyLevel: intimacyLevel,
         sentiment: sentiment,
         imageDescription: imageDescription,
+        imagePaths: imagePaths,
         isBlockedByAI: isBlockedByAI,
         blockReason: blockReason,
         enableWebSearch: enableWebSearch,
@@ -520,6 +525,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       intimacyLevel: intimacyLevel,
       sentiment: sentiment,
       imageDescription: imageDescription,
+      imagePaths: imagePaths,
       isBlockedByAI: isBlockedByAI,
       blockReason: blockReason,
       enableWebSearch: enableWebSearch,
@@ -854,6 +860,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     required String chatId,
     required String originalUserMessage,
     String? imageDescription,
+    List<String>? imagePaths,
     bool enableWebSearch = false,
     String? internalSystemContext,
   }) async {
@@ -904,6 +911,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         intimacyLevel: session.intimacyLevel,
         sentiment: sentiment,
         imageDescription: imageDescription,
+        imagePaths: imagePaths,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
       ).timeout(
@@ -1054,6 +1062,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
           intimacyLevel: session.intimacyLevel,
           sentiment: sentiment,
           imageDescription: imageDescription,
+          imagePaths: imagePaths,
           enableWebSearch: enableWebSearch,
           internalSystemContext: internalSystemContext,
         );
@@ -1750,20 +1759,39 @@ $tail
         ? '${event.content}\n（请注意：以上内容中括号「（）」内的文字是我的动作/神态/旁白描写。请你在回复中根据这些描写做出相应反应，把描写的动作自然融入场景中，但不要复读括号内的文字。直接用角色身份回应我，把旁白内容当作正在发生的事来演绎。）'
         : event.content;
 
+    final imagePaths = <String>[
+      ...?event.imagePaths,
+      if (event.metadata?['imagePath'] is String &&
+          (event.metadata!['imagePath'] as String).trim().isNotEmpty)
+        (event.metadata!['imagePath'] as String).trim(),
+    ];
+    final imageDescription = event.metadata?['imageDescription'] as String?;
+
     final displayContent = _stripSystemDirective(event.content);
     final isDirectiveOnly = displayContent.isEmpty;
+    // 有图时：气泡 content 优先用本地路径（UI Image.file），文案放 caption
+    final hasImages = imagePaths.isNotEmpty;
+    final primaryImagePath = hasImages ? imagePaths.first : null;
+    final caption = displayContent.trim();
     final userMsg = ChatMessage(
       id: _uuid.v4(),
       chatId: event.chatId,
       senderId: event.userId,
-      content: isDirectiveOnly ? event.content : displayContent,
-      type: MessageType.text,
+      content: hasImages
+          ? primaryImagePath!
+          : (isDirectiveOnly ? event.content : displayContent),
+      type: hasImages ? MessageType.image : MessageType.text,
       status: MessageStatus.sent,
       createdAt: now,
       isUser: true,
-      metadata: isDirectiveOnly
-          ? {...(event.metadata ?? {}), 'isSystemDirective': true}
-          : event.metadata,
+      metadata: {
+        ...?(isDirectiveOnly
+            ? {...(event.metadata ?? {}), 'isSystemDirective': true}
+            : event.metadata),
+        if (hasImages) 'imagePaths': imagePaths,
+        if (hasImages && caption.isNotEmpty) 'caption': caption,
+        if (imageDescription != null) 'imageDescription': imageDescription,
+      },
     );
 
     try {
@@ -2388,6 +2416,8 @@ $tail
               emit: emit,
               chatId: event.chatId,
               originalUserMessage: event.content,
+              imageDescription: imageDescription,
+              imagePaths: imagePaths,
               enableWebSearch: event.enableWebSearch,
               internalSystemContext: sessionStateContext,
             );
@@ -2419,6 +2449,8 @@ $tail
             emit: emit,
             chatId: event.chatId,
             originalUserMessage: event.content,
+            imageDescription: imageDescription,
+            imagePaths: imagePaths,
             enableWebSearch: event.enableWebSearch,
             internalSystemContext: sessionStateContext,
           );
@@ -3151,9 +3183,14 @@ $tail
         return;
       }
 
+      final stickerImagePaths =
+          event.isImageSticker && event.sticker.trim().isNotEmpty
+              ? <String>[event.sticker.trim()]
+              : null;
+
       // Reply mode check
       final replyModeSt =
-          character?.interactionConfig?.replyMode ?? ReplyMode.normal;
+          character.interactionConfig?.replyMode ?? ReplyMode.normal;
 
       if (replyModeSt == ReplyMode.manual) {
         LogService.instance.e(
@@ -3173,10 +3210,10 @@ $tail
       if (replyModeSt == ReplyMode.instant) {
         await Future.delayed(AppDurations.instantReplyDelay);
       } else if (replyModeSt == ReplyMode.delayed) {
-        final delay = character?.interactionConfig?.replyDelaySeconds ?? 5;
+        final delay = character.interactionConfig?.replyDelaySeconds ?? 5;
         await Future.delayed(Duration(seconds: delay));
       } else {
-        final personality = (character?.personality ?? '').toLowerCase();
+        final personality = (character.personality).toLowerCase();
         int typingDelay = 1;
         if (personality.contains('高冷') || personality.contains('冷淡')) {
           typingDelay = 3;
@@ -3197,7 +3234,7 @@ $tail
 
       // 表情包/贴纸有时自然跳过回复
       final shouldSkip = _shouldSkipReply(
-        personality: character?.personality ?? '',
+        personality: character.personality,
         intimacyLevel: session.intimacyLevel,
         messageContent: event.isImageSticker ? '[表情包图片]' : event.sticker,
         consecutiveAiReplies: _consecutiveAiReplies[event.chatId] ?? 0,
@@ -3229,6 +3266,7 @@ $tail
           memories: memories,
           intimacyLevel: session.intimacyLevel,
           sentiment: sentimentResult,
+          imagePaths: stickerImagePaths,
         );
         if (aiResponse.trim().isEmpty) {
           aiResponse = '哈哈，这个表情包好有趣！';

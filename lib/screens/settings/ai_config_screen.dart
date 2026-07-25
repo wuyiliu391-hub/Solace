@@ -28,6 +28,7 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
   bool _isLoading = false;
   bool _tutorialExpanded = true;
   bool _isThinkingModel = true; // 表单中的推理模型开关
+  bool _isMultimodal = false; // 表单中的多模态（看图）开关
   int _selectedProvider = 0; // 0=硅基流动, 1=智谱AI
   List<AIConfig> _configs = [];
 
@@ -202,6 +203,7 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
         apiKey: _apiKeyController.text.trim(),
         modelName: modelName,
         isThinkingModel: _isThinkingModel,
+        isMultimodal: _isMultimodal,
         createdAt: DateTime.now(),
       );
       await storage.saveAIConfig(config);
@@ -209,9 +211,11 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
       if (mounted) {
         final wasEditing = _editingConfigId != null;
         _clearForm();
-        final msg = wasEditing
-            ? '配置已更新（${_isThinkingModel ? "推理模型" : "非推理模型，语义伪装已开启"}）'
-            : '配置已保存';
+        final flags = [
+          _isThinkingModel ? '推理' : '非推理',
+          if (_isMultimodal) '多模态看图',
+        ].join(' · ');
+        final msg = wasEditing ? '配置已更新（$flags）' : '配置已保存';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(msg)),
         );
@@ -235,6 +239,7 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
     setState(() {
       _editingConfigId = null;
       _isThinkingModel = true;
+      _isMultimodal = false;
       _discoveredModels.clear();
       _detectedProtocol = null;
     });
@@ -249,6 +254,7 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
       _apiKeyController.text = config.apiKey;
       _modelController.text = config.modelName;
       _isThinkingModel = config.isThinkingModel;
+      _isMultimodal = config.isMultimodal;
       _discoveredModels.clear();
       _detectedProtocol = null;
     });
@@ -1043,6 +1049,59 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 12),
+                // ─── 多模态（看图）开关 ───
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: colorScheme.outlineVariant),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _isMultimodal
+                            ? Icons.image_outlined
+                            : Icons.text_fields,
+                        size: 20,
+                        color: _isMultimodal
+                            ? colorScheme.primary
+                            : colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _isMultimodal ? '多模态模型（支持看图）' : '纯文本模型',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _isMultimodal
+                                  ? '发图时按 OpenAI 多模态接口传图，模型可直接看图'
+                                  : '仅文本对话；发图不会走视觉接口',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: colorScheme.onSurfaceVariant),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: _isMultimodal,
+                        onChanged: (v) => setState(() => _isMultimodal = v),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 16),
                 // ─── 测试连接按钮 ───
                 SizedBox(
@@ -1575,6 +1634,30 @@ class _ConfigCard extends StatelessWidget {
                       value: config.isThinkingModel,
                       onChanged: onThinkingModelChanged,
                       activeColor: Colors.green,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(Icons.image_outlined,
+                        size: 16,
+                        color: colorScheme.onSurface.withOpacity(0.5)),
+                    const SizedBox(width: 8),
+                    Text('多模态看图',
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: colorScheme.onSurface.withOpacity(0.7))),
+                    const Spacer(),
+                    Text(
+                      config.isMultimodal ? '开启' : '关闭',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: config.isMultimodal
+                            ? Colors.green
+                            : colorScheme.onSurface.withOpacity(0.45),
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ],
                 ),

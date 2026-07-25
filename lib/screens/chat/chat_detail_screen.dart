@@ -2020,12 +2020,72 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     _startVoiceCall();
                   },
                 ),
+                const SizedBox(width: 16),
+                _MoreActionItem(
+                  icon: Icons.photo_outlined,
+                  label: '图片',
+                  color: const Color(0xFF3B82F6),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickAndSendImages();
+                  },
+                ),
               ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// 选择图片发送：多模态配置开启时走 OpenAI vision；否则仅作为图片消息展示
+  Future<void> _pickAndSendImages() async {
+    tapHaptic();
+    try {
+      final picker = ImagePicker();
+      final images = await picker.pickMultiImage(imageQuality: 85);
+      if (images.isEmpty || !mounted) return;
+
+      final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
+      final caption = _messageController.text.trim();
+      final paths = images.map((e) => e.path).toList();
+
+      Map<String, dynamic>? replyMetadata;
+      if (_replyToMessage != null) {
+        replyMetadata = {
+          'replyTo': {
+            'messageId': _replyToMessage!.id,
+            'senderName': _replyToMessage!.senderName ??
+                (_replyToMessage!.isFromAI ? 'AI' : '用户'),
+            'contentPreview': _replyPreview(_replyToMessage!),
+          },
+        };
+        setState(() => _replyToMessage = null);
+      }
+
+      _chatBloc.add(ChatSendMessage(
+        chatId: widget.session.id,
+        userId: user.id,
+        content: caption,
+        imagePaths: paths,
+        metadata: {
+          ...?replyMetadata,
+          'imagePaths': paths,
+          if (caption.isNotEmpty) 'caption': caption,
+        },
+        enableWebSearch: _webSearchEnabled,
+      ));
+      _messageController.clear();
+      _canSendNotifier.value = false;
+      _userScrolledUp = false;
+      _scrollToBottom(force: true);
+      _resetSilenceTimer();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('选择图片失败: $e')),
+      );
+    }
   }
 
   void _startVoiceCall() async {
@@ -4955,13 +5015,17 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   ),
                 ],
-                // 图片描述文字
-                if (message.metadata?['text'] != null &&
-                    message.metadata!['text'].toString().isNotEmpty)
+                // 图片描述/配文
+                if (((message.metadata?['caption'] ??
+                            message.metadata?['text'])
+                        ?.toString()
+                        .isNotEmpty ??
+                    false))
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      message.metadata!['text'].toString(),
+                      (message.metadata?['caption'] ?? message.metadata?['text'])
+                          .toString(),
                       style: TextStyle(
                         color: colorScheme.onSurface.withOpacity(0.6),
                         fontSize: 13,

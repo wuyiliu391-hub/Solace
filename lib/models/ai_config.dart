@@ -11,6 +11,8 @@ class AIConfig extends Equatable {
   final int maxTokens;
   final bool isActive;
   final bool isThinkingModel;
+  /// 是否多模态（支持看图）。用户手动勾选；为 true 时发图走 OpenAI vision content 数组。
+  final bool isMultimodal;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final int syncSeq;
@@ -26,6 +28,7 @@ class AIConfig extends Equatable {
     this.maxTokens = 2000,
     this.isActive = true,
     this.isThinkingModel = true,
+    this.isMultimodal = false,
     required this.createdAt,
     this.updatedAt,
     this.syncSeq = 0,
@@ -44,6 +47,7 @@ class AIConfig extends Equatable {
     int? maxTokens,
     bool? isActive,
     bool? isThinkingModel,
+    bool? isMultimodal,
     DateTime? createdAt,
     DateTime? updatedAt,
     int? syncSeq,
@@ -59,6 +63,7 @@ class AIConfig extends Equatable {
       maxTokens: maxTokens ?? this.maxTokens,
       isActive: isActive ?? this.isActive,
       isThinkingModel: isThinkingModel ?? this.isThinkingModel,
+      isMultimodal: isMultimodal ?? this.isMultimodal,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncSeq: syncSeq ?? this.syncSeq,
@@ -77,6 +82,7 @@ class AIConfig extends Equatable {
       'maxTokens': maxTokens,
       'isActive': isActive ? 1 : 0,
       'isThinkingModel': isThinkingModel ? 1 : 0,
+      'isMultimodal': isMultimodal ? 1 : 0,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       'sync_seq': syncSeq,
@@ -103,6 +109,7 @@ class AIConfig extends Equatable {
       maxTokens: (map['maxTokens'] as int?) ?? 2048,
       isActive: map['isActive'] == 1,
       isThinkingModel: map['isThinkingModel'] == null ? true : map['isThinkingModel'] == 1,
+      isMultimodal: map['isMultimodal'] == 1,
       createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
       updatedAt: tryParseDateTime(map['updatedAt']),
       syncSeq: (map['sync_seq'] ?? map['syncSeq']) as int? ?? 0,
@@ -147,6 +154,7 @@ class AIConfig extends Equatable {
         maxTokens,
         isActive,
         isThinkingModel,
+        isMultimodal,
         createdAt,
         updatedAt,
         syncSeq,

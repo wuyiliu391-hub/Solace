@@ -53,6 +53,8 @@ class ChatSendMessage extends ChatEvent {
   final String content;
   final Map<String, dynamic>? metadata;
   final bool enableWebSearch;
+  /// 本轮附带的本地图片路径（多模态模型时走 OpenAI vision）
+  final List<String>? imagePaths;
 
   const ChatSendMessage({
     required this.chatId,
@@ -60,11 +62,12 @@ class ChatSendMessage extends ChatEvent {
     required this.content,
     this.metadata,
     this.enableWebSearch = false,
+    this.imagePaths,
   });
 
   @override
   List<Object?> get props =>
-      [chatId, userId, content, metadata, enableWebSearch];
+      [chatId, userId, content, metadata, enableWebSearch, imagePaths];
 }
 
 class ChatCreateSession extends ChatEvent {

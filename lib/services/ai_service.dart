@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
@@ -226,6 +227,7 @@ class AIService {
     String? userStatus,
     SentimentResult? sentiment,
     String? imageDescription,
+    List<String>? imagePaths,
     bool isBlockedByAI = false,
     String? blockReason,
     bool enableWebSearch = false,
@@ -254,6 +256,7 @@ class AIService {
       userStatus: userStatus,
       sentiment: sentiment,
       imageDescription: imageDescription,
+      imagePaths: imagePaths,
       isBlockedByAI: isBlockedByAI,
       blockReason: blockReason,
       enableWebSearch: enableWebSearch,
@@ -464,6 +467,7 @@ class AIService {
     String? userStatus,
     SentimentResult? sentiment,
     String? imageDescription,
+    List<String>? imagePaths,
     bool isBlockedByAI = false,
     String? blockReason,
     bool enableWebSearch = false,
@@ -482,6 +486,7 @@ class AIService {
       userStatus: userStatus,
       sentiment: sentiment,
       imageDescription: imageDescription,
+      imagePaths: imagePaths,
       isBlockedByAI: isBlockedByAI,
       blockReason: blockReason,
       enableWebSearch: enableWebSearch,
@@ -493,7 +498,7 @@ class AIService {
 
   /// 核心流式API调用 — 解析SSE，yield AIStreamChunk（思考+正文）
   Stream<AIStreamChunk> _streamAPI(
-      AIConfig config, List<Map<String, String>> messages) async* {
+      AIConfig config, List<Map<String, dynamic>> messages) async* {
     String baseUrl = config.baseUrl.trim();
     while (baseUrl.endsWith('/')) {
       baseUrl = baseUrl.substring(0, baseUrl.length - 1);
@@ -1562,6 +1567,7 @@ class AIService {
     String? userStatus,
     SentimentResult? sentiment,
     String? imageDescription,
+    List<String>? imagePaths,
     bool isBlockedByAI = false,
     String? blockReason,
     String? internalSystemContext,
@@ -1576,6 +1582,7 @@ class AIService {
       userStatus: userStatus,
       sentiment: sentiment,
       imageDescription: imageDescription,
+      imagePaths: imagePaths,
       isBlockedByAI: isBlockedByAI,
       blockReason: blockReason,
       internalSystemContext: internalSystemContext,
@@ -1585,7 +1592,67 @@ class AIService {
         .toList();
   }
 
-  Future<List<Map<String, String>>> _buildMessages({
+
+  /// 将本地图片编码为 OpenAI vision data URL
+  Future<String?> _imageFileToDataUrl(String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return null;
+      final bytes = await file.readAsBytes();
+      // 限制过大图片，避免请求体爆炸（约 4MB raw）
+      if (bytes.length > 4 * 1024 * 1024) {
+        debugPrint('[AIService] 图片过大已跳过: ${bytes.length} bytes path=$path');
+        return null;
+      }
+      final lower = path.toLowerCase();
+      String mime = 'image/jpeg';
+      if (lower.endsWith('.png')) {
+        mime = 'image/png';
+      } else if (lower.endsWith('.webp')) {
+        mime = 'image/webp';
+      } else if (lower.endsWith('.gif')) {
+        mime = 'image/gif';
+      } else if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+        mime = 'image/jpeg';
+      }
+      return 'data:$mime;base64,${base64Encode(bytes)}';
+    } catch (e) {
+      debugPrint('[AIService] 图片编码失败: $e');
+      return null;
+    }
+  }
+
+  /// 构建 OpenAI 多模态 user content（text + image_url[]）
+  Future<Object> _buildUserContent({
+    required String text,
+    List<String>? imagePaths,
+    bool multimodal = false,
+  }) async {
+    if (!multimodal || imagePaths == null || imagePaths.isEmpty) {
+      return text;
+    }
+    final parts = <Map<String, dynamic>>[
+      {
+        'type': 'text',
+        'text': text.isEmpty ? '请查看这张图片并自然回应。' : text,
+      },
+    ];
+    for (final path in imagePaths) {
+      final dataUrl = await _imageFileToDataUrl(path);
+      if (dataUrl == null) continue;
+      parts.add({
+        'type': 'image_url',
+        'image_url': {'url': dataUrl},
+      });
+    }
+    // 若所有图都失败，退回纯文本
+    if (parts.length == 1) {
+      return text.isEmpty ? '（用户发送了图片，但读取失败）' : text;
+    }
+    return parts;
+  }
+
+  Future<List<Map<String, dynamic>>> _buildMessages({
     required AICharacter character,
     required String userId,
     required String userMessage,
@@ -1595,12 +1662,13 @@ class AIService {
     String? userStatus,
     SentimentResult? sentiment,
     String? imageDescription,
+    List<String>? imagePaths,
     bool isBlockedByAI = false,
     String? blockReason,
     bool enableWebSearch = false,
     String? internalSystemContext,
   }) async {
-    final List<Map<String, String>> messages = [];
+    final List<Map<String, dynamic>> messages = [];
 
     // 检测"系统提示"指令
     final systemDirective = _extractSystemDirective(userMessage);
@@ -1871,9 +1939,34 @@ class AIService {
                 '【联网搜索回复要求】你刚查到了一些信息，请用你的角色口吻自然地分享给用户。保持人设，融入你的性格和语气。如果搜索结果为空，用你的风格说"我搜了一圈没找到靠谱的"。',
           });
         }
+        final multimodal = config?.isMultimodal == true;
+        // 收集本轮显式传图 + 历史最近图片消息（仅多模态）
+        final paths = <String>[
+          ...?imagePaths,
+        ];
+        if (multimodal) {
+          for (final m in filteredMessages.reversed) {
+            if (paths.length >= 3) break;
+            if (m.isFromAI) continue;
+            if (m.type == MessageType.image && m.content.trim().isNotEmpty) {
+              final p = m.content.trim();
+              if (!paths.contains(p)) paths.add(p);
+            } else if (m.metadata != null &&
+                m.metadata!['isImageSticker'] == true &&
+                m.content.trim().isNotEmpty) {
+              final p = m.content.trim();
+              if (!paths.contains(p)) paths.add(p);
+            }
+          }
+        }
+        final userContent = await _buildUserContent(
+          text: finalUserMessage,
+          imagePaths: paths,
+          multimodal: multimodal,
+        );
         messages.add({
           'role': 'user',
-          'content': finalUserMessage,
+          'content': userContent,
         });
       }
     }
@@ -1881,7 +1974,7 @@ class AIService {
     return messages;
   }
 
-  Future<List<Map<String, String>>> _buildBingSearchContext(
+  Future<List<Map<String, dynamic>>> _buildBingSearchContext(
     String userMessage,
   ) async {
     debugPrint('[WebSearch] 联网搜索: $userMessage');
@@ -2192,7 +2285,7 @@ $conversation
     required String baseUrl,
     required String apiKey,
     required String model,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     int? maxTokens = 2048,
     AIConfig? config,
   }) async {
@@ -2254,7 +2347,7 @@ $conversation
 
   /// 备用模型兜底：当主模型返回空白时，尝试其他模型非流式生成
   Future<String?> fallbackGenerate({
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     required String excludeConfigId,
     int maxTokens = 1024,
   }) async {
@@ -2303,7 +2396,7 @@ $conversation
   /// 故事书自行拼装 system prompt（世界观/剧情态/结构化输出协议）与历史段落，
   /// 复用通用 HTTP 与 SSE 解析能力，与单聊人设 prompt 完全解耦。
   Stream<AIStreamChunk> sendStoryMessageStream({
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     int? overrideMaxTokens,
   }) async* {
     final config = await _storage.getActiveAIConfig();
@@ -2321,7 +2414,7 @@ $conversation
 
   /// 故事书专用：非流式请求
   Future<String> sendStoryMessage({
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     int? overrideMaxTokens,
   }) async {
     final config = await _storage.getActiveAIConfig();
@@ -2342,7 +2435,7 @@ $conversation
     required String baseUrl,
     required String apiKey,
     required String model,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     int? maxTokens = 2048,
     AIConfig? config,
   }) async* {
