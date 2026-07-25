@@ -282,27 +282,55 @@ export default {
       }
 
       // 4. APK 下载
+      // deploy.sh 只上传 app-release.apk.gz（Pages 单文件 <25MB）。
+      // 这里解压后返回原始 APK 字节流，避免客户端把 gzip 当 APK 安装。
       if (path === '/api/v1/download') {
         const serverETag = `"apk-${VERSION_DATA.latestVersion}-${VERSION_DATA.buildNumber}"`;
-
         const ifNoneMatch = request.headers.get('If-None-Match');
         if (ifNoneMatch === serverETag) {
           return new Response(null, { status: 304 });
         }
 
-        // deploy.sh 只保留 app-release.apk.gz，所以直接请求 gz 文件
-        const apkReq = new Request(`${url.origin}/app-release.apk.gz?v=${VERSION_DATA.buildNumber}`, request);
-        const apkRes = await env.ASSETS.fetch(apkReq);
-        if (!apkRes.ok) return apkRes;
+        const gzReq = new Request(
+          `${url.origin}/app-release.apk.gz?v=${VERSION_DATA.buildNumber}`,
+          request,
+        );
+        const gzRes = await env.ASSETS.fetch(gzReq);
+        if (!gzRes.ok || !gzRes.body) {
+          return json(
+            { error: 'APK asset missing', status: gzRes.status },
+            502,
+          );
+        }
+
+        let body = gzRes.body;
+        try {
+          // CF Workers 支持 DecompressionStream
+          body = gzRes.body.pipeThrough(new DecompressionStream('gzip'));
+        } catch (e) {
+          // 解压不可用时回退：返回 gzip 并标记 Content-Encoding，
+          // 客户端 UpdateService 会再做 gzip 魔数检测解压。
+          const headers = new Headers(COMMON_HEADERS);
+          headers.set('Content-Type', 'application/vnd.android.package-archive');
+          headers.set(
+            'Content-Disposition',
+            `attachment; filename="Solace-${VERSION_DATA.latestVersion}.apk"`,
+          );
+          headers.set('Content-Encoding', 'gzip');
+          headers.set('Cache-Control', 'public, max-age=3600');
+          headers.set('ETag', serverETag);
+          return new Response(gzRes.body, { status: 200, headers });
+        }
 
         const headers = new Headers(COMMON_HEADERS);
         headers.set('Content-Type', 'application/vnd.android.package-archive');
-        headers.set('Content-Disposition', `attachment; filename="Solace-${VERSION_DATA.latestVersion}.apk"`);
+        headers.set(
+          'Content-Disposition',
+          `attachment; filename="Solace-${VERSION_DATA.latestVersion}.apk"`,
+        );
         headers.set('Cache-Control', 'public, max-age=3600');
         headers.set('ETag', serverETag);
-        // 获取原始响应体，CF 会自动解压 gzip 静态资源
-        const body = await apkRes.arrayBuffer();
-        headers.set('Content-Length', body.byteLength.toString());
+        // 不设 Content-Encoding，body 已是原始 APK
         return new Response(body, { status: 200, headers });
       }
 

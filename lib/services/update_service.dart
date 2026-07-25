@@ -90,55 +90,105 @@ class UpdateService {
   }) async {
     try {
       final dir = await getTemporaryDirectory();
+      final rawPath = '${dir.path}/solace_update.download';
       final filePath = '${dir.path}/solace_update.apk';
-      final file = File(filePath);
+      final rawFile = File(rawPath);
+      final apkFile = File(filePath);
 
-      if (await file.exists()) {
-        await file.delete();
-      }
+      if (await rawFile.exists()) await rawFile.delete();
+      if (await apkFile.exists()) await apkFile.delete();
 
-      final bustUrl = url.contains('?') ? '$url&_t=${DateTime.now().millisecondsSinceEpoch}' : '$url?_t=${DateTime.now().millisecondsSinceEpoch}';
-      final response = await http.Client().send(
-        http.Request('GET', Uri.parse(bustUrl)),
-      );
+      final bustUrl = url.contains('?')
+          ? '$url&_t=${DateTime.now().millisecondsSinceEpoch}'
+          : '$url?_t=${DateTime.now().millisecondsSinceEpoch}';
+      final client = http.Client();
+      try {
+        final request = http.Request('GET', Uri.parse(bustUrl));
+        // 避免中间层用 br/zstd 等我们不好处理的编码
+        request.headers['Accept-Encoding'] = 'identity';
+        final response = await client.send(request);
 
-      if (response.statusCode != 200) {
-        throw Exception('Download failed: ${response.statusCode}');
-      }
+        if (response.statusCode != 200) {
+          throw Exception('Download failed: ${response.statusCode}');
+        }
 
-      // 尝试从 Content-Length 或 URL 推断文件大小
-      int contentLength = response.contentLength ?? -1;
-      // Cloudflare Workers 的 .apk.gz 通常 ~17MB，如果没 Content-Length 就用这个估算
-      if (contentLength <= 0) {
-        // 尝试 HEAD 请求获取 Content-Length
-        try {
-          final headResp = await http.head(Uri.parse(bustUrl)).timeout(const Duration(seconds: 5));
-          final cl = headResp.headers['content-length'];
-          if (cl != null) contentLength = int.tryParse(cl) ?? -1;
-        } catch (_) {}
-      }
+        int contentLength = response.contentLength ?? -1;
+        if (contentLength <= 0) {
+          try {
+            final headResp =
+                await http.head(Uri.parse(bustUrl)).timeout(const Duration(seconds: 5));
+            final cl = headResp.headers['content-length'];
+            if (cl != null) contentLength = int.tryParse(cl) ?? -1;
+          } catch (_) {}
+        }
 
-      final sink = file.openWrite();
-      int received = 0;
-      int lastReportedBytes = -1;
-      final reportThreshold = 256 * 1024; // 每 256KB 报告一次
+        final sink = rawFile.openWrite();
+        int received = 0;
+        int lastReportedBytes = -1;
+        const reportThreshold = 256 * 1024;
 
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        if (onProgress != null && (received - lastReportedBytes) >= reportThreshold) {
-          lastReportedBytes = received;
-          if (contentLength > 0) {
-            onProgress(received / contentLength);
-          } else {
-            // 无 Content-Length：传正数表示已下载字节数，UI 显示 MB
-            onProgress(received.toDouble());
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          received += chunk.length;
+          if (onProgress != null &&
+              (received - lastReportedBytes) >= reportThreshold) {
+            lastReportedBytes = received;
+            if (contentLength > 0) {
+              onProgress((received / contentLength).clamp(0.0, 0.99));
+            } else {
+              // 无 Content-Length：传已下载字节数，UI 显示 MB
+              onProgress(received.toDouble());
+            }
           }
         }
-      }
+        await sink.close();
 
-      await sink.close();
-      return filePath;
+        if (received < 1024 * 100) {
+          throw Exception('APK 文件过小($received bytes)，下载可能失败');
+        }
+
+        final rawBytes = await rawFile.readAsBytes();
+        final contentEncoding =
+            (response.headers['content-encoding'] ?? '').toLowerCase();
+        final looksGzip = rawBytes.length >= 2 &&
+            rawBytes[0] == 0x1f &&
+            rawBytes[1] == 0x8b;
+        final isGzipPayload = looksGzip ||
+            contentEncoding.contains('gzip') ||
+            bustUrl.contains('.apk.gz') ||
+            (response.request?.url.path.contains('.apk.gz') ?? false);
+
+        List<int> apkBytes = rawBytes;
+        if (isGzipPayload) {
+          try {
+            apkBytes = gzip.decode(rawBytes);
+            debugPrint(
+                'APK download: gzip 解压 ${rawBytes.length} → ${apkBytes.length} bytes');
+          } catch (e) {
+            throw Exception('APK gzip 解压失败: $e');
+          }
+        }
+
+        // APK 本质是 ZIP，必须以 PK 开头
+        if (apkBytes.length < 4 ||
+            apkBytes[0] != 0x50 ||
+            apkBytes[1] != 0x4b) {
+          final head = apkBytes
+              .take(8)
+              .map((b) => b.toRadixString(16).padLeft(2, '0'))
+              .join(' ');
+          throw Exception('APK 校验失败（非 ZIP 格式），文件头: $head');
+        }
+
+        await apkFile.writeAsBytes(apkBytes, flush: true);
+        if (await rawFile.exists()) {
+          await rawFile.delete();
+        }
+        onProgress?.call(1.0);
+        return filePath;
+      } finally {
+        client.close();
+      }
     } catch (e) {
       debugPrint('APK download failed: $e');
       return null;
