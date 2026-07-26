@@ -255,6 +255,53 @@ ${hasMemories
   // ════════════════════════════════════════
 
   /// 通用 LLM 文本生成调用
+  // ════════════════════════════════════════
+  // 5. 抓娃娃机陪玩
+  // ════════════════════════════════════════
+
+  /// 进场：角色陪你来抓娃娃时的开场白
+  Future<String> clawGreeting({required AICharacter character}) async {
+    final charCtx = _buildCharacterContext(character);
+    final prompt = '''
+$charCtx
+
+你正陪用户一起来玩抓娃娃机。请以你的身份说一句开场白，
+表达陪 TA 一起玩的心情（期待、调侃、宠溺都行）。
+要求：符合你的性格，10-25 字，一句话，不要前缀或引号。
+''';
+    return _callAI(prompt, maxTokens: 80);
+  }
+
+  /// 一次下爪后，角色对结果的反应。
+  /// outcome：'caught'（抓到）/ 'miss'（落空）
+  Future<String> reactToClawResult({
+    required AICharacter character,
+    required String outcome,
+    String? dollName,
+    String? rarityLabel,
+    int missStreak = 0,
+  }) async {
+    final charCtx = _buildCharacterContext(character);
+    final String situation;
+    if (outcome == 'caught') {
+      final rare = rarityLabel != null && rarityLabel != '普通';
+      situation = rare
+          ? '用户竟然抓到了【$rarityLabel】的「${dollName ?? '娃娃'}」，很难得！请表达惊喜、羡慕或为 TA 高兴。'
+          : '用户抓到了「${dollName ?? '娃娃'}」。请表达开心，可以顺势撒娇说也想要这只。';
+    } else {
+      situation = missStreak >= 3
+          ? '用户已经连续 $missStreak 次没抓到了，有点惨。请安慰 TA，或调侃着鼓励再试一次。'
+          : '用户这一爪没抓到，娃娃滑掉了。请自然地吐槽、安慰或鼓励。';
+    }
+    final prompt = '''
+$charCtx
+
+你正陪用户玩抓娃娃机。$situation
+要求：符合你的性格和说话风格，15-35 字，一句话，不要前缀或引号。
+''';
+    return _callAI(prompt, maxTokens: 90);
+  }
+
   Future<String> _callAI(
     String prompt, {
     int maxTokens = 100,

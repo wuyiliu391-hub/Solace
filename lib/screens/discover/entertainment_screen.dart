@@ -9,6 +9,8 @@ import '../../repositories/local_storage_repository.dart';
 import '../../utils/avatar_resolver.dart';
 import '../../config/constants.dart';
 import '../chat/chat_detail_screen.dart';
+import '../games/claw_machine_screen.dart';
+import '../games/doll_cabinet_screen.dart';
 
 /// 娱乐互动页面 — 角色互动小游戏集合
 class EntertainmentScreen extends StatefulWidget {
@@ -133,6 +135,15 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>
                             : [const Color(0xFFFFAB91), const Color(0xFFFF8A65)],
                         onTap: () => widget.onNavigate?.call('/diary'),
                       ),
+                      _GameCard(
+                        icon: Icons.catching_pokemon,
+                        title: '抓娃娃机',
+                        subtitle: '和 TA 一起抓娃娃',
+                        gradientColors: isDark
+                            ? [const Color(0xFF00ACC1), const Color(0xFF00838F)]
+                            : [const Color(0xFF4DD0E1), const Color(0xFF26C6DA)],
+                        onTap: () => _openClawMachine(context),
+                      ),
                     ],
                   ),
                   // ── 快捷娱乐入口 ──
@@ -165,6 +176,17 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>
                     subtitle: '与角色共创故事',
                     color: const Color(0xFF42A5F5),
                     onTap: () => widget.onNavigate?.call('/story'),
+                  ),
+                  _QuickEntryTile(
+                    icon: Icons.inventory_2_rounded,
+                    title: '娃娃柜',
+                    subtitle: '查看抓到的娃娃，送给 TA',
+                    color: const Color(0xFF26C6DA),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const DollCabinetScreen()),
+                    ),
                   ),
                 ],
               ),
@@ -251,6 +273,46 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>
       context,
       gameTitle: '角色印象',
       gamePrompt: '其实我一直想跟你说说，在我眼里你是个什么样的人……你准备好听了吗？',
+    );
+  }
+
+  /// 抓娃娃机：选角色 → 复用/新建会话 → 进娃娃机页
+  Future<void> _openClawMachine(BuildContext context) async {
+    if (_characters.isEmpty) return;
+
+    final character = await showModalBottomSheet<AICharacter>(
+      context: context,
+      builder: (ctx) => _CharacterPickerSheet(characters: _characters),
+    );
+    if (character == null || !context.mounted) return;
+
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final userId = storage.getString(PrefKeys.currentUserId) ?? 'default';
+
+    final sessions = await storage.getChatSessionsByCharacterId(character.id);
+    var session = sessions.isNotEmpty ? sessions.first : null;
+    if (session == null) {
+      final uuid = const Uuid();
+      session = ChatSession(
+        id: uuid.v4(),
+        userId: userId,
+        aiCharacterId: character.id,
+        aiCharacterName: character.userAlias ?? character.name,
+        aiCharacterAvatar: character.avatarUrl,
+        createdAt: DateTime.now(),
+        sessionType: 'private',
+        intimacyMode: 'quick',
+      );
+      await storage.saveChatSession(session);
+    }
+
+    if (!context.mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            ClawMachineScreen(character: character, session: session!),
+      ),
     );
   }
 }
