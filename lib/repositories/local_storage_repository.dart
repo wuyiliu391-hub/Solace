@@ -1186,109 +1186,24 @@ class LocalStorageRepository {
         createdAt TEXT
       ) ''';
 
-  static const String _shopItemsCreateSqlFresh =
-      ''' CREATE TABLE shop_items (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL DEFAULT '',
-        category TEXT NOT NULL DEFAULT '',
-        price INTEGER NOT NULL DEFAULT 0,
-        emoji TEXT NOT NULL DEFAULT '',
-        description TEXT DEFAULT '',
-        tags TEXT DEFAULT '',
-        isActive INTEGER NOT NULL DEFAULT 1,
-        isCustom INTEGER NOT NULL DEFAULT 0,
-        createdAt TEXT
-      ) ''';
-
-  /// 本进程内是否已确认 shop_items 含 isCustom/createdAt（避免每次 PRAGMA）
-  static bool _shopItemsSchemaReady = false;
-
-  /// 强制保证 shop_items 具备 isCustom/createdAt。
-  /// 策略：CREATE → ALTER → 校验 → 失败则事务重建；进程内成功后短路。
+  /// 幂等保证 shop_items 具备完整列（含 isCustom / createdAt）。
+  ///
+  /// 只做 CREATE IF NOT EXISTS + 按需 ALTER 补列，全部幂等：
+  /// - 不开内部事务：避免与 onCreate/onUpgrade 的外层事务嵌套（历史顽疾根因）
+  /// - 不用 static 缓存：避免跨实例 / 热重载状态污染
+  /// - 不重建表、不 rethrow：缺的只是两个可空列，ALTER 足矣，失败也不阻断启动
+  ///
+  /// [force] 保留以兼容旧调用方；本方法本就每次都真正执行。
   static Future<void> _ensureShopItemsSchema(Database db,
       {bool force = false}) async {
-    if (_shopItemsSchemaReady && !force) {
-      return;
-    }
     try {
       await db.execute(_shopItemsCreateSql);
       await _addColumnIfNotExists(
-          db, 'shop_items', 'isCustom', 'INTEGER DEFAULT 0');
+          db, 'shop_items', 'isCustom', 'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfNotExists(db, 'shop_items', 'createdAt', 'TEXT');
-
-      var cols = await getTableColumns(db, 'shop_items');
-      final ok = cols.contains('isCustom') && cols.contains('createdAt');
-      if (ok) {
-        _shopItemsSchemaReady = true;
-        return;
-      }
-
-      debugPrint(
-          '[schema] shop_items rebuild (missing isCustom/createdAt), cols=$cols');
-      await _rebuildShopItemsTable(db);
-      cols = await getTableColumns(db, 'shop_items');
-      debugPrint('[schema] shop_items rebuild done, cols=$cols');
-      if (!cols.contains('isCustom') || !cols.contains('createdAt')) {
-        // 最后手段：丢旧表硬建（极罕见；种子可再填）
-        debugPrint('[schema] shop_items hard recreate');
-        await db.execute('DROP TABLE IF EXISTS shop_items');
-        await db.execute(_shopItemsCreateSqlFresh);
-        cols = await getTableColumns(db, 'shop_items');
-      }
-      if (!cols.contains('isCustom') || !cols.contains('createdAt')) {
-        throw StateError(
-            'shop_items still missing isCustom/createdAt after rebuild: $cols');
-      }
-      _shopItemsSchemaReady = true;
     } catch (e) {
-      _shopItemsSchemaReady = false;
       debugPrint('[schema] _ensureShopItemsSchema failed: $e');
-      rethrow;
     }
-  }
-
-  /// 表结构重建并迁移旧数据（保留商品）
-  static Future<void> _rebuildShopItemsTable(Database db) async {
-    final suffix = DateTime.now().millisecondsSinceEpoch;
-    final oldName = 'shop_items_old_$suffix';
-    await db.transaction((txn) async {
-      // 若上次半残临时表残留，先清
-      try {
-        final leftovers = await txn.rawQuery(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'shop_items_old_%'",
-        );
-        for (final row in leftovers) {
-          final n = row['name'] as String?;
-          if (n != null && n.isNotEmpty) {
-            await txn.execute('DROP TABLE IF EXISTS $n');
-          }
-        }
-      } catch (_) {}
-
-      await txn.execute('ALTER TABLE shop_items RENAME TO $oldName');
-      await txn.execute(_shopItemsCreateSqlFresh);
-      final oldCols = await getTableColumns(txn, oldName);
-      String colOr(String name, String fallbackSql) =>
-          oldCols.contains(name) ? name : fallbackSql;
-      await txn.execute('''
-        INSERT INTO shop_items (
-          id, name, category, price, emoji, description, tags, isActive, isCustom, createdAt
-        )
-        SELECT
-          ${colOr('id', "''")},
-          ${colOr('name', "''")},
-          ${colOr('category', "''")},
-          ${colOr('price', '0')},
-          ${colOr('emoji', "''")},
-          ${colOr('description', "''")},
-          ${colOr('tags', "''")},
-          ${colOr('isActive', '1')},
-          ${colOr('isCustom', '0')},
-          ${colOr('createdAt', 'NULL')}
-        FROM $oldName
-      ''');
-      await txn.execute('DROP TABLE IF EXISTS $oldName');
-    });
   }
 
   /// 唯一安全写入入口：先 ensure，再按真实列 toDbMap，绝不写不存在的列
@@ -1296,8 +1211,6 @@ class LocalStorageRepository {
     await _ensureShopItemsSchema(db);
     var cols = await getTableColumns(db, 'shop_items');
     if (!cols.contains('isCustom') || !cols.contains('createdAt')) {
-      // ensure 缓存可能脏，强制再跑
-      _shopItemsSchemaReady = false;
       await _ensureShopItemsSchema(db, force: true);
       cols = await getTableColumns(db, 'shop_items');
     }
@@ -1960,8 +1873,7 @@ class LocalStorageRepository {
       debugPrint(' v63 迁移: shop_items schema 强制校验完成');
     }
     if (oldVersion < 64) {
-      // v64: 彻底修复 —— 强制重建校验 + 进程内就绪标记
-      _shopItemsSchemaReady = false;
+      // v64: 强制校验 shop_items schema
       await _ensureShopItemsSchema(db, force: true);
       debugPrint(' v64 迁移: shop_items 强制 schema 就绪');
     }
@@ -5708,13 +5620,13 @@ class LocalStorageRepository {
       final today = DateTime.now().toIso8601String().substring(0, 10);
       if (characterId != null) {
         final result = await db.rawQuery(
-          "SELECT COUNT(*) as cnt FROM shop_orders WHERE createdAt >= ? AND isFromAI = 1 AND buyerId = ?",
+          "SELECT COUNT(*) as cnt FROM shop_orders WHERE createdAt >= ? AND buyerType = 'ai' AND buyerId = ?",
           [today, characterId],
         );
         return (result.first['cnt'] as int?) ?? 0;
       }
       final result = await db.rawQuery(
-        "SELECT COUNT(*) as cnt FROM shop_orders WHERE createdAt >= ? AND isFromAI = 1",
+        "SELECT COUNT(*) as cnt FROM shop_orders WHERE createdAt >= ? AND buyerType = 'ai'",
         [today],
       );
       return (result.first['cnt'] as int?) ?? 0;
