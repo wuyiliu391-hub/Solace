@@ -61,9 +61,14 @@ import 'voice_call_screen.dart';
 class ChatDetailScreen extends StatefulWidget {
   final ChatSession session;
   final String? initialMessage; // 从塔罗牌等活动预填的消息
+  final ChatMessage?
+      initialJumpToMessage; // 打开后自动定位并高亮的目标消息（收藏/搜索跳转）
 
   const ChatDetailScreen(
-      {super.key, required this.session, this.initialMessage});
+      {super.key,
+      required this.session,
+      this.initialMessage,
+      this.initialJumpToMessage});
 
   @override
   State<ChatDetailScreen> createState() => _ChatDetailScreenState();
@@ -107,6 +112,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   String _preservedSearchQuery = '';
   String? _highlightedMessageId;
   Timer? _highlightTimer;
+  bool _didInitialJump = false; // 保证「打开即定位」只触发一次
   final Map<String, GlobalKey> _messageKeys = {};
   ChatMessage? _pendingJumpTarget;
   bool _hasPendingReply = false;
@@ -915,6 +921,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   }
                   if (state is ChatMessagesLoaded) {
                     _hasMoreMessages = state.hasMore;
+                    // 从收藏/搜索等外部入口打开时，首帧消息加载后自动定位并高亮目标消息（仅一次）
+                    if (widget.initialJumpToMessage != null &&
+                        !_didInitialJump) {
+                      _didInitialJump = true;
+                      final target = widget.initialJumpToMessage!;
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) _jumpToMessage(target);
+                      });
+                    }
                     if (_isLoadingMore) {
                       _isLoadingMore = false;
                     } else {

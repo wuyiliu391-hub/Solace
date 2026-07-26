@@ -56,6 +56,7 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
   /// 跳转到原聊天会话
   void _openChatSession(Map<String, dynamic> entry) {
     final sessionId = entry['sessionId'] as String;
+    final targetMessage = entry['message'] as ChatMessage?;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -69,7 +70,10 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
                 body: const Center(child: Text('该聊天会话已被删除')),
               );
             }
-            return ChatDetailScreen(session: snapshot.data!);
+            return ChatDetailScreen(
+              session: snapshot.data!,
+              initialJumpToMessage: targetMessage,
+            );
           },
         ),
       ),
