@@ -39,6 +39,10 @@ class ApiDefaults {
   /// 惩罚已出现过的话题，降低反复讲同一件事
   static const double chatPresencePenalty = 0.4;
 
+  /// 小说模式（完整输出）的 max_tokens 下限。
+  /// 不传 max_tokens 会退回服务端默认（很多模型只有几百 token）导致「只出一句话」。
+  static const int novelMaxTokensFloor = 4096;
+
   // ─── API URLs ───
   static const String chatCompletionsPath = '/chat/completions';
 

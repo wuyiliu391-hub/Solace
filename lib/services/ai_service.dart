@@ -154,7 +154,14 @@ class AIService {
   int? _chatMaxTokensForCurrentMode(int configuredMaxTokens) {
     final novelMode = _isNovelModeEnabled();
     final pureAiMode = _storage.isPureAiModeEnabled();
-    if (novelMode && !pureAiMode) return null;
+    if (novelMode && !pureAiMode) {
+      // 小说模式=完整输出：必须显式给足 max_tokens。
+      // 此前返回 null（不传 max_tokens）会退回服务端默认——很多模型/中转默认只有
+      // 几百 token，正是「开了完整输出却只出一句话」的根因。取 max(用户配置, 下限)。
+      return configuredMaxTokens > ApiDefaults.novelMaxTokensFloor
+          ? configuredMaxTokens
+          : ApiDefaults.novelMaxTokensFloor;
+    }
     return _effectiveChatMaxTokens(configuredMaxTokens);
   }
 
@@ -1178,8 +1185,9 @@ class AIService {
   List<String> splitIntoMessages(String response) {
     if (response.isEmpty) return ['嗯，让我想想该怎么回答你。'];
 
-    // 自动分段关闭时，整条回复作为一个气泡
-    if (!_storage.isAutoParagraphEnabled()) {
+    // 小说模式（完整输出）或自动分段关闭时，整条回复作为一个气泡，不拆成微信式多气泡
+    if (_storage.isChatStyleNovelModeEnabled() ||
+        !_storage.isAutoParagraphEnabled()) {
       return [response];
     }
 

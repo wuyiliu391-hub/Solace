@@ -258,8 +258,10 @@ class AIServiceAdapter {
 
   /// 拆分长消息（桥接旧 AIService.splitIntoMessages）
   List<String> splitIntoMessages(String text, {int maxLength = 500}) {
-    // 自动分段关闭时，整条回复作为一个气泡
-    if (_storage != null && !_storage!.isAutoParagraphEnabled()) {
+    // 小说模式（完整输出）或自动分段关闭时，整条回复作为一个气泡，不拆成微信式多气泡
+    if (_storage != null &&
+        (_storage!.isChatStyleNovelModeEnabled() ||
+            !_storage!.isAutoParagraphEnabled())) {
       return [text];
     }
 
