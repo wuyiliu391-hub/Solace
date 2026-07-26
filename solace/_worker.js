@@ -11,18 +11,46 @@ function versionCompare(v1, v2) {
 }
 
 const VERSION_DATA = {
-  latestVersion: '17.4.4',
-  buildNumber: 287,
+  latestVersion: '17.5.0',
+  buildNumber: 288,
   minSdk: 23,
-  releaseDate: '2026-07-26',
-  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=17.4.4',
+  releaseDate: '2026-07-27',
+  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=17.5.0',
   changelog: [
-    '彻底修复商店 shop_items 缺 isCustom/createdAt 导致写入崩溃：启动强制校验、按真实列写入、失败则重建表并迁移数据',
+    '移除单聊输入框上方的话题建议（灯泡 + 预设固定句子）',
+    '单聊支持批量删除 / 批量收藏聊天记录（长按消息 → 多选）',
+    '彻底根治商店数据库顽疾（升级表重建事务嵌套 + 进程 schema 缓存污染），改为幂等补列，新老用户不再 no such column 崩溃',
+    '修复 AI 反复讲同一件事：补 frequency/presence penalty 与不复读指令',
+    '修复小说模式只输出一句话：补足 max_tokens 并整段完整输出',
   ],
   forceUpdate: false,
 };
 
 const ANNOUNCEMENTS = [
+  {
+    id: 'ann_1750',
+    title: 'Solace 17.5.0 更新公告',
+    content: `Solace 17.5.0+288 更新公告
+
+━━━━━━━━━ 本次更新 ━━━━━━━━━
+
+🗑️ 批量管理聊天记录
+单聊长按消息新增「多选」，支持批量删除、批量收藏，一次处理多条。
+
+🐛 商店数据库彻底根治
+定位到多次修复仍未解决的真正根因——升级时表重建的事务嵌套 + 进程内 schema 缓存污染。改为幂等补列方案：新老用户均不再触发 no such column 崩溃，并新增自愈回归测试。
+
+🔁 修复 AI 反复讲同一件事
+补上 frequency / presence penalty 与「不复述已强调内容」指令，各档模型的复读都明显减少。
+
+📖 修复小说模式只输出一句话
+小说模式补足 max_tokens（不再退回服务端小默认）并整段完整输出，不再被截成一句或拆成多气泡。
+
+🧹 界面精简
+移除单聊输入框上方的话题建议（灯泡 + 预设固定句子）。`,
+    date: '2026-07-27',
+    type: 'update',
+  },
   {
     id: 'ann_1744',
     title: 'Solace 17.4.4 紧急修复',
