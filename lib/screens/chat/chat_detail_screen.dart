@@ -36,7 +36,6 @@ import '../../screens/shop/order_tracking_screen.dart';
 import '../../models/shop_order.dart';
 import '../../blocs/shop/shop_bloc.dart';
 
-import '../../widgets/topic_suggestions.dart';
 import '../../widgets/animated_list_item.dart';
 import '../../widgets/typing_indicator.dart';
 import '../../widgets/voice_message_bubble.dart';
@@ -93,8 +92,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   String? _displayName;
   ReplyMode? _replyMode;
   bool _enableProactiveMessage = true;
-  List<String> _suggestedTopics = [];
-  bool _showTopics = false;
   bool _isSearching = false;
   String _searchQuery = '';
   List<ChatMessage> _searchResults = [];
@@ -1391,14 +1388,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       AIService(RepositoryProvider.of<LocalStorageRepository>(context)),
     );
     _scrollController.addListener(_onScroll);
-    _messageFocusNode.addListener(() {
-      if (!mounted) return;
-      // 仅在可见性真正变化时 setState，避免收起键盘时无意义重建卡顿
-      final next = _messageController.text.isEmpty;
-      if (next != _showTopics) {
-        setState(() => _showTopics = next);
-      }
-    });
     _initialize();
     BuiltinStickerService.loadDefaultPack();
     _startUsageReminderTimer();
@@ -2469,10 +2458,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  void _loadTopicSuggestions() {
-    final topics = ['最近过得怎么样', '分享一件开心的事', '今天有什么计划'];
-    setState(() => _suggestedTopics = topics);
-  }
 
   void _checkPendingReply() async {
     final prefs = await SharedPreferences.getInstance();
@@ -3511,14 +3496,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       ),
                     ),
                   ),
-                TopicSuggestions(
-                  topics: _suggestedTopics,
-                  onTap: (topic) {
-                    setState(() => _suggestedTopics = []);
-                    _messageController.text = topic;
-                    _sendMessage();
-                  },
-                ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                   child: Row(
@@ -3642,11 +3619,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                     maxLines: null,
                                     onChanged: (v) {
                                       _syncCanSend();
-                                      if (v.isEmpty &&
-                                          _showTopics &&
-                                          _suggestedTopics.isEmpty) {
-                                        _loadTopicSuggestions();
-                                      }
                                     },
                                   ),
                                 ),
