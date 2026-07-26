@@ -287,7 +287,6 @@ class Limit {
   static const int momentMemoriesPrompt = 5;
   static const int momentDialogueExamples = 3;
   static const int homeTopSessions = 3;
-  static const int topTopicSuggestions = 3;
   static const int topClassificationResults = 5;
   static const int topDominantColors = 3;
 
