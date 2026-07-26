@@ -256,21 +256,20 @@ class _SoftGlassFace extends StatelessWidget {
             ),
           ),
         ),
-        // 左上冷高光 → Solace 内荧光
+        // 左上冷高光
         DecoratedBox(
           decoration: BoxDecoration(
             gradient: RadialGradient(
               center: const Alignment(-0.65, -0.7),
               radius: 0.7,
               colors: [
-                c.withValues(alpha: 0.55),
-                Colors.white.withValues(alpha: 0.18),
+                Colors.white.withValues(alpha: 0.42),
                 Colors.transparent,
               ],
             ),
           ),
         ),
-        // 顶部镜面带（更柔和）
+        // 顶部镜面带
         Align(
           alignment: Alignment.topCenter,
           child: FractionallySizedBox(
@@ -282,8 +281,8 @@ class _SoftGlassFace extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.white.withValues(alpha: 0.38),
-                    Colors.white.withValues(alpha: 0.06),
+                    Colors.white.withValues(alpha: 0.58),
+                    Colors.white.withValues(alpha: 0.10),
                     Colors.white.withValues(alpha: 0.0),
                   ],
                 ),
@@ -291,7 +290,7 @@ class _SoftGlassFace extends StatelessWidget {
             ),
           ),
         ),
-        // 椭圆形高光块（偏品牌色）
+        // 椭圆形高光块
         Positioned(
           left: size * 0.14,
           top: size * 0.11,
@@ -302,19 +301,19 @@ class _SoftGlassFace extends StatelessWidget {
               borderRadius: BorderRadius.circular(size),
               gradient: LinearGradient(
                 colors: [
-                  c.withValues(alpha: 0.58),
-                  Colors.white.withValues(alpha: 0.12),
+                  Colors.white.withValues(alpha: 0.72),
+                  Colors.white.withValues(alpha: 0.0),
                 ],
               ),
             ),
           ),
         ),
-        // 内描边（Solace 荧光边）
+        // 内描边
         DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(radius),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.32),
+              color: Colors.white.withValues(alpha: 0.50),
               width: 1.15,
             ),
           ),

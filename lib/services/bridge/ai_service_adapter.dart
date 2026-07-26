@@ -149,6 +149,29 @@ class AIServiceAdapter {
         : const PromptRewriter()
             .rewriteFAPrompt(systemPrompt, characterName: character.name);
 
+    // 多模态看图：LlmService 目前只吃纯文本。若本轮带图，优先走主 AIService，
+    // 否则 imagePaths 会被静默丢弃，模型完全看不到图。
+    if (imagePaths != null &&
+        imagePaths.isNotEmpty &&
+        _storage != null) {
+      return AIService(_storage!).sendMessage(
+        character: character,
+        userId: userId,
+        userMessage: userMessage,
+        chatHistory: chatHistory,
+        memories: memories,
+        intimacyLevel: intimacyLevel,
+        userStatus: userStatus,
+        sentiment: sentiment,
+        imageDescription: imageDescription,
+        imagePaths: imagePaths,
+        isBlockedByAI: isBlockedByAI,
+        blockReason: blockReason,
+        enableWebSearch: enableWebSearch,
+        internalSystemContext: internalSystemContext,
+      );
+    }
+
     // 调用新 LlmService
     final response = await llm.chat(
       userId: userId,
@@ -189,6 +212,29 @@ class AIServiceAdapter {
     bool enableWebSearch = false,
     String? internalSystemContext,
   }) async* {
+    // 带图时委托主 AIService 流式（含 OpenAI vision content 数组）
+    if (imagePaths != null &&
+        imagePaths.isNotEmpty &&
+        _storage != null) {
+      yield* AIService(_storage!).sendMessageStream(
+        character: character,
+        userId: userId,
+        userMessage: userMessage,
+        chatHistory: chatHistory,
+        memories: memories,
+        intimacyLevel: intimacyLevel,
+        userStatus: userStatus,
+        sentiment: sentiment,
+        imageDescription: imageDescription,
+        imagePaths: imagePaths,
+        isBlockedByAI: isBlockedByAI,
+        blockReason: blockReason,
+        enableWebSearch: enableWebSearch,
+        internalSystemContext: internalSystemContext,
+      );
+      return;
+    }
+
     // 非流式模式：一次性返回
     final result = await sendMessage(
       character: character,

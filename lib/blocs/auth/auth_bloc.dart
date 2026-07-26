@@ -22,6 +22,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthUserUpdated>(_onAuthUserUpdated);
   }
 
+  /// 发放每日登录奖励后，用最新余额 emit（与签到独立）
+  Future<void> _emitAuthenticated(Emitter<AuthState> emit, User user) async {
+    final bonus = await _storage.claimDailyLoginBonus(user.id);
+    if (bonus > 0) {
+      final refreshed = await _storage.getUser(user.id) ?? user;
+      emit(AuthAuthenticated(refreshed, loginBonusGranted: bonus));
+    } else {
+      emit(AuthAuthenticated(user));
+    }
+  }
+
   Future<void> _onAuthCheckRequested(
     AuthCheckRequested event,
     Emitter<AuthState> emit,
@@ -36,7 +47,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           await _storage.remove(PrefKeys.loggedOut);
           // 每次启动都检查内置角色是否存在（已有则跳过，升级用户也能拿到）
           await _storage.seedBuiltInCharacters();
-          emit(AuthAuthenticated(user));
+          // 冷启动也算「当日首次进入」，发登录奖励
+          final withLogin = user.copyWith(lastLoginAt: DateTime.now());
+          await _storage.saveUser(withLogin);
+          await _emitAuthenticated(emit, withLogin);
           return;
         }
       }
@@ -57,7 +71,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       await _storage.setString(PrefKeys.currentUserId, 'local_user');
       // 内置角色种子
       await _storage.seedBuiltInCharacters();
-      emit(AuthAuthenticated(user));
+      // 新用户已有 defaultCoins，仍发当日登录奖（与初始金独立）
+      await _emitAuthenticated(emit, user);
     } catch (e) {
       emit(AuthError(e.toString()));
     }
@@ -97,7 +112,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           );
       await _storage.saveUser(user);
       await _storage.setString(PrefKeys.currentUserId, qq);
-      emit(AuthAuthenticated(user));
+      await _emitAuthenticated(emit, user);
     } catch (e) {
       emit(AuthError(e.toString()));
     }
@@ -129,7 +144,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
       await _storage.saveUser(user);
       await _storage.setString(PrefKeys.currentUserId, qq);
-      emit(AuthAuthenticated(user));
+      await _emitAuthenticated(emit, user);
     } catch (e) {
       emit(AuthError(e.toString()));
     }
@@ -161,7 +176,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           );
       await _storage.saveUser(user);
       await _storage.setString(PrefKeys.currentUserId, qq);
-      emit(AuthAuthenticated(user));
+      // 重置密码后登录：同样走每日登录奖
+      await _emitAuthenticated(emit, user);
     } catch (e) {
       emit(AuthError(e.toString()));
     }
@@ -187,6 +203,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     try {
       await _storage.saveUser(event.user);
+      // 资料更新不重复发登录奖
       emit(AuthAuthenticated(event.user));
     } catch (e) {
       emit(AuthError(e.toString()));

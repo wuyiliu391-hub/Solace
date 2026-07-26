@@ -14,10 +14,13 @@ class AuthLoading extends AuthState {}
 class AuthAuthenticated extends AuthState {
   final User user;
 
-  const AuthAuthenticated(this.user);
+  /// 本次登录/启动发放的每日登录奖励（0 表示今日已领或未发）
+  final int loginBonusGranted;
+
+  const AuthAuthenticated(this.user, {this.loginBonusGranted = 0});
 
   @override
-  List<Object?> get props => [user];
+  List<Object?> get props => [user, loginBonusGranted];
 }
 
 class AuthUnauthenticated extends AuthState {}

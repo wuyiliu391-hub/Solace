@@ -91,3 +91,33 @@ class ShopOrderDelivered extends ShopEvent {
   @override
   List<Object?> get props => [orderId, aiReaction];
 }
+
+/// 内部/定时：把订单推进到下一物流阶段（pending→preparing→shipping→delivered）
+class ShopAdvanceOrder extends ShopEvent {
+  final String orderId;
+
+  const ShopAdvanceOrder(this.orderId);
+
+  @override
+  List<Object?> get props => [orderId];
+}
+
+/// 新增/更新用户自定义商品
+class ShopSaveCustomItem extends ShopEvent {
+  final ShopItem item;
+
+  const ShopSaveCustomItem(this.item);
+
+  @override
+  List<Object?> get props => [item];
+}
+
+/// 删除自定义商品
+class ShopDeleteCustomItem extends ShopEvent {
+  final String itemId;
+
+  const ShopDeleteCustomItem(this.itemId);
+
+  @override
+  List<Object?> get props => [itemId];
+}

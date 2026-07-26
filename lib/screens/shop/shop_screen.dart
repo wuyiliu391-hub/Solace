@@ -135,6 +135,11 @@ class _ShopScreenState extends State<ShopScreen>
         foregroundColor: cs.onSurface,
         actions: [
           IconButton(
+            tooltip: '自定义商品',
+            icon: const Icon(Icons.add_box_outlined),
+            onPressed: () => _showCustomItemSheet(cs),
+          ),
+          IconButton(
             tooltip: '我的订单',
             icon: const Icon(Icons.receipt_long_outlined),
             onPressed: () {
@@ -151,6 +156,11 @@ class _ShopScreenState extends State<ShopScreen>
             },
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showCustomItemSheet(cs),
+        icon: const Icon(Icons.add),
+        label: const Text('自定义商品'),
       ),
       body: Column(
         children: [
@@ -427,7 +437,7 @@ class _ShopScreenState extends State<ShopScreen>
         }
 
         return GridView.builder(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 88),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: 8,
@@ -470,30 +480,55 @@ class _ShopScreenState extends State<ShopScreen>
                     color: cs.secondaryContainer.withValues(alpha: 0.5),
                     child: Center(
                       child: Text(
-                        _getItemIconConfig(item.id).$3,
+                        item.emoji.isNotEmpty
+                            ? item.emoji
+                            : _getItemIconConfig(item.id).$3,
                         style: const TextStyle(fontSize: 56),
                       ),
                     ),
                   ),
-                  if (item.category == 'gift' || item.category == 'food')
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: item.isCustom
+                            ? Colors.teal.withValues(alpha: 0.92)
+                            : cs.primary.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        item.isCustom
+                            ? '自定义'
+                            : item.category == 'food'
+                                ? '外卖'
+                                : item.category == 'express'
+                                    ? '快递'
+                                    : '礼物',
+                        style: TextStyle(
+                          color: cs.onPrimary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (item.isCustom)
                     Positioned(
-                      top: 8,
-                      left: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: cs.primary.withValues(alpha: 0.9),
-                          borderRadius: BorderRadius.circular(6),
+                      top: 4,
+                      right: 4,
+                      child: IconButton(
+                        tooltip: '删除',
+                        iconSize: 18,
+                        visualDensity: VisualDensity.compact,
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black45,
+                          foregroundColor: Colors.white,
                         ),
-                        child: Text(
-                          item.category == 'gift' ? '礼物' : '外卖',
-                          style: TextStyle(
-                            color: cs.onPrimary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        onPressed: () => _confirmDeleteCustom(item),
+                        icon: const Icon(Icons.close, size: 16),
                       ),
                     ),
                 ],
@@ -888,14 +923,14 @@ class _ShopScreenState extends State<ShopScreen>
 
   void _showOrderSuccessDialog(ShopOrder order) {
     final cs = Theme.of(context).colorScheme;
+    final emoji = order.itemEmoji.isNotEmpty
+        ? order.itemEmoji
+        : _getItemIconConfig(order.itemId).$3;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
-            Text(
-              _getItemIconConfig(order.itemId).$3,
-              style: const TextStyle(fontSize: 18),
-            ),
+            Text(emoji, style: const TextStyle(fontSize: 18)),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -923,6 +958,180 @@ class _ShopScreenState extends State<ShopScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteCustom(ShopItem item) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除自定义商品？'),
+        content: Text('将删除「${item.emoji} ${item.name}」，不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      context.read<ShopBloc>().add(ShopDeleteCustomItem(item.id));
+    }
+  }
+
+  Future<void> _showCustomItemSheet(ColorScheme cs) async {
+    final nameCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    final priceCtrl = TextEditingController(text: '30');
+    final emojiCtrl = TextEditingController(text: '🎁');
+    var category = 'gift';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 8,
+            bottom: MediaQuery.viewInsetsOf(ctx).bottom + 24,
+          ),
+          child: StatefulBuilder(
+            builder: (ctx, setModal) {
+              return SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '自定义商品',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'AI 送礼时会读到名称与说明，请写清楚这是什么。',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: emojiCtrl,
+                      decoration: const InputDecoration(
+                        labelText: '图标 Emoji',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: '商品名称 *',
+                        hintText: '例如：手写情书、保温饭盒…',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: descCtrl,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: '商品说明（AI 会读）',
+                        hintText: '写清材质、含义、使用场景，方便角色理解',
+                        border: OutlineInputBorder(),
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: priceCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: '价格（金币）',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text('分类', style: TextStyle(color: cs.onSurfaceVariant)),
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'gift', label: Text('礼物')),
+                        ButtonSegment(value: 'food', label: Text('外卖')),
+                        ButtonSegment(value: 'express', label: Text('快递')),
+                      ],
+                      selected: {category},
+                      onSelectionChanged: (s) =>
+                          setModal(() => category = s.first),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () {
+                        final name = nameCtrl.text.trim();
+                        if (name.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('请填写商品名称')),
+                          );
+                          return;
+                        }
+                        final price =
+                            int.tryParse(priceCtrl.text.trim()) ?? 30;
+                        final emoji = emojiCtrl.text.trim().isEmpty
+                            ? '🎁'
+                            : emojiCtrl.text.trim();
+                        final item = ShopItem(
+                          id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
+                          name: name,
+                          category: category,
+                          price: price.clamp(0, 999999),
+                          emoji: emoji,
+                          description: descCtrl.text.trim(),
+                          isCustom: true,
+                          isActive: true,
+                          createdAt: DateTime.now(),
+                          tags: const ['custom'],
+                        );
+                        context
+                            .read<ShopBloc>()
+                            .add(ShopSaveCustomItem(item));
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('已添加自定义商品：${item.emoji} ${item.name}'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.check),
+                      label: const Text('保存并上架'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    nameCtrl.dispose();
+    descCtrl.dispose();
+    priceCtrl.dispose();
+    emojiCtrl.dispose();
   }
 
   (IconData, Color, String) _getItemIconConfig(String itemId) {

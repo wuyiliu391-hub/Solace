@@ -281,34 +281,68 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   /// 是否使用新适配器（当 _aiAdapter 不为空时启用）
   bool get _useAdapter => _aiAdapter != null;
 
-  /// 记忆提取会额外消耗一次 LLM 请求，按用户消息数降频，降低付费 API 成本。
+  /// LLM 记忆提取降频：按「本会话用户消息条数」间隔触发，避免每条都打 API。
+  /// 返回 true 时会推进计数；false 表示本轮跳过。
   bool _shouldExtractMemory(String chatId, List<ChatMessage> recentMessages) {
-    final userMessageCount = recentMessages.where((m) => !m.isFromAI).length;
-    if (userMessageCount < 2) return false;
+    final userMessageCount =
+        recentMessages.where((m) => m.isUser || !m.isFromAI).length;
+    // 至少 1 条有效用户话即可（旧逻辑要求 2 条导致新会话很难写入）
+    if (userMessageCount < 1) return false;
 
     final lastExtracted = _lastMemoryExtractionUserCount[chatId] ?? 0;
+    // 首次：第 1 条就提；之后每 3 条用户消息提一次（原 5 过稀 →「很久不更新」）
     final shouldExtract =
-        lastExtracted == 0 || userMessageCount - lastExtracted >= 5;
+        lastExtracted == 0 || userMessageCount - lastExtracted >= 3;
     if (shouldExtract) {
       _lastMemoryExtractionUserCount[chatId] = userMessageCount;
     }
     return shouldExtract;
   }
 
-  /// 实时增量微记忆提取器（不走 LLM）——从最近一对 user/AI 消息中
-  /// 识别关键信号（用户自述、约定、情感转折点），立刻写入一条记忆，
-  /// 让接下来的回复能引用刚说的事。
-  /// 特点：快速关键词规则，单 root 轻量，30 分钟冷却。
-  /// 不替代 LLM 批量重建，只补足"当前会话刚说的事"的连续性。
-  static const Duration _microCooldown = Duration(minutes: 10);
-  static final RegExp _microUserRegex =
-      RegExp(r'(?:我在|我住|我家|我下周|我明天|我后天|我今天|我要去|'
-          r'我考了|我过了|我升|我辞职|我搬家|我生日|我叫|我属|'
-          r'我喜欢|我不喜欢|我讨厌|我习惯|我常|我一般|'
-          r'约定|说好|答应|以后会|记得|别忘|跟你说件事)');
-  static final RegExp _microAiRegex =
-      RegExp(r'(?:那你|我知道了|记住了|以后|你说过|你喜欢|你在)');
-  static final List<String> _microIgnoreSubstrings = ['好的好的', '哈哈哈哈', '嗯嗯嗯', '嗯嗯'];
+  /// 实时增量微记忆（不走 LLM）——补「刚说的事」连续性。
+  /// 放宽触发：关键词命中 **或** 信息密度足够的长句，避免极少数用户永远写不进库。
+  static const Duration _microCooldown = Duration(minutes: 3);
+  static final RegExp _microUserRegex = RegExp(
+    r'(?:我在|我住|我家|我下周|我明天|我后天|我今天|我昨天|我要去|我想|'
+    r'我考了|我过了|我升|我辞职|我搬家|我生日|我叫|我属|我是|'
+    r'我喜欢|我不喜欢|我讨厌|我习惯|我常|我一般|我觉得|我认为|'
+    r'约定|说好|答应|以后会|记得|别忘|跟你说|告诉你|'
+    r'下周|明天|后天|周末|下班|上班|学校|公司|家里)',
+    caseSensitive: false,
+  );
+  static final RegExp _microAiRegex = RegExp(
+    r'(?:那你|我知道了|记住了|以后|你说过|你喜欢|你在|我会记|记下来)',
+    caseSensitive: false,
+  );
+  static final List<String> _microIgnoreSubstrings = [
+    '好的好的',
+    '哈哈哈哈',
+    '嗯嗯嗯',
+    '嗯嗯',
+    '哈哈哈',
+    '呵呵呵',
+    'www',
+    '哈哈哈',
+  ];
+
+  bool _looksLikeMicroMemorySignal(String userText, String aiText) {
+    final t = userText.trim();
+    if (t.isEmpty) return false;
+    if (_microIgnoreSubstrings.any(t.contains)) return false;
+    // 过短纯语气
+    if (t.length < 4) return false;
+
+    if (_microUserRegex.hasMatch(t)) return true;
+    if (aiText.isNotEmpty && _microAiRegex.hasMatch(aiText)) return true;
+
+    // 信息密度兜底：稍长、含实质内容的句子也记一条，避免「永远不更新」
+    if (t.length >= 12) {
+      final hasCjk = RegExp(r'[\u4e00-\u9fff]').hasMatch(t);
+      final hasAlphaNum = RegExp(r'[A-Za-z0-9]').hasMatch(t);
+      if (hasCjk || hasAlphaNum) return true;
+    }
+    return false;
+  }
 
   Future<void> _maybeExtractMicroMemory({
     required String chatId,
@@ -318,26 +352,21 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     required String userContent,
   }) async {
     final trimmed = userContent.trim();
-    if (trimmed.isEmpty || trimmed.length < 8) return;
-    if (_microIgnoreSubstrings.any(trimmed.contains)) return;
+    if (!_looksLikeMicroMemorySignal(trimmed, justSavedAiMsg.content)) {
+      return;
+    }
 
-    // 检查是否匹配关键信号
-    final userMatch = _microUserRegex.firstMatch(trimmed);
-    final aiMatch = _microAiRegex.firstMatch(justSavedAiMsg.content);
-    if (userMatch == null && aiMatch == null) return;
-
-    // 冷却检查
     final last = _lastMicroTime[chatId];
     final now = DateTime.now();
     if (last != null && now.difference(last) < _microCooldown) return;
     _lastMicroTime[chatId] = now;
 
-    // 截取用户的原话 + AI 的回应当作记忆内容，保持"刚说的事最鲜活"
-    final userSnip = trimmed.length > 60 ? '${trimmed.substring(0, 60)}…' : trimmed;
-    final aiSnip = justSavedAiMsg.content.length > 60
-        ? '${justSavedAiMsg.content.substring(0, 60)}…'
-        : justSavedAiMsg.content;
-    final memContent = '用户说："$userSnip" — 对方回复："${aiSnip.isEmpty ? "（无回应文字）" : aiSnip}"';
+    final userSnip =
+        trimmed.length > 80 ? '${trimmed.substring(0, 80)}…' : trimmed;
+    final aiRaw = justSavedAiMsg.content.trim();
+    final aiSnip = aiRaw.length > 80 ? '${aiRaw.substring(0, 80)}…' : aiRaw;
+    final memContent =
+        '用户说："$userSnip" — 对方回复："${aiSnip.isEmpty ? "（无回应文字）" : aiSnip}"';
 
     try {
       await _storage.saveMemory(Memory(
@@ -347,12 +376,68 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         type: MemoryType.conversation,
         content: memContent,
         importance: MemoryImportance.normal,
-        keywords: [],
+        keywords: _extractKeywords(trimmed).take(6).toList(),
         createdAt: now,
-        weight: 1.2, // 微记忆略加权，确保近期对话能被优先检索
+        weight: 1.2,
       ));
+      LogService.instance.i(
+        'Memory',
+        '微记忆已写入 (${trimmed.length}字)',
+        chatId: chatId,
+      );
     } catch (e) {
       LogService.instance.w('Bloc', '微记忆提取失败: $e', chatId: chatId);
+    }
+  }
+
+  /// AI 回复成功后：微记忆（快）+ 降频 LLM/正则 extractMemory（稳）
+  /// 全程 unawaited，不阻塞聊天气泡。
+  Future<void> _extractMemoriesAfterReply({
+    required String chatId,
+    required AICharacter character,
+    required String userId,
+    required ChatMessage justSavedAiMsg,
+    required String userContent,
+    required List<ChatMessage> recentMessages,
+  }) async {
+    if (_isPureAIForced) return;
+    // 全局记忆 off：仍允许写入库，便于用户之后打开模式能看到历史积累
+    // （注入 prompt 由 memoryMode 控制，与写入解耦）
+
+    // 1) 微记忆：尽量每轮有信息就记（自带冷却）
+    try {
+      await _maybeExtractMicroMemory(
+        chatId: chatId,
+        characterId: character.id,
+        userId: userId,
+        justSavedAiMsg: justSavedAiMsg,
+        userContent: userContent,
+      );
+    } catch (e) {
+      LogService.instance.w('Memory', '微记忆异常: $e', chatId: chatId);
+    }
+
+    // 2) 正式提取：降频，避免费用爆炸
+    if (!_shouldExtractMemory(chatId, recentMessages)) return;
+
+    try {
+      // 取最近一段对话给引擎（含本轮 AI）
+      final slice = recentMessages.length > 24
+          ? recentMessages.sublist(recentMessages.length - 24)
+          : recentMessages;
+      await _memoryEngine.extractMemory(
+        character: character,
+        userId: userId,
+        recentMessages: slice,
+        characterName: character.name,
+      );
+      LogService.instance.i(
+        'Memory',
+        'extractMemory 完成 (msgs=${slice.length})',
+        chatId: chatId,
+      );
+    } catch (e) {
+      LogService.instance.w('Memory', 'extractMemory 失败: $e', chatId: chatId);
     }
   }
 
@@ -649,6 +734,60 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       if (extra != null && extra.trim().isNotEmpty) extra.trim(),
     ];
     return parts.isEmpty ? null : parts.join('\n\n');
+  }
+
+  /// 是否含语C动作/旁白括号（全角或半角，括号内有内容）
+  static final RegExp _actionBracketPattern =
+      RegExp(r'（[^（）]+）|\([^()]+\)');
+
+  bool _containsActionBracket(String text) =>
+      _actionBracketPattern.hasMatch(text);
+
+  /// 注入到 internal system：明确「括号≠对白」
+  String _buildActionBracketSystemRule() {
+    return '''【本轮括号语义·强制】
+用户消息里「（…）」或「(...)」中的文字是现场动作/神态/旁白/场景描写，不是对你说的话，也不是要你朗读的台词。
+必须遵守：
+1. 括号外 = 用户真正说出口的台词（若有）。
+2. 括号内 = 已经发生或正在发生的场景事实，用角色身份自然接住并反应。
+3. 禁止把括号内容当成用户台词复读、复述、引用或当对话回答。
+4. 禁止输出「你说了（xxx）」「你括号里写…」这类元评论。
+5. 你的回复按当前聊天/小说模式自然演绎即可；不要机械照抄用户的括号格式。''';
+  }
+
+  /// 把「台词 + 括号旁白」拆成明确分区，避免模型当对话念
+  String _formatActionBracketUserMessage(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty) return text;
+
+    final actions = <String>[];
+    final dialogue = text
+        .replaceAllMapped(_actionBracketPattern, (m) {
+          final inner = (m.group(0) ?? '')
+              .replaceAll(RegExp(r'^[（(]|[）)]$'), '')
+              .trim();
+          if (inner.isNotEmpty) actions.add(inner);
+          return ' ';
+        })
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    if (actions.isEmpty) return text;
+
+    final buf = StringBuffer();
+    buf.writeln('[场景/动作·非对白]');
+    for (final a in actions) {
+      buf.writeln('- $a');
+    }
+    if (dialogue.isNotEmpty) {
+      buf.writeln();
+      buf.writeln('[用户说出口的话]');
+      buf.write(dialogue);
+    } else {
+      buf.writeln();
+      buf.write('[用户本轮没有额外台词，请只根据上述场景/动作自然回应]');
+    }
+    return buf.toString().trim();
   }
 
   /// 作息陪伴上下文（纯本地）：
@@ -1752,19 +1891,31 @@ $tail
   ) async {
     final now = DateTime.now();
 
-    // 括号动作/旁白：如果消息包含「（）」描写标记，在发送给 AI 时追加指令
+    // 括号动作/旁白：只做标记；说明走 system/internal，禁止塞进 user 台词
+    // （旧实现把说明写成又一段「（请注意…）」会让模型把旁白当对白）
     final bool hasActionBracket =
-        event.metadata?['hasActionBracket'] == true;
-    final String userMessageForAI = hasActionBracket
-        ? '${event.content}\n（请注意：以上内容中括号「（）」内的文字是我的动作/神态/旁白描写。请你在回复中根据这些描写做出相应反应，把描写的动作自然融入场景中，但不要复读括号内的文字。直接用角色身份回应我，把旁白内容当作正在发生的事来演绎。）'
-        : event.content;
-
+        event.metadata?['hasActionBracket'] == true ||
+            _containsActionBracket(event.content);
     final imagePaths = <String>[
       ...?event.imagePaths,
       if (event.metadata?['imagePath'] is String &&
           (event.metadata!['imagePath'] as String).trim().isNotEmpty)
         (event.metadata!['imagePath'] as String).trim(),
+      if (event.metadata?['imagePaths'] is List)
+        for (final p in (event.metadata!['imagePaths'] as List))
+          if (p is String && p.trim().isNotEmpty) p.trim(),
     ];
+    // 去重
+    final uniqueImagePaths = <String>[];
+    for (final p in imagePaths) {
+      if (!uniqueImagePaths.contains(p)) uniqueImagePaths.add(p);
+    }
+    imagePaths
+      ..clear()
+      ..addAll(uniqueImagePaths);
+
+    // 用户原文即可；结构化拆分在 AIService._buildMessages 内完成
+    final String userMessageForAI = event.content;
     final imageDescription = event.metadata?['imageDescription'] as String?;
 
     final displayContent = _stripSystemDirective(event.content);
@@ -1788,6 +1939,7 @@ $tail
         ...?(isDirectiveOnly
             ? {...(event.metadata ?? {}), 'isSystemDirective': true}
             : event.metadata),
+        if (hasActionBracket) 'hasActionBracket': true,
         if (hasImages) 'imagePaths': imagePaths,
         if (hasImages && caption.isNotEmpty) 'caption': caption,
         if (imageDescription != null) 'imageDescription': imageDescription,
@@ -1999,6 +2151,13 @@ $tail
       );
     }
 
+    // 回复前轻量状态预提取（不阻塞；解决「刚说完仍被追问」）
+    unawaited(_memoryEngine.preExtractState(
+      characterId: character.id,
+      userId: event.userId,
+      currentMessage: event.content,
+    ));
+
     final memories = await _storage.getMemories(
       characterId: character.id,
       userId: event.userId,
@@ -2101,6 +2260,13 @@ $tail
         sessionStateContext,
         july15EasterEggDirective,
       );
+      // 语C括号旁白：系统级规则，禁止模型把括号当对白
+      if (hasActionBracket) {
+        sessionStateContext = _mergeInternalSystemContext(
+          sessionStateContext,
+          _buildActionBracketSystemRule(),
+        );
+      }
       sessionStateContext =
           _mergeInternalSystemContext(sessionStateContext, ctxResults[0]);
       sessionStateContext =
@@ -2266,17 +2432,13 @@ $tail
             });
           }
 
-          // 用户消息
-          // 括号动作/旁白：如果消息包含「（描写）」标记，在 prompt 中注入指令
-          final hasActionBracket = event.metadata?['hasActionBracket'] == true;
-          final userContent = hasActionBracket
-              ? event.content
+          // 用户消息：有括号时结构化，说明已在 system/internal，勿再塞 user 台词
+          final toolUserContent = hasActionBracket
+              ? _formatActionBracketUserMessage(event.content)
               : event.content;
           llmMessages.add({
             'role': 'user',
-            'content': hasActionBracket
-                ? '$userContent\n\n（请注意：以上内容中括号「（）」内的文字是我的动作/神态/旁白描写。请你在回复中根据这些描写做出相应反应，把描写的动作自然融入场景中，但不要复读括号内的文字。直接用角色身份回应我，把旁白内容当作正在发生的事来演绎。）'
-                : userContent,
+            'content': toolUserContent,
           });
 
           _chatProcessingState = ChatProcessingState.connecting;
@@ -2575,18 +2737,25 @@ $tail
         );
       }
 
-      // 实时微记忆提取：从刚完成的对话中自动提取记忆，让记忆库持续更新
+      // 记忆库自动更新：微记忆 + 降频 LLM/正则提取（修复「极少数永远不更新」）
       try {
-        if (_shouldExtractMemory(event.chatId, await _storage.getChatMessages(event.chatId))) {
-          unawaited(_maybeExtractMicroMemory(
-            chatId: event.chatId,
-            characterId: session!.aiCharacterId,
-            userId: event.userId,
-            justSavedAiMsg: aiReply,
-            userContent: event.content,
-          ));
-        }
-      } catch (_) {}
+        final recentForMemory =
+            await _storage.getChatMessages(event.chatId);
+        unawaited(_extractMemoriesAfterReply(
+          chatId: event.chatId,
+          character: character,
+          userId: event.userId,
+          justSavedAiMsg: aiReply,
+          userContent: event.content,
+          recentMessages: recentForMemory,
+        ));
+      } catch (e) {
+        LogService.instance.w(
+          'Memory',
+          '调度记忆提取失败: $e',
+          chatId: event.chatId,
+        );
+      }
 
       // ?? ?????? ??
       try {
@@ -2889,22 +3058,36 @@ $tail
         limit: Limit.memoryFetch,
       );
 
-      final giftContext = '对方送了你一个 ' +
-          event.itemEmoji +
-          ' ' +
-          event.itemName +
-          '，价值 ' +
-          event.price.toString() +
-          '金币' +
-          (event.message != null && event.message!.isNotEmpty
-              ? '，备注：' + event.message!
-              : '') +
-          '。请做出真实自然的回应。';
+      final catLabel = switch (event.itemCategory) {
+        'food' => '外卖/食物',
+        'express' => '快递/物件',
+        'gift' => '礼物',
+        _ => '心意礼物',
+      };
+      final desc = event.itemDescription?.trim() ?? '';
+      final customHint = event.isCustomItem
+          ? '这是用户专门为你挑选/自制的自定义商品，请认真理解商品说明并回应。'
+          : '请根据商品本身的含义做出自然回应。';
+      final giftContext = StringBuffer()
+        ..writeln('【用户送礼场景 · 请识别并回应】')
+        ..writeln('对方送给你：${event.itemEmoji} ${event.itemName}')
+        ..writeln('类型：$catLabel')
+        ..writeln('价值：${event.price} 金币')
+        ..writeln(customHint);
+      if (desc.isNotEmpty) {
+        giftContext.writeln('商品说明（务必理解）：$desc');
+      }
+      if (event.message != null && event.message!.trim().isNotEmpty) {
+        giftContext.writeln('用户附言：${event.message!.trim()}');
+      }
+      giftContext.writeln(
+          '请用角色身份真实自然地回应：可以感动、吐槽、开心或接住附言；'
+          '要体现你「看懂了」这件东西是什么，不要只说谢谢。');
 
       final aiResponse = await _bridgeSendMessage(
         character: character,
         userId: event.userId,
-        userMessage: giftContext,
+        userMessage: giftContext.toString(),
         chatHistory: messages,
         memories: memories,
         intimacyLevel: session.intimacyLevel,

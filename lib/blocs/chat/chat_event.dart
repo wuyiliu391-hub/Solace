@@ -172,6 +172,11 @@ class ChatSendGift extends ChatEvent {
   final String itemEmoji;
   final int price;
   final String? message;
+  /// 商品分类 gift/food/express
+  final String? itemCategory;
+  /// 商品说明（自定义商品尤其重要，供 AI 理解）
+  final String? itemDescription;
+  final bool isCustomItem;
 
   const ChatSendGift({
     required this.chatId,
@@ -180,11 +185,23 @@ class ChatSendGift extends ChatEvent {
     required this.itemEmoji,
     required this.price,
     this.message,
+    this.itemCategory,
+    this.itemDescription,
+    this.isCustomItem = false,
   });
 
   @override
-  List<Object?> get props =>
-      [chatId, userId, itemName, itemEmoji, price, message];
+  List<Object?> get props => [
+        chatId,
+        userId,
+        itemName,
+        itemEmoji,
+        price,
+        message,
+        itemCategory,
+        itemDescription,
+        isCustomItem,
+      ];
 }
 
 class ChatAISendCoins extends ChatEvent {

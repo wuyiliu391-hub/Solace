@@ -22,6 +22,7 @@ import '../virtual_phone/virtual_phone_screen.dart';
 import '../../models/virtual_phone/virtual_phone.dart';
 import '../../services/virtual_phone_generator.dart';
 import '../../utils/message_sanitizer.dart';
+import '../../utils/vision_image_encoder.dart';
 
 
 import '../../services/builtin_sticker_service.dart';
@@ -133,6 +134,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final ValueNotifier<bool> _canSendNotifier = ValueNotifier<bool>(false);
   bool get _canSend => _canSendNotifier.value;
   bool _webSearchEnabled = false;
+  /// 待发送附图：选图后先挂在输入区，可配文字再点发送
+  final List<String> _pendingImagePaths = [];
 
   List<IntimacyEvent> _intimacyEvents = [];
   bool _isIntimacyExpanded = true;
@@ -1997,6 +2000,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                       itemEmoji: order.itemEmoji,
                                       price: order.price,
                                       message: order.message,
+                                      itemCategory: order.itemCategory,
+                                      itemDescription: order.itemDescription,
+                                      isCustomItem: order.isCustomItem,
                                     ));
                               }
                             },
@@ -2027,7 +2033,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   color: const Color(0xFF3B82F6),
                   onTap: () {
                     Navigator.pop(ctx);
-                    _pickAndSendImages();
+                    _pickAndAttachImages();
                   },
                 ),
               ],
@@ -2038,54 +2044,55 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  /// 选择图片发送：多模态配置开启时走 OpenAI vision；否则仅作为图片消息展示
-  Future<void> _pickAndSendImages() async {
+  void _syncCanSend() {
+    final canSend =
+        _messageController.text.trim().isNotEmpty || _pendingImagePaths.isNotEmpty;
+    if (canSend != _canSend) {
+      _canSendNotifier.value = canSend;
+    }
+  }
+
+  /// 选择图片：挂到输入区待发，可继续输入文字后一起发送（不再选完即发）
+  Future<void> _pickAndAttachImages() async {
     tapHaptic();
     try {
       final picker = ImagePicker();
       final images = await picker.pickMultiImage(imageQuality: 85);
       if (images.isEmpty || !mounted) return;
 
-      final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
-      final caption = _messageController.text.trim();
-      final paths = images.map((e) => e.path).toList();
-
-      Map<String, dynamic>? replyMetadata;
-      if (_replyToMessage != null) {
-        replyMetadata = {
-          'replyTo': {
-            'messageId': _replyToMessage!.id,
-            'senderName': _replyToMessage!.senderName ??
-                (_replyToMessage!.isFromAI ? 'AI' : '用户'),
-            'contentPreview': _replyPreview(_replyToMessage!),
-          },
-        };
-        setState(() => _replyToMessage = null);
-      }
-
-      _chatBloc.add(ChatSendMessage(
-        chatId: widget.session.id,
-        userId: user.id,
-        content: caption,
-        imagePaths: paths,
-        metadata: {
-          ...?replyMetadata,
-          'imagePaths': paths,
-          if (caption.isNotEmpty) 'caption': caption,
-        },
-        enableWebSearch: _webSearchEnabled,
-      ));
-      _messageController.clear();
-      _canSendNotifier.value = false;
-      _userScrolledUp = false;
-      _scrollToBottom(force: true);
-      _resetSilenceTimer();
+      setState(() {
+        for (final img in images) {
+          final p = img.path;
+          if (p.isNotEmpty && !_pendingImagePaths.contains(p)) {
+            _pendingImagePaths.add(p);
+          }
+        }
+        // 与 vision 请求上限对齐（OpenAI/中转稳妥）
+        final maxN = VisionImageEncoder.maxImagesPerRequest;
+        if (_pendingImagePaths.length > maxN) {
+          _pendingImagePaths.removeRange(maxN, _pendingImagePaths.length);
+        }
+      });
+      _syncCanSend();
+      _messageFocusNode.requestFocus();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('选择图片失败: $e')),
       );
     }
+  }
+
+  void _removePendingImage(int index) {
+    if (index < 0 || index >= _pendingImagePaths.length) return;
+    setState(() => _pendingImagePaths.removeAt(index));
+    _syncCanSend();
+  }
+
+  void _clearPendingImages() {
+    if (_pendingImagePaths.isEmpty) return;
+    setState(() => _pendingImagePaths.clear());
+    _syncCanSend();
   }
 
   void _startVoiceCall() async {
@@ -2158,7 +2165,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void _sendMessage() {
     tapHaptic();
     final content = _messageController.text.trim();
-    if (content.isEmpty) return;
+    final imagePaths = List<String>.from(_pendingImagePaths);
+    if (content.isEmpty && imagePaths.isEmpty) return;
 
     final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
     // 不再在发送后 requestFocus：用户收起键盘或 IME 发送键 unfocus 时，
@@ -2179,20 +2187,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     // 检测括号「（动作/旁白描写）」
     // 包含中文全角括号且括号内有文字 → 标记为动作/旁白消息
-    final hasActionBracket = RegExp(r'（[^（）]+）').hasMatch(content) ||
-        RegExp(r'\([^()]+\)').hasMatch(content);
-    final effectiveMetadata = {
+    final hasActionBracket = content.isNotEmpty &&
+        (RegExp(r'（[^（）]+）').hasMatch(content) ||
+            RegExp(r'\([^()]+\)').hasMatch(content));
+    final effectiveMetadata = <String, dynamic>{
       ...?replyMetadata,
       if (hasActionBracket) 'hasActionBracket': true,
+      if (imagePaths.isNotEmpty) 'imagePaths': imagePaths,
+      if (imagePaths.isNotEmpty && content.isNotEmpty) 'caption': content,
     };
     _chatBloc.add(ChatSendMessage(
       chatId: widget.session.id,
       userId: user.id,
       content: content,
+      imagePaths: imagePaths.isNotEmpty ? imagePaths : null,
       metadata: effectiveMetadata.isNotEmpty ? effectiveMetadata : null,
       enableWebSearch: _webSearchEnabled,
     ));
     _messageController.clear();
+    _clearPendingImages();
     _canSendNotifier.value = false;
 
     _userScrolledUp = false;
@@ -3422,6 +3435,67 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (_pendingImagePaths.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                    child: SizedBox(
+                      height: 72,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _pendingImagePaths.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final path = _pendingImagePaths[index];
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Image.file(
+                                  File(path),
+                                  width: 72,
+                                  height: 72,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 72,
+                                    height: 72,
+                                    color: isDark
+                                        ? Colors.white12
+                                        : Colors.black12,
+                                    child: Icon(
+                                      Icons.broken_image_outlined,
+                                      color: colorScheme.onSurface
+                                          .withOpacity(0.4),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: -6,
+                                right: -6,
+                                child: GestureDetector(
+                                  onTap: () => _removePendingImage(index),
+                                  child: Container(
+                                    width: 22,
+                                    height: 22,
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.65),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.close,
+                                      size: 14,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ),
                 TopicSuggestions(
                   topics: _suggestedTopics,
                   onTap: (topic) {
@@ -3483,10 +3557,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                             _messageController.selection = TextSelection.collapsed(offset: start + 1);
                             _messageFocusNode.requestFocus();
                             // 更新发送按钮状态
-                            final canSend = newText.trim().isNotEmpty;
-                            if (canSend != _canSend) {
-                              _canSendNotifier.value = canSend;
-                            }
+                            _syncCanSend();
                           },
                           child: Container(
                             width: 36,
@@ -3526,7 +3597,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                     controller: _messageController,
                                     focusNode: _messageFocusNode,
                                     decoration: InputDecoration(
-                                      hintText: '发消息...',
+                                      hintText: _pendingImagePaths.isEmpty
+                                          ? '发消息...'
+                                          : '添加说明，或直接发送图片...',
                                       hintStyle: TextStyle(
                                         color: isDark
                                             ? Colors.white.withOpacity(0.35)
@@ -3553,10 +3626,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                     },
                                     maxLines: null,
                                     onChanged: (v) {
-                                      final canSend = v.trim().isNotEmpty;
-                                      if (canSend != _canSend) {
-                                        _canSendNotifier.value = canSend;
-                                      }
+                                      _syncCanSend();
                                       if (v.isEmpty &&
                                           _showTopics &&
                                           _suggestedTopics.isEmpty) {

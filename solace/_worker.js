@@ -11,27 +11,57 @@ function versionCompare(v1, v2) {
 }
 
 const VERSION_DATA = {
-  latestVersion: '17.4.1',
-  buildNumber: 284,
+  latestVersion: '17.4.4',
+  buildNumber: 287,
   minSdk: 23,
-  releaseDate: '2026-07-24',
-  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=17.4.1',
+  releaseDate: '2026-07-26',
+  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=17.4.4',
   changelog: [
-    '记忆库页面：从力导向图谱回退至卡片设计，升级整体 UI 视觉效果',
-    '缺陷修复：解决小说模式无法关闭的 Bug',
-    '功能上线：商店模块正式投入运行，朋友圈互动功能完成对接连通',
-    '记忆机制调整：实现不同角色之间聊天记忆互通',
-    '缺陷修复：修复创建角色失败问题',
-    '性能优化：优化对话上下文记忆策略',
-    '缺陷修复：修复单聊页面无法更换聊天背景的问题',
-    '缺陷修复：解决角色代词性别混乱、多轮上下文记忆指代错乱问题',
-    '缺陷修复：修复发送消息界面卡死故障',
-    '工程调整：整体重新构建网站资源',
+    '彻底修复商店 shop_items 缺 isCustom/createdAt 导致写入崩溃：启动强制校验、按真实列写入、失败则重建表并迁移数据',
   ],
   forceUpdate: false,
 };
 
 const ANNOUNCEMENTS = [
+  {
+    id: 'ann_1744',
+    title: 'Solace 17.4.4 紧急修复',
+    content: `Solace 17.4.4+287 紧急修复
+
+━━━━━━━━━ 本次更新 ━━━━━━━━━
+
+🐛 商店数据库彻底修复
+彻底解决 shop_items 表缺少 isCustom / createdAt 列时，自定义商品保存、商店初始化报 DatabaseException（no such column）崩溃的问题。
+
+本次加固：
+• 启动与进入商店时强制校验表结构（不依赖版本号是否已升过）
+• 写入只按 PRAGMA 真实存在的列落库，杜绝整表 toMap 误写缺列
+• ALTER 失败时自动重建表并迁移旧商品数据；极端情况硬重建后可重新灌种子
+• 数据库版本升至 v64
+
+建议尽快升级。老用户与新用户均兼容。`,
+    date: '2026-07-26',
+    type: 'fix',
+  },
+  {
+    id: 'ann_1743',
+    title: 'Solace 17.4.3 紧急修复',
+    content: `Solace 17.4.3+286 紧急修复
+
+━━━━━━━━━ 本次更新 ━━━━━━━━━
+
+🐛 数据库兼容性修复
+修复 shop_items 表在老版本升级时缺少 isCustom / createdAt 列，导致自定义商品保存、商店初始化写入时报 DatabaseException 崩溃的问题。
+
+影响范围：
+• 从 17.4.2 及以下版本升级的用户
+• 曾经删除本地数据后重新安装的用户
+• 旧版首次安装但未执行 v61 迁移的用户
+
+本次为纯修复版本，无新增功能，建议尽快升级。`,
+    date: '2026-07-25',
+    type: 'fix',
+  },
   {
     id: 'ann_1741',
     title: 'Solace 17.4.1 更新公告',
@@ -63,7 +93,7 @@ const ANNOUNCEMENTS = [
 🌐 网站资源
 整体重新构建官网资源，采用蓝白主题，手机优先适配。`,
     date: '2026-07-24',
-    type: 'fix',
+    type: 'update',
   },
   {
     id: 'ann_1740',

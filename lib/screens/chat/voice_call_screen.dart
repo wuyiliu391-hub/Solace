@@ -744,19 +744,10 @@ ${memoryContext.isNotEmpty ? '【你对用户的记忆】\n$memoryContext\n' : '
         request.body = jsonEncode({
           'model': config.modelName,
           'messages': apiMessages,
-          if (BuiltInAIProviders.isGlmZ19B(config.id, config.modelName)) ...{
-            'temperature': GlmModeParams.voiceTemperature,
-            'top_p': GlmModeParams.topP,
-            'top_k': GlmModeParams.voiceTopK,
-            'frequency_penalty': GlmModeParams.voiceFrequencyPenalty,
-            'thinking_budget': GlmModeParams.voiceThinkingBudget,
-            'max_tokens': GlmModeParams.voiceMaxTokens,
-          } else ...{
-            'temperature': 0.85,
-            'max_tokens': widget.storage.isChatStyleNovelModeEnabled()
-                ? config.maxTokens
-                : 800,
-          },
+          'temperature': 0.85,
+          'max_tokens': widget.storage.isChatStyleNovelModeEnabled()
+              ? config.maxTokens
+              : 800,
           'stream': true,
         });
 

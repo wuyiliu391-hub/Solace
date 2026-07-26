@@ -28,6 +28,7 @@ pubspec.lock
 .mimocode/
 .joycode/
 .agents/
+.zcode/
 .wrangler/
 *.iml
 *.swp

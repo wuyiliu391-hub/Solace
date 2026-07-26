@@ -265,7 +265,12 @@ class PhoneTheme {
   static Color glassShadow([double o = 0.10]) =>
       Colors.black.withValues(alpha: o);
 
-  static const double glassBlur = 22;
+  /// 毛玻璃强度。过高在中低端机切换桌面时极卡；12 观感仍在，成本低很多。
+  static const double glassBlur = 12;
+
+  /// true 时 PhoneGlassPanel 不用 BackdropFilter（半透明模拟玻璃）
+  /// 默认开：优先流畅；真要强毛玻璃可后续做设置项关掉。
+  static const bool preferLiteGlass = true;
   static const double cardRadius = 22;
   static const double iconRadiusRatio = 0.28;
   static const double dockRadius = 28;

@@ -396,21 +396,31 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
     try {
       final storage = context.read<LocalStorageRepository>();
       final enabled = storage.isPhoneDesktopShellEnabled();
-      if (mounted) {
-        setState(() {
-          _phoneDesktop = enabled;
-          _shellPrefLoaded = true;
-        });
-      }
+      if (!mounted) return;
+      // modeSettingsNotifier 会因其它模式开关频繁 tick；
+      // 仅在桌面壳开关真正变化时 setState，避免整壳无意义重建卡顿。
+      if (_shellPrefLoaded && _phoneDesktop == enabled) return;
+      setState(() {
+        _phoneDesktop = enabled;
+        _shellPrefLoaded = true;
+      });
     } catch (_) {
-      if (mounted) setState(() => _shellPrefLoaded = true);
+      if (mounted && !_shellPrefLoaded) {
+        setState(() => _shellPrefLoaded = true);
+      }
     }
   }
 
   Future<void> _setPhoneDesktop(bool enabled) async {
+    if (_phoneDesktop == enabled && _shellPrefLoaded) return;
     final storage = context.read<LocalStorageRepository>();
     await storage.setPhoneDesktopShellEnabled(enabled);
-    if (mounted) setState(() => _phoneDesktop = enabled);
+    if (mounted) {
+      setState(() {
+        _phoneDesktop = enabled;
+        _shellPrefLoaded = true;
+      });
+    }
   }
   
   /// 初始化 ChatBloc，确保 userId 正确获取
@@ -1414,7 +1424,25 @@ class SolaceApp extends StatelessWidget {
                 return null;
               },
               routes: {
-                '/': (context) => BlocBuilder<AuthBloc, AuthState>(
+                '/': (context) => BlocConsumer<AuthBloc, AuthState>(
+                      listenWhen: (prev, next) =>
+                          next is AuthAuthenticated &&
+                          next.loginBonusGranted > 0 &&
+                          (prev is! AuthAuthenticated ||
+                              prev.loginBonusGranted != next.loginBonusGranted),
+                      listener: (context, authState) {
+                        if (authState is! AuthAuthenticated) return;
+                        final n = authState.loginBonusGranted;
+                        if (n <= 0) return;
+                        final messenger = ScaffoldMessenger.maybeOf(context);
+                        messenger?.showSnackBar(
+                          SnackBar(
+                            content: Text('每日登录奖励 +$n 金币'),
+                            behavior: SnackBarBehavior.floating,
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
                       builder: (context, authState) {
                         if (authState is AuthAuthenticated) {
                           return const _AuthGate();
@@ -1437,7 +1465,7 @@ class SolaceApp extends StatelessWidget {
                                   const Text('加载失败'),
                                   const SizedBox(height: 4),
                                   Text(
-                                    (authState as AuthError).message,
+                                    authState.message,
                                     style: const TextStyle(
                                         fontSize: 12, color: Colors.grey),
                                     textAlign: TextAlign.center,

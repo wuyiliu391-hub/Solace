@@ -13,6 +13,10 @@ class ShopOrder extends Equatable {
   final int price;
   final String status; // 'pending', 'preparing', 'shipping', 'delivered'
   final String? message;
+  /// 商品说明（自定义商品供 AI 理解）
+  final String itemDescription;
+  final String itemCategory;
+  final bool isCustomItem;
   final DateTime createdAt;
   final DateTime? preparingAt;
   final DateTime? shippingAt;
@@ -33,6 +37,9 @@ class ShopOrder extends Equatable {
     required this.price,
     this.status = 'pending',
     this.message,
+    this.itemDescription = '',
+    this.itemCategory = 'gift',
+    this.isCustomItem = false,
     required this.createdAt,
     this.preparingAt,
     this.shippingAt,
@@ -61,6 +68,9 @@ class ShopOrder extends Equatable {
       price: price,
       status: status ?? this.status,
       message: message,
+      itemDescription: itemDescription,
+      itemCategory: itemCategory,
+      isCustomItem: isCustomItem,
       createdAt: createdAt,
       preparingAt: preparingAt ?? this.preparingAt,
       shippingAt: shippingAt ?? this.shippingAt,
@@ -100,6 +110,8 @@ class ShopOrder extends Equatable {
       if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
       return null;
     }
+
+    final itemId = (map['itemId'] as String?) ?? '';
     return ShopOrder(
       id: (map['id'] as String?) ?? '',
       buyerType: (map['buyerType'] as String?) ?? 'user',
@@ -107,12 +119,21 @@ class ShopOrder extends Equatable {
       receiverType: (map['receiverType'] as String?) ?? 'ai',
       receiverId: (map['receiverId'] as String?) ?? '',
       chatSessionId: (map['chatSessionId'] as String?) ?? '',
-      itemId: (map['itemId'] as String?) ?? '',
+      itemId: itemId,
       itemName: (map['itemName'] as String?) ?? '',
       itemEmoji: (map['itemEmoji'] as String?) ?? '',
       price: (map['price'] as int?) ?? 0,
       status: map['status'] as String? ?? 'pending',
       message: map['message'] as String?,
+      itemDescription: map['itemDescription'] as String? ?? '',
+      itemCategory: map['itemCategory'] as String? ??
+          (itemId.startsWith('food')
+              ? 'food'
+              : itemId.startsWith('express')
+                  ? 'express'
+                  : 'gift'),
+      isCustomItem: (map['isCustomItem'] as int? ?? 0) == 1 ||
+          itemId.startsWith('custom_'),
       createdAt: tryParseDateTime(map['createdAt']) ?? DateTime.now(),
       preparingAt: tryParseDateTime(map['preparingAt']),
       shippingAt: tryParseDateTime(map['shippingAt']),
@@ -122,8 +143,8 @@ class ShopOrder extends Equatable {
     );
   }
 
-  /// 从聊天消息 metadata 中恢复订单信息
   factory ShopOrder.fromMetadata(Map<String, dynamic> meta) {
+    final itemId = meta['itemId'] as String? ?? '';
     return ShopOrder(
       id: meta['orderId'] as String? ?? '',
       buyerType: meta['buyerType'] as String? ?? 'user',
@@ -131,12 +152,20 @@ class ShopOrder extends Equatable {
       receiverType: meta['receiverType'] as String? ?? 'ai',
       receiverId: meta['receiverId'] as String? ?? '',
       chatSessionId: meta['chatSessionId'] as String? ?? '',
-      itemId: meta['itemId'] as String? ?? '',
+      itemId: itemId,
       itemName: meta['itemName'] as String? ?? '',
       itemEmoji: meta['itemEmoji'] as String? ?? '商品',
       price: meta['price'] as int? ?? 0,
       status: meta['orderStatus'] as String? ?? 'pending',
       message: meta['message'] as String?,
+      itemDescription: meta['itemDescription'] as String? ?? '',
+      itemCategory: meta['itemCategory'] as String? ??
+          (itemId.startsWith('food')
+              ? 'food'
+              : itemId.startsWith('express')
+                  ? 'express'
+                  : 'gift'),
+      isCustomItem: meta['isCustomItem'] == true || itemId.startsWith('custom_'),
       createdAt: meta['createdAt'] != null
           ? DateTime.parse(meta['createdAt'] as String)
           : DateTime.now(),
@@ -152,7 +181,6 @@ class ShopOrder extends Equatable {
     );
   }
 
-  /// 转换为 metadata JSON 用于聊天消息
   Map<String, dynamic> toMetadata() {
     return {
       'type': 'shop_order',
@@ -168,6 +196,9 @@ class ShopOrder extends Equatable {
       'price': price,
       'orderStatus': status,
       'message': message,
+      'itemDescription': itemDescription,
+      'itemCategory': itemCategory,
+      'isCustomItem': isCustomItem,
       'createdAt': createdAt.toIso8601String(),
       'preparingAt': preparingAt?.toIso8601String(),
       'shippingAt': shippingAt?.toIso8601String(),
@@ -189,6 +220,9 @@ class ShopOrder extends Equatable {
         price,
         status,
         message,
+        itemDescription,
+        itemCategory,
+        isCustomItem,
         createdAt,
         preparingAt,
         shippingAt,

@@ -1,21 +1,12 @@
 {
-  "version": "17.4.1",
-  "build": 284,
+  "version": "17.4.4",
+  "build": 287,
   "minSdk": 23,
   "forceUpdate": false,
-  "releaseDate": "2026-07-24",
-  "downloadUrl": "https://solace-auth.pages.dev/api/v1/download?v=17.4.1",
+  "releaseDate": "2026-07-26",
+  "downloadUrl": "https://solace-auth.pages.dev/api/v1/download?v=17.4.4",
   "changelog": [
-    "记忆库页面：从力导向图谱回退至卡片设计，升级整体 UI 视觉效果",
-    "缺陷修复：解决小说模式无法关闭的 Bug",
-    "功能上线：商店模块正式投入运行，朋友圈互动功能完成对接连通",
-    "记忆机制调整：实现不同角色之间聊天记忆互通",
-    "缺陷修复：修复创建角色失败问题",
-    "性能优化：优化对话上下文记忆策略",
-    "缺陷修复：修复单聊页面无法更换聊天背景的问题",
-    "缺陷修复：解决角色代词性别混乱、多轮上下文记忆指代错乱问题",
-    "缺陷修复：修复发送消息界面卡死故障",
-    "工程调整：整体重新构建网站资源"
+    "彻底修复商店 shop_items 缺 isCustom/createdAt 导致写入崩溃：启动强制校验、按真实列写入、失败则重建表并迁移数据"
   ],
-  "announcement": "Solace 17.4.1 — 记忆库卡片升级、商店与朋友圈上线、跨角色记忆互通、全站重构"
+  "announcement": "Solace 17.4.4 — 彻底修复商店数据库兼容问题，杜绝自定义商品/初始化 no such column 崩溃"
 }

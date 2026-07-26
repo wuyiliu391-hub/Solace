@@ -32,20 +32,6 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
   int _selectedProvider = 0; // 0=硅基流动, 1=智谱AI
   List<AIConfig> _configs = [];
 
-  static const String _builtinNvidiaId = BuiltInAIProviders.nvidiaStep37FlashId;
-  static const String _builtinNvidiaProvider = BuiltInAIProviders.nvidiaStep37FlashProvider;
-  static const String _builtinNvidiaBaseUrl = BuiltInAIProviders.nvidiaStep37FlashBaseUrl;
-  static const String _builtinNvidiaApiKey = BuiltInAIProviders.nvidiaStep37FlashApiKey;
-  static const String _builtinNvidiaApiKeyBackup = BuiltInAIProviders.nvidiaStep37FlashApiKeyBackup;
-  static const String _builtinNvidiaModel = BuiltInAIProviders.nvidiaStep37FlashModel;
-  static const String _builtinNvidiaRemark = BuiltInAIProviders.nvidiaStep37FlashRemark;
-
-  static const String _builtinGlmId = BuiltInAIProviders.siliconflowGlmZ19BId;
-  static const String _builtinGlmProvider = BuiltInAIProviders.siliconflowGlmZ19BProvider;
-  static const String _builtinGlmBaseUrl = BuiltInAIProviders.siliconflowGlmZ19BBaseUrl;
-  static const String _builtinGlmApiKey = BuiltInAIProviders.siliconflowGlmZ19BApiKey;
-  static const String _builtinGlmModel = BuiltInAIProviders.siliconflowGlmZ19BModel;
-  static const String _builtinGlmRemark = BuiltInAIProviders.siliconflowGlmZ19BRemark;
   String? _editingConfigId; // 正在编辑的配置 ID，null 表示新建模式
 
   // 探测 & 测试
@@ -71,115 +57,15 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
 
   Future<void> _loadConfigs() async {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    // 清理已下线的内置模型残留
+    try {
+      await storage.purgeRemovedBuiltInAIConfigs();
+    } catch (_) {}
     final configs = await storage.getAllAIConfigs();
     setState(() {
       _configs = configs;
     });
   }
-
-  AIConfig? get _builtinNvidiaConfig {
-    for (final config in _configs) {
-      if (config.id == _builtinNvidiaId ||
-          (config.baseUrl == _builtinNvidiaBaseUrl &&
-              config.modelName == _builtinNvidiaModel)) {
-        return config;
-      }
-    }
-    return null;
-  }
-
-  AIConfig? get _builtinGlmConfig {
-    for (final config in _configs) {
-      if (config.id == _builtinGlmId ||
-          (config.baseUrl == _builtinGlmBaseUrl &&
-              config.modelName == _builtinGlmModel)) {
-        return config;
-      }
-    }
-    return null;
-  }
-
-  bool get _isBuiltinNvidiaActive => _builtinNvidiaConfig?.isActive ?? false;
-  bool get _isBuiltinGlmActive => _builtinGlmConfig?.isActive ?? false;
-
-  Future<void> _activateBuiltinModel({
-    required String id,
-    required String provider,
-    required String baseUrl,
-    required String apiKey,
-    required String model,
-    required bool isThinkingModel,
-    List<String> extraApiKeys = const [],
-    AIConfig? existing,
-    required String successMessage,
-  }) async {
-    setState(() => _isLoading = true);
-    try {
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final allConfigs = await storage.getAllAIConfigs();
-      for (final c in allConfigs) {
-        if (c.isActive) {
-          await storage.saveAIConfig(c.copyWith(isActive: false));
-        }
-      }
-
-      final config = AIConfig(
-        id: existing?.id ?? id,
-        providerName: provider,
-        baseUrl: baseUrl,
-        apiKey: apiKey,
-        extraApiKeys: extraApiKeys,
-        modelName: model,
-        isThinkingModel: isThinkingModel,
-        isActive: true,
-        createdAt: existing?.createdAt ?? DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-      await storage.saveAIConfig(config);
-      await _loadConfigs();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(successMessage)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('切换失败: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _activateBuiltinNvidia() async {
-    await _activateBuiltinModel(
-      id: _builtinNvidiaId,
-      provider: _builtinNvidiaProvider,
-      baseUrl: _builtinNvidiaBaseUrl,
-      apiKey: _builtinNvidiaApiKey,
-      extraApiKeys: [_builtinNvidiaApiKeyBackup],
-      model: _builtinNvidiaModel,
-      isThinkingModel: false,
-      existing: _builtinNvidiaConfig,
-      successMessage: '已切换到内置最新 Step 模型',
-    );
-  }
-
-  Future<void> _activateBuiltinGlm() async {
-    await _activateBuiltinModel(
-      id: _builtinGlmId,
-      provider: _builtinGlmProvider,
-      baseUrl: _builtinGlmBaseUrl,
-      apiKey: _builtinGlmApiKey,
-      model: _builtinGlmModel,
-      isThinkingModel: true,
-      existing: _builtinGlmConfig,
-      successMessage: '已切换到内置硅基 GLM-Z1-9B',
-    );
-  }
-
 
   Future<void> _saveConfig() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
@@ -693,12 +579,7 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    // 过滤掉内置模型，只显示用户手动添加的配置
-    final userConfigs = _configs.where((c) =>
-        c.id != _builtinNvidiaId &&
-        c.id != _builtinGlmId &&
-        c.providerName != _builtinNvidiaProvider &&
-        c.providerName != _builtinGlmProvider).toList();
+    final userConfigs = List<AIConfig>.from(_configs);
 
     return Scaffold(
       appBar: AppBar(
@@ -781,30 +662,6 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
                   ),
               ],
             ),
-          ),
-          const SizedBox(height: 24),
-
-          // ─── 内置模型 ───
-          _buildSectionTitle(context, '内置模型'),
-          const SizedBox(height: 12),
-          _buildBuiltinModelCard(
-            colorScheme,
-            provider: _builtinNvidiaProvider,
-            model: _builtinNvidiaModel,
-            baseUrl: _builtinNvidiaBaseUrl,
-            remark: _builtinNvidiaRemark,
-            isActive: _isBuiltinNvidiaActive,
-            activate: _activateBuiltinNvidia,
-          ),
-          const SizedBox(height: 12),
-          _buildBuiltinModelCard(
-            colorScheme,
-            provider: _builtinGlmProvider,
-            model: _builtinGlmModel,
-            baseUrl: _builtinGlmBaseUrl,
-            remark: _builtinGlmRemark,
-            isActive: _isBuiltinGlmActive,
-            activate: _activateBuiltinGlm,
           ),
           const SizedBox(height: 24),
 
@@ -1227,154 +1084,6 @@ class _AIConfigScreenState extends State<AIConfigScreen> {
             ),
           ),
           const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBuiltinModelCard(
-    ColorScheme colorScheme, {
-    required String provider,
-    required String model,
-    required String baseUrl,
-    required String remark,
-    required bool isActive,
-    required VoidCallback activate,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isActive
-            ? colorScheme.primaryContainer.withOpacity(0.35)
-            : colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isActive ? colorScheme.primary : colorScheme.outlineVariant,
-          width: isActive ? 1.5 : 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(Icons.auto_awesome, color: colorScheme.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            provider,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: colorScheme.onSurface,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (isActive) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: colorScheme.primary,
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              '使用中',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: colorScheme.onPrimary,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '模型：$model',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            baseUrl,
-            style: TextStyle(
-              fontSize: 12,
-              color: colorScheme.onSurfaceVariant,
-              fontFamily: 'monospace',
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: colorScheme.secondaryContainer.withOpacity(0.45),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: colorScheme.outlineVariant.withOpacity(0.65),
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.info_outline,
-                  size: 16,
-                  color: colorScheme.onSecondaryContainer,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    remark,
-                    style: TextStyle(
-                      fontSize: 12,
-                      height: 1.45,
-                      color: colorScheme.onSecondaryContainer,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed:
-                  _isLoading || isActive ? null : activate,
-              icon: Icon(isActive ? Icons.check_circle : Icons.swap_horiz),
-              label: Text(isActive ? '当前已启用' : '一键切换'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );

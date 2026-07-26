@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../../config/phone_theme.dart';
 
 /// 毛玻璃面板：卡片 / Dock / 顶栏通用。
+///
+/// 低端机上 BackdropFilter 很贵；blur<=0 时退化为半透明面板（观感接近、成本低很多）。
 class PhoneGlassPanel extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
@@ -29,56 +31,70 @@ class PhoneGlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final panel = ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(radius),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withValues(alpha: (fillOpacity + 0.14).clamp(0, 1)),
-                Colors.white.withValues(alpha: fillOpacity),
-                Colors.white.withValues(alpha: (fillOpacity - 0.05).clamp(0, 1)),
-              ],
-            ),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: borderOpacity),
-              width: 1.15,
-            ),
-            boxShadow: boxShadow ?? PhoneTheme.glassCardShadow,
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                left: 12,
-                right: 12,
-                top: 0,
-                child: IgnorePointer(
-                  child: Container(
-                    height: 1.2,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(2),
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.white.withValues(alpha: 0.0),
-                          Colors.white.withValues(alpha: 0.55),
-                          Colors.white.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
+    final reduce =
+        MediaQuery.disableAnimationsOf(context) || PhoneTheme.preferLiteGlass;
+    final effectiveBlur = reduce ? 0.0 : blur;
+    // 无真实模糊时略提不透明度，避免「发灰发脏」
+    final effectiveFill =
+        reduce ? (fillOpacity + 0.12).clamp(0.0, 0.55) : fillOpacity;
+
+    Widget content = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: (effectiveFill + 0.14).clamp(0, 1)),
+            Colors.white.withValues(alpha: effectiveFill),
+            Colors.white.withValues(alpha: (effectiveFill - 0.05).clamp(0, 1)),
+          ],
+        ),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: borderOpacity),
+          width: 1.15,
+        ),
+        boxShadow: boxShadow ?? PhoneTheme.glassCardShadow,
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            left: 12,
+            right: 12,
+            top: 0,
+            child: IgnorePointer(
+              child: Container(
+                height: 1.2,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(2),
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.white.withValues(alpha: 0.0),
+                      Colors.white.withValues(alpha: 0.55),
+                      Colors.white.withValues(alpha: 0.0),
+                    ],
                   ),
                 ),
               ),
-              child,
-            ],
+            ),
           ),
-        ),
+          child,
+        ],
       ),
+    );
+
+    final panel = ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: effectiveBlur > 0.5
+          ? BackdropFilter(
+              filter: ImageFilter.blur(
+                sigmaX: effectiveBlur,
+                sigmaY: effectiveBlur,
+              ),
+              child: content,
+            )
+          : content,
     );
 
     if (onTap == null) return panel;
@@ -94,11 +110,14 @@ class PhoneGlassPanel extends StatelessWidget {
 }
 
 /// 天空壁纸 + 柔光斑 + 轻视差（支持主题包）。
+///
+/// [animate]=false 时只画静态渐变+少量光斑，适合无障碍「减少动态效果」。
 class PhoneWallpaper extends StatelessWidget {
   final Widget? child;
   final Offset parallax;
   final double breath;
   final PhoneWallpaperTheme theme;
+  final bool animate;
 
   const PhoneWallpaper({
     super.key,
@@ -106,24 +125,27 @@ class PhoneWallpaper extends StatelessWidget {
     this.parallax = Offset.zero,
     this.breath = 1.0,
     this.theme = PhoneWallpaperTheme.dawn,
+    this.animate = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    final palette = SolacePalettes.of(theme);
+    final palette = PhoneWallpaperPalette.of(theme);
     return Stack(
       fit: StackFit.expand,
       children: [
+        // 渐变层静态，不跟 breath 重建
         DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: palette.colors,
-              stops: palette.gradientStops,
+              colors: palette.gradient,
+              stops: const [0.0, 0.35, 0.7, 1.0],
             ),
           ),
         ),
+        // 主光斑（一层即可；旧实现双层 bokeh 每帧双倍 paint）
         Transform.translate(
           offset: parallax,
           child: CustomPaint(
@@ -131,21 +153,23 @@ class PhoneWallpaper extends StatelessWidget {
               intensity: breath,
               colorA: palette.bokehA,
               colorB: palette.bokehB,
+              lite: !animate,
             ),
           ),
         ),
-        Transform.translate(
-          offset: Offset(-parallax.dx * 0.5, -parallax.dy * 0.4),
-          child: CustomPaint(
-            painter: _SkyBokehPainter(
-              intensity: breath,
-              colorA: palette.bokehB,
-              colorB: palette.bokehA,
-              alt: true,
+        if (animate)
+          Transform.translate(
+            offset: Offset(-parallax.dx * 0.5, -parallax.dy * 0.4),
+            child: CustomPaint(
+              painter: _SkyBokehPainter(
+                intensity: breath,
+                colorA: palette.bokehB,
+                colorB: palette.bokehA,
+                alt: true,
+              ),
             ),
           ),
-        ),
-        if (theme == PhoneWallpaperTheme.night)
+        if (theme == PhoneWallpaperTheme.night && animate)
           CustomPaint(painter: _StarFieldPainter(intensity: breath)),
         Align(
           alignment: Alignment.bottomCenter,
@@ -175,12 +199,14 @@ class PhoneWallpaper extends StatelessWidget {
 class _SkyBokehPainter extends CustomPainter {
   final double intensity;
   final bool alt;
+  final bool lite;
   final Color colorA;
   final Color colorB;
 
   const _SkyBokehPainter({
     this.intensity = 1,
     this.alt = false,
+    this.lite = false,
     required this.colorA,
     required this.colorB,
   });
@@ -200,10 +226,12 @@ class _SkyBokehPainter extends CustomPainter {
           colorA);
       blob(Offset(size.width * 0.88, size.height * 0.26), size.width * 0.38,
           colorA.withValues(alpha: 0.45));
-      blob(Offset(size.width * 0.55, size.height * 0.52), size.width * 0.55,
-          colorB);
-      blob(Offset(size.width * 0.18, size.height * 0.72), size.width * 0.42,
-          colorA.withValues(alpha: 0.3));
+      if (!lite) {
+        blob(Offset(size.width * 0.55, size.height * 0.52), size.width * 0.55,
+            colorB);
+        blob(Offset(size.width * 0.18, size.height * 0.72), size.width * 0.42,
+            colorA.withValues(alpha: 0.3));
+      }
     } else {
       blob(Offset(size.width * 0.72, size.height * 0.62), size.width * 0.32,
           colorB.withValues(alpha: 0.28));
@@ -214,8 +242,10 @@ class _SkyBokehPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SkyBokehPainter oldDelegate) =>
-      oldDelegate.intensity != intensity ||
+      // intensity 变化很密：仅当差值够大才重绘，减少无感刷新
+      (oldDelegate.intensity - intensity).abs() > 0.02 ||
       oldDelegate.alt != alt ||
+      oldDelegate.lite != lite ||
       oldDelegate.colorA != colorA ||
       oldDelegate.colorB != colorB;
 }

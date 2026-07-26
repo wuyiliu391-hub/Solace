@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -29,14 +28,16 @@ class PhoneHomeShell extends StatefulWidget {
 }
 
 class _PhoneHomeShellState extends State<PhoneHomeShell>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   List<AICharacter> _characters = const [];
   AICharacter? _worldCharacter;
-  Timer? _clockTimer;
+  Timer? _minuteTimer;
   DateTime _now = DateTime.now();
   int _pageIndex = 0;
   PhoneWallpaperTheme _wallpaper = PhoneWallpaperTheme.dawn;
   final _pageController = PageController();
+  bool _reduceMotion = false;
+  bool _animationsActive = true;
 
   late final AnimationController _enterCtrl;
   late final AnimationController _breathCtrl;
@@ -45,28 +46,98 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // 入场缩短：切换模式时别卡 900ms 全树动画
     _enterCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 420),
     )..forward();
+    // 呼吸/视差仅驱动壁纸层，不再 rebuild 图标网格
     _breathCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 4200),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 5600),
+    );
     _parallaxCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 18),
-    )..repeat(reverse: true);
+      duration: const Duration(seconds: 28),
+    );
 
     _load();
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _now = DateTime.now());
+    // 大时钟只按分钟刷新，避免每秒 setState 整页
+    _scheduleMinuteTick();
+    // 等首帧布局完成后再开循环动画，降低「一切换就卡」
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _syncMotionPreference();
+      _startAmbientIfAllowed();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startAmbientIfAllowed();
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _stopAmbient();
+    }
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    // 无强制关联，但可借机同步无障碍偏好
+    _syncMotionPreference();
+  }
+
+  void _syncMotionPreference() {
+    final disable = MediaQuery.disableAnimationsOf(context);
+    if (disable == _reduceMotion) return;
+    setState(() => _reduceMotion = disable);
+    if (disable) {
+      _stopAmbient();
+      _enterCtrl.value = 1.0;
+    } else {
+      _startAmbientIfAllowed();
+    }
+  }
+
+  void _startAmbientIfAllowed() {
+    if (!mounted || _reduceMotion) return;
+    if (!_animationsActive) {
+      _animationsActive = true;
+    }
+    if (!_breathCtrl.isAnimating) {
+      _breathCtrl.repeat(reverse: true);
+    }
+    if (!_parallaxCtrl.isAnimating) {
+      _parallaxCtrl.repeat(reverse: true);
+    }
+  }
+
+  void _stopAmbient() {
+    _animationsActive = false;
+    if (_breathCtrl.isAnimating) _breathCtrl.stop();
+    if (_parallaxCtrl.isAnimating) _parallaxCtrl.stop();
+  }
+
+  void _scheduleMinuteTick() {
+    _minuteTimer?.cancel();
+    final now = DateTime.now();
+    final nextMinute = DateTime(now.year, now.month, now.day, now.hour, now.minute)
+        .add(const Duration(minutes: 1));
+    final delay = nextMinute.difference(now) + const Duration(milliseconds: 50);
+    _minuteTimer = Timer(delay, () {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+      _scheduleMinuteTick();
     });
   }
 
   @override
   void dispose() {
-    _clockTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _minuteTimer?.cancel();
     _enterCtrl.dispose();
     _breathCtrl.dispose();
     _parallaxCtrl.dispose();
@@ -93,13 +164,6 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
     return '$h:$m';
   }
 
-  String get _statusTime {
-    final h = _now.hour.toString().padLeft(2, '0');
-    final m = _now.minute.toString().padLeft(2, '0');
-    final s = _now.second.toString().padLeft(2, '0');
-    return '$h:$m:$s';
-  }
-
   Animation<double> _stagger(double begin, double end) {
     return CurvedAnimation(
       parent: _enterCtrl,
@@ -115,116 +179,131 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
   @override
   Widget build(BuildContext context) {
     final palette = PhoneWallpaperPalette.of(_wallpaper);
+    // 关键：壁纸动画层 与 前景内容层 分离。
+    // 旧实现把整棵 Column（图标/毛玻璃/PageView）包进 AnimatedBuilder，
+    // 呼吸+视差每帧重建全部子树 → 一切换手机模式就卡。
     return Scaffold(
       backgroundColor: palette.mid,
-      body: AnimatedBuilder(
-        animation: Listenable.merge([_breathCtrl, _parallaxCtrl]),
-        builder: (context, _) {
-          final breath = 0.96 + _breathCtrl.value * 0.04;
-          final px = math.sin(_parallaxCtrl.value * math.pi * 2) * 10;
-          final py = math.cos(_parallaxCtrl.value * math.pi * 2) * 6;
-          return PhoneWallpaper(
-            theme: _wallpaper,
-            parallax: Offset(px, py),
-            breath: breath,
-            child: SafeArea(
-              bottom: false,
-              child: Column(
-                children: [
-                  FadeTransition(
-                    opacity: _stagger(0.0, 0.35),
-                    child: _StatusBar(
-                      time: _statusTime,
-                      onThemeTap: _cycleWallpaper,
-                      themeLabel: _wallpaper.label,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 仅壁纸吃动画；内容用 child 槽位固定，不随 tick rebuild
+          AnimatedBuilder(
+            animation: Listenable.merge([_breathCtrl, _parallaxCtrl]),
+            builder: (context, child) {
+              final breath = _reduceMotion
+                  ? 1.0
+                  : (0.97 + _breathCtrl.value * 0.03);
+              final t = _parallaxCtrl.value * math.pi * 2;
+              final px = _reduceMotion ? 0.0 : math.sin(t) * 6;
+              final py = _reduceMotion ? 0.0 : math.cos(t) * 4;
+              return PhoneWallpaper(
+                theme: _wallpaper,
+                parallax: Offset(px, py),
+                breath: breath,
+                animate: !_reduceMotion,
+                child: child,
+              );
+            },
+            child: const SizedBox.expand(),
+          ),
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                FadeTransition(
+                  opacity: _stagger(0.0, 0.45),
+                  child: _StatusBar(
+                    // 秒级时钟独立组件，不拖整页
+                    onThemeTap: _cycleWallpaper,
+                    themeLabel: _wallpaper.label,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                FadeTransition(
+                  opacity: _stagger(0.05, 0.55),
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.08),
+                      end: Offset.zero,
+                    ).animate(_stagger(0.05, 0.55)),
+                    child: _BigClock(
+                      time: _timeText,
+                      breath: 1.0,
+                      palette: palette,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  FadeTransition(
-                    opacity: _stagger(0.05, 0.45),
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.12),
-                        end: Offset.zero,
-                      ).animate(_stagger(0.05, 0.45)),
-                      child: _BigClock(
-                        time: _timeText,
-                        breath: breath,
-                        palette: palette,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  FadeTransition(
-                    opacity: _stagger(0.15, 0.55),
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.18),
-                        end: Offset.zero,
-                      ).animate(_stagger(0.15, 0.55)),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 18),
-                        child: _WorldCard(
-                          character: _worldCharacter,
-                          onOfflineStory: () => widget.onNavigate('/story'),
-                          onPeekPhone: _openTaPhone,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  FadeTransition(
-                    opacity: _stagger(0.22, 0.6),
+                ),
+                const SizedBox(height: 12),
+                FadeTransition(
+                  opacity: _stagger(0.12, 0.65),
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.10),
+                      end: Offset.zero,
+                    ).animate(_stagger(0.12, 0.65)),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 18),
-                      child: _SwitchWorldBar(
-                        characters: _characters,
-                        current: _worldCharacter,
-                        onPick: (c) => setState(() => _worldCharacter = c),
-                        onCreate: () => widget.onNavigate('/create_character'),
+                      child: _WorldCard(
+                        character: _worldCharacter,
+                        onOfflineStory: () => widget.onNavigate('/story'),
+                        onPeekPhone: _openTaPhone,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Expanded(
-                    child: FadeTransition(
-                      opacity: _stagger(0.28, 0.85),
-                      child: PageView.builder(
-                        controller: _pageController,
-                        itemCount: PhoneAppIconCatalog.homePages.length,
-                        onPageChanged: (i) => setState(() => _pageIndex = i),
-                        itemBuilder: (context, page) {
-                          final ids = PhoneAppIconCatalog.homePages[page];
-                          return _IconPage(
-                            ids: ids,
-                            newIds: PhoneAppIconCatalog.newBadgeIds,
-                            onTap: _handleIconTap,
-                          );
-                        },
-                      ),
+                ),
+                const SizedBox(height: 10),
+                FadeTransition(
+                  opacity: _stagger(0.18, 0.7),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: _SwitchWorldBar(
+                      characters: _characters,
+                      current: _worldCharacter,
+                      onPick: (c) => setState(() => _worldCharacter = c),
+                      onCreate: () => widget.onNavigate('/create_character'),
                     ),
                   ),
-                  _PageDots(
-                    count: PhoneAppIconCatalog.homePages.length,
-                    index: _pageIndex,
-                  ),
-                  const SizedBox(height: 8),
-                  FadeTransition(
-                    opacity: _stagger(0.45, 1.0),
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.35),
-                        end: Offset.zero,
-                      ).animate(_stagger(0.45, 1.0)),
-                      child: _buildDock(),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: FadeTransition(
+                    opacity: _stagger(0.22, 0.9),
+                    child: PageView.builder(
+                      controller: _pageController,
+                      itemCount: PhoneAppIconCatalog.homePages.length,
+                      onPageChanged: (i) => setState(() => _pageIndex = i),
+                      itemBuilder: (context, page) {
+                        final ids = PhoneAppIconCatalog.homePages[page];
+                        return _IconPage(
+                          ids: ids,
+                          newIds: PhoneAppIconCatalog.newBadgeIds,
+                          onTap: _handleIconTap,
+                        );
+                      },
                     ),
                   ),
-                  SizedBox(height: MediaQuery.paddingOf(context).bottom + 10),
-                ],
-              ),
+                ),
+                _PageDots(
+                  count: PhoneAppIconCatalog.homePages.length,
+                  index: _pageIndex,
+                ),
+                const SizedBox(height: 8),
+                FadeTransition(
+                  opacity: _stagger(0.35, 1.0),
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.2),
+                      end: Offset.zero,
+                    ).animate(_stagger(0.35, 1.0)),
+                    child: _buildDock(),
+                  ),
+                ),
+                SizedBox(height: MediaQuery.paddingOf(context).bottom + 10),
+              ],
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -459,12 +538,55 @@ class _PageDots extends StatelessWidget {
 
 // ─────────────────────────── chrome ───────────────────────────
 
+/// 状态栏时钟：仅自身每秒刷新，不触发 PhoneHomeShell setState。
+class _LiveStatusClock extends StatefulWidget {
+  const _LiveStatusClock();
+
+  @override
+  State<_LiveStatusClock> createState() => _LiveStatusClockState();
+}
+
+class _LiveStatusClockState extends State<_LiveStatusClock> {
+  Timer? _timer;
+  late DateTime _now;
+
+  @override
+  void initState() {
+    super.initState();
+    _now = DateTime.now();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final h = _now.hour.toString().padLeft(2, '0');
+    final m = _now.minute.toString().padLeft(2, '0');
+    final s = _now.second.toString().padLeft(2, '0');
+    return Text(
+      '$h:$m:$s',
+      style: TextStyle(
+        color: PhoneTheme.textOnWallpaper,
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        shadows: PhoneTheme.labelShadows,
+      ),
+    );
+  }
+}
+
 class _StatusBar extends StatelessWidget {
-  final String time;
   final VoidCallback onThemeTap;
   final String themeLabel;
   const _StatusBar({
-    required this.time,
     required this.onThemeTap,
     required this.themeLabel,
   });
@@ -475,15 +597,8 @@ class _StatusBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 4, 12, 0),
       child: Row(
         children: [
-          Text(
-            time,
-            style: TextStyle(
-              color: PhoneTheme.textOnWallpaper,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              shadows: PhoneTheme.labelShadows,
-            ),
-          ),
+          // 秒表独立刷新，避免拖整页 setState
+          const _LiveStatusClock(),
           const Spacer(),
           GestureDetector(
             onTap: onThemeTap,
@@ -840,14 +955,13 @@ class _SwitchWorldBar extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
+        // 底部选择器：半透明即可，避免再开一层大 sigma BackdropFilter
         return ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-            child: Container(
+          child: Container(
               padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.28),
+                color: Colors.black.withValues(alpha: 0.55),
                 borderRadius:
                     const BorderRadius.vertical(top: Radius.circular(24)),
                 border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
@@ -914,7 +1028,6 @@ class _SwitchWorldBar extends StatelessWidget {
                 ],
               ),
             ),
-          ),
         );
       },
     );

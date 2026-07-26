@@ -10,7 +10,6 @@ import '../../config/constants.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/accessibility_service.dart';
 import '../../services/screenshot_service.dart';
-import '../../services/agnes_vision_service.dart';
 import '../../services/device_notification_service.dart';
 import '../../services/device_service.dart';
 import '../chat/chat_detail_screen.dart';
@@ -30,7 +29,6 @@ class OperitHomeScreen extends StatefulWidget {
 class _OperitHomeScreenState extends State<OperitHomeScreen> {
   bool _a11yEnabled = false;
   bool _screenshotEnabled = false;
-  bool _agnesConfigured = false;
   bool _shizukuOk = false;
   int _notificationCount = 0;
   String _currentApp = '';
@@ -49,8 +47,6 @@ class _OperitHomeScreenState extends State<OperitHomeScreen> {
           await AccessibilityService().isEnabled().catchError((_) => false);
       final screenshot =
           await ScreenshotService().hasPermission().catchError((_) => false);
-      final agnes =
-          await AgnesVisionService.isConfigured().catchError((_) => false);
       final notifCount =
           await DeviceNotificationService().getCount().catchError((_) => 0);
       final appInfo = await AccessibilityService()
@@ -64,7 +60,6 @@ class _OperitHomeScreenState extends State<OperitHomeScreen> {
         setState(() {
           _a11yEnabled = a11y;
           _screenshotEnabled = screenshot;
-          _agnesConfigured = agnes;
           _shizukuOk = shizukuOk;
           _notificationCount = notifCount;
           _currentApp = appInfo.displayName;
@@ -137,7 +132,6 @@ class _OperitHomeScreenState extends State<OperitHomeScreen> {
     final perms = [
       ('无障碍', _a11yEnabled, _openAccessibilitySettings),
       ('截图', _screenshotEnabled, _requestScreenshotPermission),
-      ('Agnes', _agnesConfigured, _showAgnesConfigDialog),
       ('Shizuku', _shizukuOk, () => _requestShizukuPermission()),
     ];
 
@@ -578,8 +572,8 @@ class _OperitHomeScreenState extends State<OperitHomeScreen> {
       return;
     }
 
-    // VisionAction path: requires all three permissions + character selection
-    if (!_a11yEnabled || !_screenshotEnabled || !_agnesConfigured) {
+    // VisionAction path: requires accessibility + screenshot + character selection
+    if (!_a11yEnabled || !_screenshotEnabled) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -915,136 +909,7 @@ class _OperitHomeScreenState extends State<OperitHomeScreen> {
     }
   }
 
-  void _showAgnesConfigDialog() async {
-    final savedKey = await AgnesVisionService.getApiKey() ?? '';
-    final savedUrl = await AgnesVisionService.getBaseUrl();
-    final savedModel = await AgnesVisionService.getModel();
-
-    final keyController = TextEditingController(text: savedKey);
-    final urlController = TextEditingController(text: savedUrl);
-    final modelController = TextEditingController(text: savedModel);
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: isDark ? const Color(0xFF2A2A2A) : Colors.white,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Row(
-            children: [
-              const Icon(Icons.visibility, size: 20),
-              const SizedBox(width: 8),
-              const Text('多模态视觉 API', style: TextStyle(fontSize: 18)),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '用于截图识图。支持 OpenAI 兼容接口的多模态模型。',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.white54 : Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: keyController,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: 'API Key',
-                    hintText: 'sk-...',
-                    prefixIcon: const Icon(Icons.key, size: 18),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 14),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: urlController,
-                  decoration: InputDecoration(
-                    labelText: 'Base URL',
-                    hintText: 'https://api.openai.com/v1',
-                    prefixIcon: const Icon(Icons.link, size: 18),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 14),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: modelController,
-                  decoration: InputDecoration(
-                    labelText: '模型名',
-                    hintText: 'gpt-4o / gemini-2.0-flash / qwen-vl-max',
-                    prefixIcon: const Icon(Icons.memory, size: 18),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 14),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                await AgnesVisionService.setApiKey('');
-                if (mounted) {
-                  Navigator.pop(ctx);
-                  _refreshStatus();
-                }
-              },
-              child: Text('清空',
-                  style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.black54,
-                  )),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text('取消',
-                  style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.black54,
-                  )),
-            ),
-            FilledButton(
-              onPressed: () async {
-                if (keyController.text.trim().isNotEmpty) {
-                  await AgnesVisionService.setApiKey(keyController.text.trim());
-                  if (urlController.text.trim().isNotEmpty) {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setString(
-                        'agnes_base_url', urlController.text.trim());
-                  }
-                  if (modelController.text.trim().isNotEmpty) {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setString(
-                        'agnes_model', modelController.text.trim());
-                  }
-                  if (mounted) {
-                    Navigator.pop(ctx);
-                    _refreshStatus();
-                  }
-                }
-              },
-              child: const Text('保存'),
-            ),
-          ],
-        ),
-      ),
-    );
   }
-}
 
 class _QuickAction {
   final String label;

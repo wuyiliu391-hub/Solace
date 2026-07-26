@@ -90,17 +90,8 @@ class PureAIService {
           final requestBody = jsonEncode({
             'model': config.modelName,
             'messages': messages,
-            if (BuiltInAIProviders.isGlmZ19B(config.id, config.modelName)) ...{
-              'temperature': GlmModeParams.pureAiTemperature,
-              'top_p': GlmModeParams.topP,
-              'top_k': GlmModeParams.pureAiTopK,
-              'frequency_penalty': GlmModeParams.pureAiFrequencyPenalty,
-              'thinking_budget': GlmModeParams.pureAiThinkingBudget,
-              'max_tokens': GlmModeParams.pureAiMaxTokens,
-            } else ...{
-              'temperature': config.temperature,
-              'max_tokens': config.maxTokens,
-            },
+            'temperature': config.temperature,
+            'max_tokens': config.maxTokens,
             'stream': true,
           });
           request.body = requestBody;
@@ -634,17 +625,8 @@ class PureAIService {
                   body: jsonEncode({
                     'model': config.modelName,
                     'messages': messages,
-                    if (BuiltInAIProviders.isGlmZ19B(config.id, config.modelName)) ...{
-                      'temperature': GlmModeParams.pureAiTemperature,
-                      'top_p': GlmModeParams.topP,
-                      'top_k': GlmModeParams.pureAiTopK,
-                      'frequency_penalty': GlmModeParams.pureAiFrequencyPenalty,
-                      'thinking_budget': GlmModeParams.pureAiThinkingBudget,
-                      'max_tokens': GlmModeParams.pureAiMaxTokens,
-                    } else ...{
-                      'temperature': config.temperature,
-                      'max_tokens': config.maxTokens,
-                    },
+                    'temperature': config.temperature,
+                    'max_tokens': config.maxTokens,
                   }))
               .timeout(AppDurations.aiRequest);
         } finally {

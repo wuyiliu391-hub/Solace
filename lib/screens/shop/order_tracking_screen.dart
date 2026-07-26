@@ -447,7 +447,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
   Map<String, dynamic> _getStatusDetail(String status) {
     switch (status) {
       case 'pending':
-        return {'icon': Icons.hourglass_top, 'text': '等待确认...'};
+        return {'icon': Icons.hourglass_top, 'text': '商家确认中...'};
       case 'preparing':
         return {'icon': Icons.inventory_2_outlined, 'text': '正在精心准备中...'};
       case 'shipping':

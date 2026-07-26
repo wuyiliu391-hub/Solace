@@ -53,98 +53,17 @@ class ApiDefaults {
   static const int proactiveMaxTokens = 200;
 }
 
-class BuiltInAIProviders {
-  BuiltInAIProviders._();
+/// 已移除的内置模型 ID（用于清理本地残留配置）
+class RemovedBuiltInAIProviders {
+  RemovedBuiltInAIProviders._();
 
   static const String nvidiaStep37FlashId = 'builtin_nvidia_step37_flash';
-  static const String nvidiaStep37FlashProvider = '内置最新 Step 模型';
-  static const String nvidiaStep37FlashBaseUrl =
-      'https://integrate.api.nvidia.com/v1';
-  static const String nvidiaStep37FlashApiKey = ''; // 开源版本：请自行配置
-  static const String nvidiaStep37FlashApiKeyBackup = ''; // 开源版本：请自行配置
-  static const String nvidiaStep37FlashModel = 'stepfun-ai/step-3.7-flash';
-  static const String nvidiaStep37FlashRemark = 'NVIDIA 官方 API，高并发触发限流，测试用';
-
   static const String siliconflowGlmZ19BId = 'builtin_siliconflow_glm_z1_9b';
-  static const String siliconflowGlmZ19BProvider = '内置硅基 GLM-Z1-9B';
-  static const String siliconflowGlmZ19BBaseUrl =
-      'https://api.siliconflow.cn/v1';
-  static const String siliconflowGlmZ19BApiKey = ''; // 开源版本：请自行配置
-  static const String siliconflowGlmZ19BModel = 'THUDM/GLM-Z1-9B-0414';
-  static const String siliconflowGlmZ19BRemark =
-      '硅基流动社区模型，9B 推理模型，适合作为第二内置备用模型';
 
-  /// 判断当前配置是否为内置 GLM-Z1-9B
-  static bool isGlmZ19B(String configId, String modelName) {
-    return configId == siliconflowGlmZ19BId ||
-        modelName == siliconflowGlmZ19BModel;
-  }
-}
-
-/// GLM-Z1-9B 各模式专属参数（仅对内置 GLM 模型生效）
-class GlmModeParams {
-  GlmModeParams._();
-
-  // ─── 通用参数 ───
-  static const double topP = 0.85;
-  static const int topK = 40;
-
-  // ─── 普通聊天模式 ───
-  static const double chatTemperature = 0.82;
-  static const int chatTopK = 35;
-  static const double chatFrequencyPenalty = 1.2;
-  static const int chatThinkingBudget = 512;
-  static const int chatMaxTokens = 131072;
-
-  // ─── 小说模式 ───
-  static const double novelTemperature = 0.82;
-  static const int novelTopK = 45;
-  static const double novelFrequencyPenalty = 0.8;
-  static const int novelThinkingBudget = 4096;
-  static const int novelMaxTokens = 131072;
-
-  // ─── 语音通话模式 ───
-  static const double voiceTemperature = 0.75;
-  static const int voiceTopK = 35;
-  static const double voiceFrequencyPenalty = 1.0;
-  static const int voiceThinkingBudget = 1024;
-  static const int voiceMaxTokens = 131072;
-
-  // ─── 纯AI模式 ───
-  static const double pureAiTemperature = 0.60;
-  static const int pureAiTopK = 20;
-  static const double pureAiFrequencyPenalty = 0.5;
-  static const int pureAiThinkingBudget = 2048;
-  static const int pureAiMaxTokens = 131072;
-
-  // ─── 原谅判断 ───
-  static const double forgiveTemperature = 0.75;
-  static const int forgiveTopK = 35;
-  static const double forgiveFrequencyPenalty = 0.5;
-  static const int forgiveThinkingBudget = 1024;
-  static const int forgiveMaxTokens = 131072;
-
-  // ─── 人格演化 ───
-  static const double personaTemperature = 0.5;
-  static const int personaTopK = 30;
-  static const double personaFrequencyPenalty = 0.3;
-  static const int personaThinkingBudget = 512;
-  static const int personaMaxTokens = 260;
-
-  /// 构建 GLM-Z1-9B 的额外请求参数（top_p, top_k, frequency_penalty, thinking_budget）
-  static Map<String, dynamic> buildExtraParams({
-    required double temperature,
-    required int topK,
-    required double frequencyPenalty,
-    required int thinkingBudget,
-  }) {
-    return {
-      'top_p': topP,
-      'top_k': topK,
-      'frequency_penalty': frequencyPenalty,
-      'thinking_budget': thinkingBudget,
-    };
-  }
+  static const List<String> ids = [
+    nvidiaStep37FlashId,
+    siliconflowGlmZ19BId,
+  ];
 }
 
 class PrefKeys {
@@ -170,6 +89,18 @@ class PrefKeys {
   static const String pureAiModeEnabled = 'pure_ai_mode_enabled';
   static const String idCardChangeCount = 'id_card_change_count';
   static const String lastCheckInDate = 'last_check_in_date';
+  /// 每日首次登录奖励发放日期（yyyy-MM-dd），与签到独立可叠
+  static const String lastLoginBonusDate = 'last_login_bonus_date';
+  /// 金币经济：是否启用消耗（false=免费模式，扣款恒成功不减币）
+  static const String coinEconomyEnabled = 'coin_economy_enabled';
+  /// 自定义：发消息消耗（null 用默认 CoinRules）
+  static const String coinMessageCost = 'coin_message_cost';
+  /// 自定义：朋友圈互动消耗
+  static const String coinMomentCost = 'coin_moment_cost';
+  /// 自定义：每日登录奖励
+  static const String coinLoginBonus = 'coin_login_bonus';
+  /// 自定义：每日签到奖励
+  static const String coinCheckInReward = 'coin_check_in_reward';
   static const String latestAvailableBuild = 'latest_available_build';
   static const String momentsBackgroundImage = 'moments_background_image';
   static const String pendingBackgroundMessages = 'pending_background_messages';
@@ -375,7 +306,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 60;
+  static const int dbVersion = 64;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;
@@ -438,8 +369,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-  static const String version = '17.4.1';
-  static const int build = 284;
+  static const String version = '17.4.4';
+  static const int build = 287;
 }
 
 class NotificationChannels {

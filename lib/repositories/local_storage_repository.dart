@@ -692,6 +692,8 @@ class LocalStorageRepository {
       'description': 'TEXT DEFAULT ""',
       'tags': 'TEXT DEFAULT ""',
       'isActive': 'INTEGER NOT NULL DEFAULT 1',
+      'isCustom': 'INTEGER NOT NULL DEFAULT 0',
+      'createdAt': 'TEXT',
     },
     'inner_thoughts': {
       'id': 'TEXT PRIMARY KEY',
@@ -968,6 +970,12 @@ class LocalStorageRepository {
         debugPrint('[schema] reconcile table failed: $table $e');
       }
     }
+    // 商店表：不依赖 expectedColumns 循环结果，启动必校验
+    try {
+      await _ensureShopItemsSchema(db);
+    } catch (e) {
+      debugPrint('[schema] reconcile shop_items ensure failed: $e');
+    }
     // 修复 isUser 字段：首次添加列时修复，或通过标记强制修复一次旧版本用户
     final alreadyRepaired = prefs?.getBool('isUserRepairV2_done') ?? false;
     if (needsIsUserRepair || !alreadyRepaired) {
@@ -1001,8 +1009,7 @@ class LocalStorageRepository {
         await _createVirtualPhoneTables(db);
         break;
       case 'shop_items':
-        await db.execute(
-            ''' CREATE TABLE IF NOT EXISTS shop_items ( id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', price INTEGER NOT NULL DEFAULT 0, emoji TEXT NOT NULL DEFAULT '', description TEXT DEFAULT '', tags TEXT DEFAULT '', isActive INTEGER NOT NULL DEFAULT 1 ) ''');
+        await _ensureShopItemsSchema(db);
         break;
       case 'shop_orders':
         await db.execute(
@@ -1158,9 +1165,156 @@ class LocalStorageRepository {
       if (!columns.contains(column)) {
         await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
       }
-    } catch (_) {
-      // 表不存在等情况，静默跳过
+    } catch (e) {
+      // 表不存在等情况不阻断，但要打日志便于定位迁移失败
+      debugPrint('[schema] add column failed: $table.$column ($type) $e');
     }
+  }
+
+  /// shop_items 完整建表 SQL（_onCreate / 缺表 / 重建共用）
+  static const String _shopItemsCreateSql =
+      ''' CREATE TABLE IF NOT EXISTS shop_items (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT '',
+        price INTEGER NOT NULL DEFAULT 0,
+        emoji TEXT NOT NULL DEFAULT '',
+        description TEXT DEFAULT '',
+        tags TEXT DEFAULT '',
+        isActive INTEGER NOT NULL DEFAULT 1,
+        isCustom INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT
+      ) ''';
+
+  static const String _shopItemsCreateSqlFresh =
+      ''' CREATE TABLE shop_items (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT '',
+        price INTEGER NOT NULL DEFAULT 0,
+        emoji TEXT NOT NULL DEFAULT '',
+        description TEXT DEFAULT '',
+        tags TEXT DEFAULT '',
+        isActive INTEGER NOT NULL DEFAULT 1,
+        isCustom INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT
+      ) ''';
+
+  /// 本进程内是否已确认 shop_items 含 isCustom/createdAt（避免每次 PRAGMA）
+  static bool _shopItemsSchemaReady = false;
+
+  /// 强制保证 shop_items 具备 isCustom/createdAt。
+  /// 策略：CREATE → ALTER → 校验 → 失败则事务重建；进程内成功后短路。
+  static Future<void> _ensureShopItemsSchema(Database db,
+      {bool force = false}) async {
+    if (_shopItemsSchemaReady && !force) {
+      return;
+    }
+    try {
+      await db.execute(_shopItemsCreateSql);
+      await _addColumnIfNotExists(
+          db, 'shop_items', 'isCustom', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(db, 'shop_items', 'createdAt', 'TEXT');
+
+      var cols = await getTableColumns(db, 'shop_items');
+      final ok = cols.contains('isCustom') && cols.contains('createdAt');
+      if (ok) {
+        _shopItemsSchemaReady = true;
+        return;
+      }
+
+      debugPrint(
+          '[schema] shop_items rebuild (missing isCustom/createdAt), cols=$cols');
+      await _rebuildShopItemsTable(db);
+      cols = await getTableColumns(db, 'shop_items');
+      debugPrint('[schema] shop_items rebuild done, cols=$cols');
+      if (!cols.contains('isCustom') || !cols.contains('createdAt')) {
+        // 最后手段：丢旧表硬建（极罕见；种子可再填）
+        debugPrint('[schema] shop_items hard recreate');
+        await db.execute('DROP TABLE IF EXISTS shop_items');
+        await db.execute(_shopItemsCreateSqlFresh);
+        cols = await getTableColumns(db, 'shop_items');
+      }
+      if (!cols.contains('isCustom') || !cols.contains('createdAt')) {
+        throw StateError(
+            'shop_items still missing isCustom/createdAt after rebuild: $cols');
+      }
+      _shopItemsSchemaReady = true;
+    } catch (e) {
+      _shopItemsSchemaReady = false;
+      debugPrint('[schema] _ensureShopItemsSchema failed: $e');
+      rethrow;
+    }
+  }
+
+  /// 表结构重建并迁移旧数据（保留商品）
+  static Future<void> _rebuildShopItemsTable(Database db) async {
+    final suffix = DateTime.now().millisecondsSinceEpoch;
+    final oldName = 'shop_items_old_$suffix';
+    await db.transaction((txn) async {
+      // 若上次半残临时表残留，先清
+      try {
+        final leftovers = await txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'shop_items_old_%'",
+        );
+        for (final row in leftovers) {
+          final n = row['name'] as String?;
+          if (n != null && n.isNotEmpty) {
+            await txn.execute('DROP TABLE IF EXISTS $n');
+          }
+        }
+      } catch (_) {}
+
+      await txn.execute('ALTER TABLE shop_items RENAME TO $oldName');
+      await txn.execute(_shopItemsCreateSqlFresh);
+      final oldCols = await getTableColumns(txn, oldName);
+      String colOr(String name, String fallbackSql) =>
+          oldCols.contains(name) ? name : fallbackSql;
+      await txn.execute('''
+        INSERT INTO shop_items (
+          id, name, category, price, emoji, description, tags, isActive, isCustom, createdAt
+        )
+        SELECT
+          ${colOr('id', "''")},
+          ${colOr('name', "''")},
+          ${colOr('category', "''")},
+          ${colOr('price', '0')},
+          ${colOr('emoji', "''")},
+          ${colOr('description', "''")},
+          ${colOr('tags', "''")},
+          ${colOr('isActive', '1')},
+          ${colOr('isCustom', '0')},
+          ${colOr('createdAt', 'NULL')}
+        FROM $oldName
+      ''');
+      await txn.execute('DROP TABLE IF EXISTS $oldName');
+    });
+  }
+
+  /// 唯一安全写入入口：先 ensure，再按真实列 toDbMap，绝不写不存在的列
+  Future<void> _insertShopItemSafe(Database db, ShopItem item) async {
+    await _ensureShopItemsSchema(db);
+    var cols = await getTableColumns(db, 'shop_items');
+    if (!cols.contains('isCustom') || !cols.contains('createdAt')) {
+      // ensure 缓存可能脏，强制再跑
+      _shopItemsSchemaReady = false;
+      await _ensureShopItemsSchema(db, force: true);
+      cols = await getTableColumns(db, 'shop_items');
+    }
+    final map = item.toDbMap(cols);
+    // 双保险：map 里绝不能出现表中没有的 key
+    final safe = <String, dynamic>{};
+    for (final e in map.entries) {
+      if (cols.contains(e.key)) safe[e.key] = e.value;
+    }
+    if (!safe.containsKey('id')) {
+      throw StateError('shop_items insert missing id, cols=$cols');
+    }
+    await db.insert(
+      'shop_items',
+      safe,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   static Future<void> createAILettersTable(Database db) async {
@@ -1651,15 +1805,15 @@ class LocalStorageRepository {
       await _addColumnIfNotExists(db, 'ai_characters', 'userAlias', 'TEXT');
     }
     if (oldVersion < 55) {
-      // v55: 商店功能初始化 - 检查并填充商品种子数据
+      // v55: 商店功能初始化 - 先确保表结构，再填充种子
+      await _ensureShopItemsSchema(db);
       final count = Sqflite.firstIntValue(
         await db.rawQuery('SELECT COUNT(*) FROM shop_items'),
       );
       if (count == null || count == 0) {
         final items = _seedShopItems();
         for (final item in items) {
-          await db.insert('shop_items', item.toMap(),
-              conflictAlgorithm: ConflictAlgorithm.replace);
+          await _insertShopItemSafe(db, item);
         }
         debugPrint(' v55 迁移: 已填充 ${items.length} 个商品到 shop_items 表');
       }
@@ -1790,6 +1944,27 @@ class LocalStorageRepository {
           db, 'ai_configs', 'isMultimodal', 'INTEGER DEFAULT 0');
       debugPrint(' v60 迁移: ai_configs.isMultimodal 已添加');
     }
+    if (oldVersion < 61) {
+      // v61: 商店支持用户自定义商品
+      await _ensureShopItemsSchema(db);
+      debugPrint(' v61 迁移: shop_items 自定义商品字段已添加');
+    }
+    if (oldVersion < 62) {
+      // v62: shop_items 兼容修复（老版本可能缺少 isCustom/createdAt）
+      await _ensureShopItemsSchema(db);
+      debugPrint(' v62 迁移: shop_items 列兼容性修复完成');
+    }
+    if (oldVersion < 63) {
+      // v63: 强制校验并重建 shop_items（解决「版本已升但列仍缺」）
+      await _ensureShopItemsSchema(db, force: true);
+      debugPrint(' v63 迁移: shop_items schema 强制校验完成');
+    }
+    if (oldVersion < 64) {
+      // v64: 彻底修复 —— 强制重建校验 + 进程内就绪标记
+      _shopItemsSchemaReady = false;
+      await _ensureShopItemsSchema(db, force: true);
+      debugPrint(' v64 迁移: shop_items 强制 schema 就绪');
+    }
   }
 
   /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
@@ -1887,8 +2062,7 @@ class LocalStorageRepository {
     await createAILettersTable(db);
     await db.execute(
         ''' CREATE TABLE ai_wallets ( characterId TEXT PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 50, totalEarned INTEGER NOT NULL DEFAULT 50, totalSpent INTEGER NOT NULL DEFAULT 0, dailySpent INTEGER NOT NULL DEFAULT 0, dailySpentDate TEXT, spendingPersonality INTEGER NOT NULL DEFAULT 5, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
-    await db.execute(
-        ''' CREATE TABLE shop_items ( id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', price INTEGER NOT NULL DEFAULT 0, emoji TEXT NOT NULL DEFAULT '', description TEXT DEFAULT '', tags TEXT DEFAULT '', isActive INTEGER NOT NULL DEFAULT 1 ) ''');
+    await db.execute(_shopItemsCreateSql);
     await db.execute(
         ''' CREATE TABLE shop_orders ( id TEXT PRIMARY KEY, buyerType TEXT NOT NULL DEFAULT 'user', buyerId TEXT NOT NULL DEFAULT '', receiverType TEXT NOT NULL DEFAULT 'ai', receiverId TEXT NOT NULL DEFAULT '', chatSessionId TEXT NOT NULL DEFAULT '', itemId TEXT NOT NULL DEFAULT '', itemName TEXT NOT NULL DEFAULT '', itemEmoji TEXT NOT NULL DEFAULT '', price INTEGER NOT NULL DEFAULT 0, status TEXT DEFAULT 'pending', message TEXT, createdAt TEXT NOT NULL DEFAULT '', preparingAt TEXT, shippingAt TEXT, deliveredAt TEXT, aiReaction TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
@@ -2098,33 +2272,115 @@ class LocalStorageRepository {
 
   Future<bool> spendCoins(String userId, int amount) async {
     try {
+      // 免费模式：不扣币，始终成功（彻底解决「不够花」）
+      if (!isCoinEconomyEnabled()) return true;
+      final need = amount < 0 ? 0 : amount;
+      if (need == 0) return true;
       final user = await getUser(userId);
       if (user == null) return false;
-      if (user.coins < amount) return false;
+      if (user.coins < need) return false;
       final updatedUser = user.copyWith(
-        coins: user.coins - amount,
-        totalCoinsSpent: user.totalCoinsSpent + amount,
+        coins: user.coins - need,
+        totalCoinsSpent: user.totalCoinsSpent + need,
       );
       await saveUser(updatedUser);
       return true;
     } catch (e) {
-      debugPrint(': $e');
+      debugPrint('spendCoins 失败: $e');
       return false;
     }
   }
 
   Future<void> addCoins(String userId, int amount) async {
     try {
+      if (amount == 0) return;
       final user = await getUser(userId);
       if (user == null) return;
+      final delta = amount;
       final updatedUser = user.copyWith(
-        coins: user.coins + amount,
-        totalCoinsEarned: user.totalCoinsEarned + amount,
+        coins: (user.coins + delta).clamp(0, 999999999),
+        totalCoinsEarned: delta > 0
+            ? user.totalCoinsEarned + delta
+            : user.totalCoinsEarned,
+        totalCoinsSpent: delta < 0
+            ? user.totalCoinsSpent + (-delta)
+            : user.totalCoinsSpent,
       );
       await saveUser(updatedUser);
     } catch (e) {
-      debugPrint(': $e');
+      debugPrint('addCoins 失败: $e');
     }
+  }
+
+  // ── 金币经济自定义（用户可改，解决不够花）──
+
+  /// true=正常扣费；false=免费模式（spend 不减余额）
+  bool isCoinEconomyEnabled() {
+    return _prefs?.getBool(PrefKeys.coinEconomyEnabled) ?? true;
+  }
+
+  Future<void> setCoinEconomyEnabled(bool enabled) async {
+    await _prefs?.setBool(PrefKeys.coinEconomyEnabled, enabled);
+  }
+
+  int getCoinMessageCost() {
+    final v = _prefs?.getInt(PrefKeys.coinMessageCost);
+    return (v ?? CoinRules.messageCost)
+        .clamp(CoinRules.minCustomCost, CoinRules.maxCustomCost);
+  }
+
+  Future<void> setCoinMessageCost(int value) async {
+    await _prefs?.setInt(
+      PrefKeys.coinMessageCost,
+      value.clamp(CoinRules.minCustomCost, CoinRules.maxCustomCost),
+    );
+  }
+
+  int getCoinMomentCost() {
+    final v = _prefs?.getInt(PrefKeys.coinMomentCost);
+    return (v ?? CoinRules.momentInteractionCost)
+        .clamp(CoinRules.minCustomCost, CoinRules.maxCustomCost);
+  }
+
+  Future<void> setCoinMomentCost(int value) async {
+    await _prefs?.setInt(
+      PrefKeys.coinMomentCost,
+      value.clamp(CoinRules.minCustomCost, CoinRules.maxCustomCost),
+    );
+  }
+
+  int getCoinLoginBonus() {
+    final v = _prefs?.getInt(PrefKeys.coinLoginBonus);
+    return (v ?? CoinRules.loginBonus)
+        .clamp(CoinRules.minCustomReward, CoinRules.maxCustomReward);
+  }
+
+  Future<void> setCoinLoginBonus(int value) async {
+    await _prefs?.setInt(
+      PrefKeys.coinLoginBonus,
+      value.clamp(CoinRules.minCustomReward, CoinRules.maxCustomReward),
+    );
+  }
+
+  int getCoinCheckInReward() {
+    final v = _prefs?.getInt(PrefKeys.coinCheckInReward);
+    return (v ?? CoinRules.dailyCheckInReward)
+        .clamp(CoinRules.minCustomReward, CoinRules.maxCustomReward);
+  }
+
+  Future<void> setCoinCheckInReward(int value) async {
+    await _prefs?.setInt(
+      PrefKeys.coinCheckInReward,
+      value.clamp(CoinRules.minCustomReward, CoinRules.maxCustomReward),
+    );
+  }
+
+  /// 恢复默认消耗与奖励数值（不改免费开关）
+  Future<void> resetCoinEconomyToDefaults() async {
+    await _prefs?.remove(PrefKeys.coinMessageCost);
+    await _prefs?.remove(PrefKeys.coinMomentCost);
+    await _prefs?.remove(PrefKeys.coinLoginBonus);
+    await _prefs?.remove(PrefKeys.coinCheckInReward);
   }
 
   Future<AIWallet?> getAIWallet(String characterId) async {
@@ -2289,6 +2545,43 @@ class LocalStorageRepository {
 
   Future<void> setLastCheckInDate(String date) async {
     await _prefs?.setString(PrefKeys.lastCheckInDate, date);
+  }
+
+  String? getLastLoginBonusDate() {
+    return _prefs?.getString(PrefKeys.lastLoginBonusDate);
+  }
+
+  Future<void> setLastLoginBonusDate(String date) async {
+    await _prefs?.setString(PrefKeys.lastLoginBonusDate, date);
+  }
+
+  static String _todayDateKey([DateTime? now]) {
+    final d = now ?? DateTime.now();
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$day';
+  }
+
+  /// 每日首次登录奖励（与签到独立，同一天可叠发）。
+  /// 返回实际发放金额；已领过或失败返回 0。
+  Future<int> claimDailyLoginBonus(String userId, {DateTime? now}) async {
+    try {
+      final today = _todayDateKey(now);
+      if (getLastLoginBonusDate() == today) return 0;
+      final amount = getCoinLoginBonus();
+      if (amount <= 0) {
+        await setLastLoginBonusDate(today);
+        return 0;
+      }
+      await addCoins(userId, amount);
+      await setLastLoginBonusDate(today);
+      debugPrint('[Coins] 每日登录奖励 +$amount → $userId ($today)');
+      return amount;
+    } catch (e) {
+      debugPrint('claimDailyLoginBonus 失败: $e');
+      return 0;
+    }
   }
 
   Future<void> saveAILetter(AILetter letter) async {
@@ -2874,6 +3167,27 @@ class LocalStorageRepository {
         where: 'id = ?',
         whereArgs: [id],
       );
+    }
+  }
+
+  /// 清理已下线的内置模型配置；若当前激活的是它们，会取消激活。
+  Future<void> purgeRemovedBuiltInAIConfigs() async {
+    try {
+      final configs = await getAllAIConfigs();
+      var removedActive = false;
+      for (final c in configs) {
+        if (!RemovedBuiltInAIProviders.ids.contains(c.id)) continue;
+        if (c.isActive) removedActive = true;
+        await deleteAIConfig(c.id);
+      }
+      if (removedActive) {
+        final remaining = await getAllAIConfigs();
+        if (remaining.isNotEmpty) {
+          await saveAIConfig(remaining.first.copyWith(isActive: true));
+        }
+      }
+    } catch (e) {
+      debugPrint('purgeRemovedBuiltInAIConfigs 失败: $e');
     }
   }
 
@@ -5415,19 +5729,37 @@ class LocalStorageRepository {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  Future<ShopOrder?> getShopOrder(String orderId) async {
+    try {
+      final db = await _ensureDb();
+      final maps = await db.query(
+        'shop_orders',
+        where: 'id = ?',
+        whereArgs: [orderId],
+        limit: 1,
+      );
+      if (maps.isEmpty) return null;
+      return ShopOrder.fromMap(maps.first);
+    } catch (e) {
+      debugPrint('getShopOrder 失败: $e');
+      return null;
+    }
+  }
+
   // ==================== Shop Items ====================
 
   Future<void> initializeShopItems() async {
     try {
       final db = await _ensureDb();
+      // 每次进入商店都强制校验表结构（不依赖 dbVersion 是否已升过）
+      await _ensureShopItemsSchema(db, force: true);
       final count = Sqflite.firstIntValue(
         await db.rawQuery('SELECT COUNT(*) FROM shop_items'),
       );
       if (count == null || count == 0) {
         final items = _seedShopItems();
         for (final item in items) {
-          await db.insert('shop_items', item.toMap(),
-              conflictAlgorithm: ConflictAlgorithm.replace);
+          await _insertShopItemSafe(db, item);
         }
       }
     } catch (e) {
@@ -5438,10 +5770,12 @@ class LocalStorageRepository {
   Future<List<ShopItem>> getAllShopItems() async {
     try {
       final db = await _ensureDb();
-      // shop_items 表无 sortOrder 列，按分类 + 价格排序
+      await _ensureShopItemsSchema(db);
+      // 自定义商品靠前，再按分类 + 价格
       final maps = await db.query(
         'shop_items',
-        orderBy: 'category ASC, price ASC, name ASC',
+        where: 'isActive = 1 OR isActive IS NULL',
+        orderBy: 'isCustom DESC, category ASC, price ASC, name ASC',
       );
       return maps.map((m) => ShopItem.fromMap(m)).toList();
     } catch (e) {
@@ -5449,12 +5783,57 @@ class LocalStorageRepository {
       // 兜底：无 orderBy 再读一次，避免黑屏空页
       try {
         final db = await _ensureDb();
+        await _ensureShopItemsSchema(db, force: true);
         final maps = await db.query('shop_items');
         return maps.map((m) => ShopItem.fromMap(m)).toList();
       } catch (e2) {
         debugPrint('getAllShopItems 兜底失败: $e2');
         return [];
       }
+    }
+  }
+
+  Future<void> saveShopItem(ShopItem item) async {
+    final db = await _ensureDb();
+    await _insertShopItemSafe(db, item);
+  }
+
+  Future<void> deleteShopItem(String id) async {
+    final db = await _ensureDb();
+    // 仅允许删自定义；系统种子软隐藏更安全，但自定义可硬删
+    final maps = await db.query(
+      'shop_items',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isEmpty) return;
+    final item = ShopItem.fromMap(maps.first);
+    if (item.isCustom) {
+      await db.delete('shop_items', where: 'id = ?', whereArgs: [id]);
+    } else {
+      await db.update(
+        'shop_items',
+        {'isActive': 0},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
+  }
+
+  Future<ShopItem?> getShopItem(String id) async {
+    try {
+      final db = await _ensureDb();
+      final maps = await db.query(
+        'shop_items',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (maps.isEmpty) return null;
+      return ShopItem.fromMap(maps.first);
+    } catch (e) {
+      return null;
     }
   }
 

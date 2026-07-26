@@ -36,7 +36,23 @@ class _OrderCardState extends State<OrderCard>
     _pulseAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-    if (widget.order.status != 'delivered') {
+    _syncPulse(widget.order.status);
+  }
+
+  @override
+  void didUpdateWidget(covariant OrderCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.order.status != widget.order.status ||
+        oldWidget.order.id != widget.order.id) {
+      _syncPulse(widget.order.status);
+    }
+  }
+
+  void _syncPulse(String status) {
+    if (status == 'delivered') {
+      _pulseController.stop();
+      _pulseController.value = 1.0;
+    } else if (!_pulseController.isAnimating) {
       _pulseController.repeat(reverse: true);
     }
   }
@@ -284,8 +300,9 @@ class _OrderCardState extends State<OrderCard>
   _StatusInfo _getStatusInfo(String status) {
     switch (status) {
       case 'pending':
+        // 金币已扣：pending=商家接单/打包前，不是「没付钱」
         return _StatusInfo(
-          label: '等待确认...',
+          label: '商家确认中...',
           color: const Color(0xFFFF9800),
         );
       case 'preparing':

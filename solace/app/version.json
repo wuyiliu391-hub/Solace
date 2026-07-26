@@ -1,1 +1,6 @@
-{"app_name":"solace","version":"17.4.1","build_number":"284","package_name":"solace"}
+{
+  "app_name": "solace",
+  "version": "17.4.4",
+  "build_number": "287",
+  "package_name": "solace"
+}

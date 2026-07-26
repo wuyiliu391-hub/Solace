@@ -930,16 +930,7 @@ ${majorEventDescription != null ? '【重大事件】\n$majorEventDescription\n'
         'messages': [
           {'role': 'user', 'content': prompt}
         ],
-        if (BuiltInAIProviders.isGlmZ19B(config.id, config.modelName)) ...{
-          'temperature': GlmModeParams.personaTemperature,
-          'top_p': GlmModeParams.topP,
-          'top_k': GlmModeParams.personaTopK,
-          'frequency_penalty': GlmModeParams.personaFrequencyPenalty,
-          'thinking_budget': GlmModeParams.personaThinkingBudget,
-          'max_tokens': GlmModeParams.personaMaxTokens,
-        } else ...{
-          'temperature': 0.5,
-        },
+        'temperature': 0.5,
         'max_tokens': 260,
       }),
     ).timeout(const Duration(seconds: 20));

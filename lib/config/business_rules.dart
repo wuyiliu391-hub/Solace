@@ -141,11 +141,19 @@ class Festivals {
 class CoinRules {
   CoinRules._();
 
+  /// 默认值（可被用户在钱包「金币规则」里覆盖）
   static const int messageCost = 2;
   static const int momentInteractionCost = 3;
   static const int dailyCheckInReward = 10;
   static const int loginBonus = 5;
   static const int defaultCoins = 100;
+
+  /// 用户自定义时的合理上下限
+  static const int minCustomCost = 0;
+  static const int maxCustomCost = 999;
+  static const int minCustomReward = 0;
+  static const int maxCustomReward = 99999;
+  static const int maxManualGrant = 999999;
 
   // AI钱包规则
   static const int aiDefaultBalance = 50;
