@@ -32,6 +32,13 @@ class AppDurations {
 class ApiDefaults {
   ApiDefaults._();
 
+  // ─── 对抗复读（治「AI 反复讲同一件事」）───
+  /// 惩罚已出现过的 token，降低逐字重复
+  static const double chatFrequencyPenalty = 0.4;
+
+  /// 惩罚已出现过的话题，降低反复讲同一件事
+  static const double chatPresencePenalty = 0.4;
+
   // ─── API URLs ───
   static const String chatCompletionsPath = '/chat/completions';
 

@@ -333,6 +333,9 @@ class AIService {
           'model': config.modelName,
           'messages': messages,
           'temperature': config.temperature,
+          // 对抗复读：惩罚重复 token / 重复话题
+          'frequency_penalty': ApiDefaults.chatFrequencyPenalty,
+          'presence_penalty': ApiDefaults.chatPresencePenalty,
         };
         if (maxTokens != null) {
           requestPayload['max_tokens'] = maxTokens;
@@ -565,6 +568,9 @@ class AIService {
             'messages': messages,
             'temperature': config.temperature,
             'stream': true,
+            // 对抗复读：惩罚重复 token / 重复话题
+            'frequency_penalty': ApiDefaults.chatFrequencyPenalty,
+            'presence_penalty': ApiDefaults.chatPresencePenalty,
           };
           if (maxTokens != null) {
             requestPayload['max_tokens'] = maxTokens;
@@ -1887,6 +1893,17 @@ class AIService {
             '必须承接以下历史消息中的人物关系、已确认事实、称呼、约定与当前话题。'
             '禁止说“不认识你/第一次聊天/你是谁/我们刚认识”。'
             '若某细节不在近期历史中，可依据记忆段落推断，但不要否认已知事实。',
+      });
+    }
+
+    // 反复读：用户已知 / 已强调过的内容不要再复述或反复劝说
+    if (!pureAiModeEarly && filteredMessages.isNotEmpty) {
+      messages.add({
+        'role': 'system',
+        'content':
+            '【避免复读】不要反复讲述同一件事，也不要重复你近期已经说过的信息、观点或劝说。'
+            '凡是用户已经知道、或已经明确表态/强调过的内容，视为双方共识，直接在此基础上往前推进，'
+            '不要再解释、复述或反复劝同一件事。每一轮都要带来新的推进，而不是原地打转。',
       });
     }
 
