@@ -94,6 +94,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _enableProactiveMessage = true;
   bool _isSearching = false;
   String _searchQuery = '';
+  // 多选模式（批量删除 / 收藏）
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = <String>{};
   List<ChatMessage> _searchResults = [];
   bool _searchLoading = false;
   bool _searchLoadingMore = false;
@@ -207,14 +210,138 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           backgroundColor: Theme.of(context).brightness == Brightness.dark
               ? const Color(0xFF000000)
               : const Color(0xFFF5F5F5),
-          appBar: _isSearching
-              ? _buildSearchAppBar(colorScheme)
-              : _isJumpedToMessage
-                  ? _buildJumpedAppBar(colorScheme)
-                  : _buildModernAppBar(colorScheme),
+          appBar: _selectionMode
+              ? _buildSelectionAppBar(colorScheme)
+              : _isSearching
+                  ? _buildSearchAppBar(colorScheme)
+                  : _isJumpedToMessage
+                      ? _buildJumpedAppBar(colorScheme)
+                      : _buildModernAppBar(colorScheme),
           body: _buildBody(colorScheme),
         ),
       ),
+    );
+  }
+
+  // ─── 多选模式（批量删除 / 收藏）───
+  void _enterSelection(String messageId) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds
+        ..clear()
+        ..add(messageId);
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelect(String messageId) {
+    setState(() {
+      if (!_selectedIds.remove(messageId)) _selectedIds.add(messageId);
+      if (_selectedIds.isEmpty) _selectionMode = false;
+    });
+  }
+
+  void _selectAllMessages() {
+    setState(() {
+      _selectedIds
+        ..clear()
+        ..addAll(_cachedMessages.map((m) => m.id));
+    });
+  }
+
+  Future<void> _batchBookmark() async {
+    if (_selectedIds.isEmpty) return;
+    final ids = Set<String>.from(_selectedIds);
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    var n = 0;
+    for (final m in _cachedMessages) {
+      if (ids.contains(m.id) && !m.isBookmark) {
+        await storage.saveChatMessage(m.copyWith(isBookmark: true));
+        n++;
+      }
+    }
+    _chatBloc.add(ChatLoadMessages(widget.session.id));
+    _exitSelection();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('已收藏 $n 条消息'),
+            duration: const Duration(seconds: 1)),
+      );
+    }
+  }
+
+  Future<void> _batchDelete() async {
+    if (_selectedIds.isEmpty) return;
+    final count = _selectedIds.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('批量删除'),
+        content: Text('确定要删除选中的 $count 条消息吗？此操作不可恢复。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final ids = Set<String>.from(_selectedIds);
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    for (final id in ids) {
+      await storage.deleteChatMessage(id);
+    }
+    _chatBloc.add(ChatLoadMessages(widget.session.id));
+    _exitSelection();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('已删除 ${ids.length} 条消息'),
+            duration: const Duration(seconds: 1)),
+      );
+    }
+  }
+
+  PreferredSizeWidget _buildSelectionAppBar(ColorScheme colorScheme) {
+    return AppBar(
+      backgroundColor: colorScheme.surface,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: _exitSelection,
+      ),
+      title: Text('已选 ${_selectedIds.length} 项'),
+      actions: [
+        IconButton(
+          tooltip: '全选',
+          icon: const Icon(Icons.select_all),
+          onPressed: _selectAllMessages,
+        ),
+        IconButton(
+          tooltip: '批量收藏',
+          icon: const Icon(Icons.bookmark_add_outlined),
+          onPressed: _selectedIds.isEmpty ? null : _batchBookmark,
+        ),
+        IconButton(
+          tooltip: '批量删除',
+          icon: const Icon(Icons.delete_outline),
+          onPressed: _selectedIds.isEmpty ? null : _batchDelete,
+        ),
+        const SizedBox(width: 4),
+      ],
     );
   }
 
@@ -2944,6 +3071,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 _showDeleteConfirm(message);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.checklist_rtl, color: Colors.blueGrey),
+              title: const Text('多选'),
+              subtitle: const Text('批量删除 / 收藏消息'),
+              onTap: () {
+                Navigator.pop(context);
+                _enterSelection(message.id);
+              },
+            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -3199,6 +3335,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           final reversedIndex = messages.length - 1 - msgIndex;
           final message = messages[reversedIndex];
           final isHighlighted = message.id == _highlightedMessageId;
+          final selected =
+              _selectionMode && _selectedIds.contains(message.id);
           final showTime = reversedIndex == messages.length - 1 ||
               messages[reversedIndex + 1]
                       .createdAt
@@ -3210,12 +3348,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             index: msgIndex,
             key: _messageKeys.putIfAbsent(message.id, () => GlobalKey()),
             child: Container(
-              decoration: isHighlighted
+              decoration: (isHighlighted || selected)
                   ? BoxDecoration(
                       color: Theme.of(context)
                           .colorScheme
                           .primaryContainer
-                          .withOpacity(0.3),
+                          .withOpacity(selected ? 0.5 : 0.3),
                       borderRadius: BorderRadius.circular(10),
                     )
                   : null,
@@ -3225,10 +3363,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               child: Column(
                 children: [
                   GestureDetector(
-                    onLongPress: () {
-                      confirmHaptic();
-                      _showMessageOptions(context, message);
-                    },
+                    onTap: _selectionMode
+                        ? () => _toggleSelect(message.id)
+                        : null,
+                    onLongPress: _selectionMode
+                        ? null
+                        : () {
+                            confirmHaptic();
+                            _showMessageOptions(context, message);
+                          },
                     child: _MessageBubble(
                       message: message,
                       aiAvatarUrl: currentAvatar,
@@ -3931,35 +4074,41 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             return const SizedBox();
           final message = messages[reversedIndex];
           final isHighlighted = message.id == _highlightedMessageId;
+          final selected =
+              _selectionMode && _selectedIds.contains(message.id);
 
           return Container(
             key: ValueKey(message.id),
-            decoration: isHighlighted
+            decoration: (isHighlighted || selected)
                 ? BoxDecoration(
                     color: Theme.of(context)
                         .colorScheme
                         .primaryContainer
-                        .withOpacity(0.3),
+                        .withOpacity(selected ? 0.5 : 0.3),
                     borderRadius: BorderRadius.circular(10),
                   )
                 : null,
             padding:
                 isHighlighted ? const EdgeInsets.symmetric(vertical: 4) : null,
-            child: _MessageBubble(
-              message: message,
-              aiAvatarUrl: currentAvatar,
-              userAvatarUrl: userAvatarUrl,
-              aiName: currentName,
-              novelMode: _isNovelModeEnabled(),
-              dialogueColorLight:
-                  RepositoryProvider.of<LocalStorageRepository>(context)
-                      .getNovelDialogueColor(),
-              dialogueColorDark:
-                  RepositoryProvider.of<LocalStorageRepository>(context)
-                      .getNovelDialogueColor(),
-              hasBackgroundImage: _currentSession?.backgroundImage != null &&
-                  _currentSession!.backgroundImage!.isNotEmpty,
-              onImageTap: message.type == MessageType.image ? () {} : null,
+            child: GestureDetector(
+              onTap:
+                  _selectionMode ? () => _toggleSelect(message.id) : null,
+              child: _MessageBubble(
+                message: message,
+                aiAvatarUrl: currentAvatar,
+                userAvatarUrl: userAvatarUrl,
+                aiName: currentName,
+                novelMode: _isNovelModeEnabled(),
+                dialogueColorLight:
+                    RepositoryProvider.of<LocalStorageRepository>(context)
+                        .getNovelDialogueColor(),
+                dialogueColorDark:
+                    RepositoryProvider.of<LocalStorageRepository>(context)
+                        .getNovelDialogueColor(),
+                hasBackgroundImage: _currentSession?.backgroundImage != null &&
+                    _currentSession!.backgroundImage!.isNotEmpty,
+                onImageTap: message.type == MessageType.image ? () {} : null,
+              ),
             ),
           );
         },
