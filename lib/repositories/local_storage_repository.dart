@@ -8,7 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter/foundation.dart'
-    show ValueNotifier, compute, kIsWeb, debugPrint;
+    show ValueNotifier, compute, kIsWeb, debugPrint, visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../services/log_service.dart';
@@ -1272,6 +1272,12 @@ class LocalStorageRepository {
     final rows = await db.rawQuery('PRAGMA table_info($table)');
     return rows.map((r) => r['name'] as String).toSet();
   }
+
+  /// 仅供测试：在给定数据库上运行 shop_items schema 自愈逻辑。
+  /// 用于在「缺列的旧库」上验证幂等修复，见 test/shop_schema_recovery_test.dart。
+  @visibleForTesting
+  static Future<void> ensureShopItemsSchemaForTest(Database db) =>
+      _ensureShopItemsSchema(db, force: true);
 
   Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
