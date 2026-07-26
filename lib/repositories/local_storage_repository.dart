@@ -5671,7 +5671,12 @@ class LocalStorageRepository {
       if (count == null || count == 0) {
         final items = _seedShopItems();
         for (final item in items) {
-          await _insertShopItemSafe(db, item);
+          try {
+            await _insertShopItemSafe(db, item);
+          } catch (e) {
+            // 单个种子商品失败不影响其余，也绝不外抛到「加载失败」页
+            debugPrint('[shop] seed insert skipped: ${item.id} ($e)');
+          }
         }
       }
     } catch (e) {
