@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../config/claw_dolls.dart';
 import '../../config/constants.dart';
 import '../../models/ai_character.dart';
+import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../services/claw_service.dart';
 import '../../services/game_service.dart';
@@ -17,8 +18,8 @@ import 'doll_cabinet_screen.dart';
 class _StageDoll {
   final ClawDoll doll;
   double x; // 0~1 归一化水平位置
-  bool taken;
-  _StageDoll(this.doll, this.x, {this.taken = false});
+  bool taken = false;
+  _StageDoll(this.doll, this.x);
 }
 
 /// 角色当下的情绪 —— 决定头像上的表情
@@ -77,6 +78,8 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
   String _fullLine = '';
   bool _thinking = false; // AI 生成中 → 显示「正在输入…」
   _Mood _mood = _Mood.idle;
+  int _reqSeq = 0; // AI 台词请求序列号：旧请求晚到时丢弃，防止乱序覆盖
+  bool _coinFree = false; // 金币经济关闭 → 免费畅玩，不显示扣费
 
   static const double _stageHeight = 380;
   static const double _dollBottom = 14;
@@ -111,6 +114,7 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
     _claw = ClawService(storage);
     _game = GameService(storage);
+    _coinFree = !storage.isCoinEconomyEnabled();
     _drop = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 850),
@@ -194,30 +198,41 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
   // ─────────── AI 陪玩台词 ───────────
 
   Future<void> _greet() async {
+    final seq = ++_reqSeq;
     _showThinking();
     try {
-      final line = await _game.clawGreeting(character: widget.character);
-      _say(line, mood: _Mood.idle);
+      // GameService 内部有场景兜底不会抛错；外层 10s 超时防止「正在输入…」长挂
+      final line = await _game
+          .clawGreeting(character: widget.character)
+          .timeout(const Duration(seconds: 10));
+      if (mounted && seq == _reqSeq) _say(line, mood: _Mood.idle);
     } catch (_) {
-      _say('来吧，我陪你抓娃娃~', mood: _Mood.idle);
+      if (mounted && seq == _reqSeq) _say('来吧，我陪你抓娃娃~', mood: _Mood.idle);
     }
   }
 
   Future<void> _reactResult(String outcome,
       {String? dollName, String? rarityLabel}) async {
+    final seq = ++_reqSeq;
     _showThinking();
     try {
-      final line = await _game.reactToClawResult(
-        character: widget.character,
-        outcome: outcome,
-        dollName: dollName,
-        rarityLabel: rarityLabel,
-        missStreak: _missStreak,
-      );
-      _say(line, mood: outcome == 'caught' ? _Mood.happy : _Mood.sad);
+      final line = await _game
+          .reactToClawResult(
+            character: widget.character,
+            outcome: outcome,
+            dollName: dollName,
+            rarityLabel: rarityLabel,
+            missStreak: _missStreak,
+          )
+          .timeout(const Duration(seconds: 10));
+      if (mounted && seq == _reqSeq) {
+        _say(line, mood: outcome == 'caught' ? _Mood.happy : _Mood.sad);
+      }
     } catch (_) {
-      _say(outcome == 'caught' ? '哇，抓到啦！' : '差一点点，再试一次嘛~',
-          mood: outcome == 'caught' ? _Mood.happy : _Mood.sad);
+      if (mounted && seq == _reqSeq) {
+        _say(outcome == 'caught' ? '哇，抓到啦！' : '差一点点，再试一次嘛~',
+            mood: outcome == 'caught' ? _Mood.happy : _Mood.sad);
+      }
     }
   }
 
@@ -259,9 +274,11 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
       _toast('金币不足，去赚点金币再来吧');
       return;
     }
+    if (!mounted) return;
     setState(() {
       _busy = true;
-      _coins -= ClawConfig.costPerPlay;
+      // 免费模式下 spendCoins 不实际扣费，跳过乐观扣减避免余额显示错误
+      if (!_coinFree) _coins -= ClawConfig.costPerPlay;
       _wasAligned = false;
     });
 
@@ -271,7 +288,12 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
         : _dropLines[_rand.nextInt(_dropLines.length)];
     _say(cheer, mood: _Mood.drop);
 
-    await _drop.forward(from: 0); // 下降
+    try {
+      await _drop.forward(from: 0).orCancel; // 下降
+    } on TickerCanceled {
+      return; // 页面已退出，动画被取消
+    }
+    if (!mounted) return;
 
     final target = _pickTarget();
     final caught = target != null &&
@@ -284,7 +306,12 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
       });
     }
 
-    await _drop.reverse(); // 上升
+    try {
+      await _drop.reverse().orCancel; // 上升
+    } on TickerCanceled {
+      return;
+    }
+    if (!mounted) return;
 
     if (caught) {
       final doll = target.doll;
@@ -293,15 +320,31 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
         characterId: widget.character.id,
         characterName: _charName,
       );
+      // 持久化到聊天：这场共同经历在会话里留下痕迹（照送礼的系统消息模式）
+      try {
+        await storage.saveChatMessage(ChatMessage(
+          id: 'claw_${DateTime.now().millisecondsSinceEpoch}',
+          chatId: widget.session.id,
+          senderId: 'system',
+          content: '你们一起玩抓娃娃，抓到了「${doll.name}」${doll.emoji}',
+          type: MessageType.system,
+          status: MessageStatus.sent,
+          createdAt: DateTime.now(),
+        ));
+      } catch (e) {
+        debugPrint('抓娃娃系统消息写入失败: $e');
+      }
       _missStreak = 0;
-      _showCatchResult(doll);
-      await _reactResult('caught',
+      if (mounted) _showCatchResult(doll);
+      // fire-and-forget：AI 反应慢时不锁死操作，序列号保证不乱序
+      _reactResult('caught',
           dollName: doll.name, rarityLabel: doll.rarity.label);
     } else {
       _missStreak++;
-      await _reactResult('miss');
+      _reactResult('miss');
     }
 
+    if (!mounted) return;
     setState(() {
       _grabbed = null;
       _busy = false;
@@ -561,7 +604,7 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
                             color: Colors.white,
                             fontSize: 18,
                             fontWeight: FontWeight.bold)),
-                    Text('-${ClawConfig.costPerPlay} 金币',
+                    Text(_coinFree ? '免费畅玩' : '-${ClawConfig.costPerPlay} 金币',
                         style: TextStyle(
                             color: Colors.white.withOpacity(0.9),
                             fontSize: 11)),

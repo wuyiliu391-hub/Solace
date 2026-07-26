@@ -269,7 +269,11 @@ $charCtx
 表达陪 TA 一起玩的心情（期待、调侃、宠溺都行）。
 要求：符合你的性格，10-25 字，一句话，不要前缀或引号。
 ''';
-    return _callAI(prompt, maxTokens: 80);
+    return _callAI(prompt, maxTokens: 80, fallbacks: const [
+      '来吧，我陪你抓娃娃～',
+      '今天手气怎么样？试试看！',
+      '想要哪只？我帮你盯着~',
+    ]);
   }
 
   /// 一次下爪后，角色对结果的反应。
@@ -299,16 +303,21 @@ $charCtx
 你正陪用户玩抓娃娃机。$situation
 要求：符合你的性格和说话风格，15-35 字，一句话，不要前缀或引号。
 ''';
-    return _callAI(prompt, maxTokens: 90);
+    // 场景兜底：AI 失败时也要说抓娃娃相关的话，不能是通用聊天兜底
+    final fallbacks = outcome == 'caught'
+        ? const ['哇！抓到了，太棒了！', '你也太厉害了吧！', '这只归你了，恭喜～']
+        : const ['啊…滑掉了，再来一次！', '差一点点！别灰心~', '这爪子太不给力了，再试试！'];
+    return _callAI(prompt, maxTokens: 90, fallbacks: fallbacks);
   }
 
   Future<String> _callAI(
     String prompt, {
     int maxTokens = 100,
     double temperature = 0.8,
+    List<String>? fallbacks, // 场景专属兜底，不传则用通用聊天兜底
   }) async {
     final config = await _getConfig();
-    if (config == null) return _fallbackResponse();
+    if (config == null) return _pickFallback(fallbacks);
 
     try {
       final baseUrl = config.baseUrl.endsWith('/')
@@ -341,8 +350,13 @@ $charCtx
       debugPrint('GameService AI call failed: $e');
     }
 
-    return _fallbackResponse();
+    return _pickFallback(fallbacks);
   }
+
+  String _pickFallback(List<String>? fallbacks) =>
+      (fallbacks == null || fallbacks.isEmpty)
+          ? _fallbackResponse()
+          : fallbacks[_random.nextInt(fallbacks.length)];
 
   String _extractText(dynamic data) {
     if (data is Map<String, dynamic>) {
