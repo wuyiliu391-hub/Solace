@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -8,6 +10,7 @@ import '../../models/chat_session.dart';
 import '../../services/claw_service.dart';
 import '../../services/game_service.dart';
 import '../../repositories/local_storage_repository.dart';
+import '../../utils/avatar_resolver.dart';
 import 'doll_cabinet_screen.dart';
 
 /// 机台上的一只娃娃（带水平位置与是否已被抓走）
@@ -18,7 +21,27 @@ class _StageDoll {
   _StageDoll(this.doll, this.x, {this.taken = false});
 }
 
-/// 抓娃娃机 —— 移动爪子对位 + 下爪，AI 角色实时陪玩。
+/// 角色当下的情绪 —— 决定头像上的表情
+enum _Mood { idle, aim, drop, happy, sad }
+
+extension _MoodX on _Mood {
+  String get emoji {
+    switch (this) {
+      case _Mood.idle:
+        return '🙂';
+      case _Mood.aim:
+        return '👀';
+      case _Mood.drop:
+        return '😤';
+      case _Mood.happy:
+        return '😄';
+      case _Mood.sad:
+        return '🥺';
+    }
+  }
+}
+
+/// 抓娃娃机 —— 移动爪子对位 + 下爪，AI 角色全程陪玩（打字机台词 + 表情）。
 class ClawMachineScreen extends StatefulWidget {
   final AICharacter character;
   final ChatSession session;
@@ -38,6 +61,7 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
   late final ClawService _claw;
   late final GameService _game;
   late final AnimationController _drop;
+  final Random _rand = Random();
 
   double _clawX = 0.5;
   final List<_StageDoll> _dolls = [];
@@ -45,15 +69,41 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
   int _coins = 0;
   int _missStreak = 0;
   bool _busy = false;
-  String? _aiLine;
-  bool _aiThinking = false;
+  bool _wasAligned = false;
+
+  // 台词打字机
+  Timer? _typeTimer;
+  String _shownLine = '';
+  String _fullLine = '';
+  bool _thinking = false; // AI 生成中 → 显示「正在输入…」
+  _Mood _mood = _Mood.idle;
 
   static const double _stageHeight = 380;
   static const double _dollBottom = 14;
-  static const double _clawTravel = 210; // 爪子最大下降距离
+  static const double _clawTravel = 210;
 
-  String get _charName =>
-      widget.character.userAlias ?? widget.character.name;
+  // 高频小互动用本地台词库（省 token），关键节点才调 AI
+  static const List<String> _aimLines = [
+    '就是这只！对准了~',
+    '嗯…这只有戏',
+    '稳住，别抖',
+    '看好了这只哦',
+    '这个位置不错！',
+  ];
+  static const List<String> _dropLines = [
+    '就是现在！',
+    '下！冲鸭~',
+    '抓住它！',
+    '看你的了！',
+  ];
+  static const List<String> _dropLinesBuff = [
+    '我帮你稳住，下！',
+    '别慌有我在，抓！',
+    '这次我盯着，冲！',
+  ];
+
+  bool get _hasBuff => widget.session.intimacyLevel >= 60;
+  String get _charName => widget.character.userAlias ?? widget.character.name;
 
   @override
   void initState() {
@@ -72,6 +122,7 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
 
   @override
   void dispose() {
+    _typeTimer?.cancel();
     _drop.dispose();
     super.dispose();
   }
@@ -86,7 +137,6 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
     final picked = _claw.rollStageDolls();
     _dolls.clear();
     for (var i = 0; i < picked.length; i++) {
-      // 均匀分布 + 轻微错位
       final x = ((i + 0.5) / picked.length).clamp(0.08, 0.92);
       _dolls.add(_StageDoll(picked[i], x.toDouble()));
     }
@@ -106,21 +156,83 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
     if (mounted) setState(() {});
   }
 
+  // ─────────── 台词打字机 ───────────
+
+  /// 逐字显示一句话（本地台词直接用；AI 台词拿到全文后也走这里）
+  void _say(String text, {_Mood? mood}) {
+    _typeTimer?.cancel();
+    final full = text.trim();
+    setState(() {
+      _thinking = false;
+      _fullLine = full;
+      _shownLine = '';
+      if (mood != null) _mood = mood;
+    });
+    var i = 0;
+    _typeTimer = Timer.periodic(const Duration(milliseconds: 45), (t) {
+      if (i >= _fullLine.length) {
+        t.cancel();
+        return;
+      }
+      i++;
+      if (mounted) {
+        setState(() => _shownLine = _fullLine.substring(0, i));
+      } else {
+        t.cancel();
+      }
+    });
+  }
+
+  void _showThinking() {
+    _typeTimer?.cancel();
+    setState(() {
+      _thinking = true;
+      _shownLine = '';
+    });
+  }
+
+  // ─────────── AI 陪玩台词 ───────────
+
   Future<void> _greet() async {
-    setState(() => _aiThinking = true);
+    _showThinking();
     try {
       final line = await _game.clawGreeting(character: widget.character);
-      if (mounted) setState(() => _aiLine = line.trim());
+      _say(line, mood: _Mood.idle);
     } catch (_) {
-      if (mounted) setState(() => _aiLine = '来吧，我陪你抓娃娃～');
-    } finally {
-      if (mounted) setState(() => _aiThinking = false);
+      _say('来吧，我陪你抓娃娃~', mood: _Mood.idle);
     }
   }
+
+  Future<void> _reactResult(String outcome,
+      {String? dollName, String? rarityLabel}) async {
+    _showThinking();
+    try {
+      final line = await _game.reactToClawResult(
+        character: widget.character,
+        outcome: outcome,
+        dollName: dollName,
+        rarityLabel: rarityLabel,
+        missStreak: _missStreak,
+      );
+      _say(line, mood: outcome == 'caught' ? _Mood.happy : _Mood.sad);
+    } catch (_) {
+      _say(outcome == 'caught' ? '哇，抓到啦！' : '差一点点，再试一次嘛~',
+          mood: outcome == 'caught' ? _Mood.happy : _Mood.sad);
+    }
+  }
+
+  // ─────────── 操作 ───────────
 
   void _move(double delta) {
     if (_busy) return;
     setState(() => _clawX = (_clawX + delta).clamp(0.06, 0.94));
+    final aligned = _pickTarget() != null;
+    if (aligned && !_wasAligned) {
+      _say(_aimLines[_rand.nextInt(_aimLines.length)], mood: _Mood.aim);
+    } else if (!aligned && _mood == _Mood.aim) {
+      setState(() => _mood = _Mood.idle);
+    }
+    _wasAligned = aligned;
   }
 
   _StageDoll? _pickTarget() {
@@ -150,13 +262,21 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
     setState(() {
       _busy = true;
       _coins -= ClawConfig.costPerPlay;
-      _aiLine = null;
+      _wasAligned = false;
     });
 
-    await _drop.forward(from: 0); // 爪子下降
+    // 下爪加油（本地台词，亲密度高时是「助攻」语气）
+    final cheer = _hasBuff
+        ? _dropLinesBuff[_rand.nextInt(_dropLinesBuff.length)]
+        : _dropLines[_rand.nextInt(_dropLines.length)];
+    _say(cheer, mood: _Mood.drop);
+
+    await _drop.forward(from: 0); // 下降
 
     final target = _pickTarget();
-    final caught = target != null && _claw.rollCatch(target.doll.rarity);
+    final caught = target != null &&
+        _claw.rollCatch(target.doll.rarity,
+            multiplier: _hasBuff ? 1.4 : 1.0);
     if (caught) {
       setState(() {
         _grabbed = target;
@@ -164,7 +284,7 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
       });
     }
 
-    await _drop.reverse(); // 爪子上升
+    await _drop.reverse(); // 上升
 
     if (caught) {
       final doll = target.doll;
@@ -175,10 +295,11 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
       );
       _missStreak = 0;
       _showCatchResult(doll);
-      _react('caught', dollName: doll.name, rarityLabel: doll.rarity.label);
+      await _reactResult('caught',
+          dollName: doll.name, rarityLabel: doll.rarity.label);
     } else {
       _missStreak++;
-      _react('miss', missStreak: _missStreak);
+      await _reactResult('miss');
     }
 
     setState(() {
@@ -186,28 +307,7 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
       _busy = false;
     });
     _refillIfNeeded();
-  }
-
-  Future<void> _react(String outcome,
-      {String? dollName, String? rarityLabel, int missStreak = 0}) async {
-    setState(() => _aiThinking = true);
-    try {
-      final line = await _game.reactToClawResult(
-        character: widget.character,
-        outcome: outcome,
-        dollName: dollName,
-        rarityLabel: rarityLabel,
-        missStreak: missStreak,
-      );
-      if (mounted) setState(() => _aiLine = line.trim());
-    } catch (_) {
-      if (mounted) {
-        setState(() => _aiLine =
-            outcome == 'caught' ? '哇，抓到啦！' : '差一点点，再试一次嘛～');
-      }
-    } finally {
-      if (mounted) setState(() => _aiThinking = false);
-    }
+    _loadCoins();
   }
 
   void _showCatchResult(ClawDoll doll) {
@@ -251,6 +351,8 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
     );
   }
 
+  // ─────────── UI ───────────
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -261,6 +363,13 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
         backgroundColor: cs.surface,
         elevation: 0,
         actions: [
+          if (_hasBuff)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.only(right: 6),
+                child: Text('❤️助攻', style: TextStyle(fontSize: 12)),
+              ),
+            ),
           Center(
             child: Padding(
               padding: const EdgeInsets.only(right: 8),
@@ -294,26 +403,42 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
   }
 
   Widget _buildAiBubble(ColorScheme cs) {
+    final avatar = AvatarResolver.imageProvider(widget.character.avatarUrl);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: cs.primaryContainer,
-            child: Text(_charName.isNotEmpty ? _charName[0] : '?',
-                style: TextStyle(color: cs.onPrimaryContainer)),
+          // 头像 + 情绪表情角标
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: cs.primaryContainer,
+                backgroundImage: avatar,
+                child: avatar == null
+                    ? Text(_charName.isNotEmpty ? _charName[0] : '?',
+                        style: TextStyle(color: cs.onPrimaryContainer))
+                    : null,
+              ),
+              Positioned(
+                right: -4,
+                bottom: -4,
+                child: Text(_mood.emoji, style: const TextStyle(fontSize: 20)),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: Container(
               padding: const EdgeInsets.all(12),
+              constraints: const BoxConstraints(minHeight: 44),
               decoration: BoxDecoration(
                 color: cs.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: _aiThinking
+              child: _thinking
                   ? Row(mainAxisSize: MainAxisSize.min, children: [
                       SizedBox(
                           width: 14,
@@ -321,10 +446,12 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: cs.primary)),
                       const SizedBox(width: 8),
-                      Text('$_charName 正在说话…',
+                      Text('$_charName 正在输入…',
                           style: TextStyle(color: cs.onSurfaceVariant)),
                     ])
-                  : Text(_aiLine ?? '准备好了吗？移动爪子，对准娃娃下爪！'),
+                  : Text(_shownLine.isEmpty
+                      ? '准备好了吗？移动爪子对准娃娃，下爪！'
+                      : _shownLine),
             ),
           ),
         ],
@@ -358,7 +485,6 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
                 return Stack(
                   clipBehavior: Clip.hardEdge,
                   children: [
-                    // 顶部横杆
                     Positioned(
                       top: 4,
                       left: 8,
@@ -371,7 +497,6 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
                         ),
                       ),
                     ),
-                    // 机台里的娃娃
                     ..._dolls.where((d) => !d.taken).map((d) {
                       return Positioned(
                         bottom: _dollBottom,
@@ -380,7 +505,6 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
                             style: const TextStyle(fontSize: 40)),
                       );
                     }),
-                    // 爪子（含抓中的娃娃）
                     Positioned(
                       left: (_clawX * w - 20).clamp(0.0, w - 40),
                       top: clawTop,
@@ -423,8 +547,8 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
               GestureDetector(
                 onTap: _busy ? null : _dropClaw,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 32, vertical: 16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(colors: _busy
                         ? [Colors.grey, Colors.grey.shade600]
@@ -448,8 +572,10 @@ class _ClawMachineScreenState extends State<ClawMachineScreen>
             ],
           ),
           const SizedBox(height: 8),
-          Text('移动爪子对准娃娃，越稀有越滑手',
-              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+          Text(
+            _hasBuff ? '$_charName 会帮你一把，成功率更高~' : '移动爪子对准娃娃，越稀有越滑手',
+            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+          ),
         ],
       ),
     );

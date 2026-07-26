@@ -80,6 +80,9 @@ class ClawService {
         count, (_) => weighted[_random.nextInt(weighted.length)]);
   }
 
-  /// 爪子对准娃娃后，判定是否成功抓起（按稀有度成功率）
-  bool rollCatch(DollRarity rarity) => _random.nextDouble() < rarity.catchRate;
+  /// 爪子对准娃娃后，判定是否成功抓起（按稀有度成功率）。
+  /// [multiplier] 用于亲密度加成等场景，最终成功率封顶 0.95。
+  bool rollCatch(DollRarity rarity, {double multiplier = 1.0}) =>
+      _random.nextDouble() <
+      (rarity.catchRate * multiplier).clamp(0.0, 0.95);
 }
