@@ -157,3 +157,15 @@ List<String> _activateNaturalOrder(List<String> members, SpeakerContext ctx) {
 
   return activated.toSet().toList();
 }
+
+/// 解析手动锁定发言人（对标 ST 手动激活）：过滤禁言与不在群的 id
+List<String> resolveForcedSpeakers({
+  required List<String> forcedIds,
+  required List<String> memberIds,
+  required List<String> disabledMemberIds,
+}) {
+  return forcedIds
+      .where((id) => !disabledMemberIds.contains(id))
+      .where((id) => memberIds.contains(id))
+      .toList();
+}

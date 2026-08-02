@@ -39,6 +39,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
   final Map<String, bool> _autoModeByGroup = {};
   final Map<String, int> _groupDelays = {};
 
+  /// 手动锁定发言人（内存态，群聊 UI 激活条写入）
+  final Map<String, List<String>> _forcedSpeakers = {};
+
   GroupChatBloc(this._storage, this._aiService) : super(GroupChatInitial()) {
     on<GroupChatLoadSessions>(_onLoadSessions);
     on<GroupChatCreate>(_onCreate);
@@ -49,6 +52,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     on<GroupChatAddMember>(_onAddMember);
     on<GroupChatRemoveMember>(_onRemoveMember);
     on<GroupChatMarkRead>(_onMarkRead);
+    on<GroupChatSetSpeakers>(_onSetSpeakers);
     on<GroupChatAIMessageSaved>(_onAIMessageSaved);
     on<GroupChatUpdateConfig>(_onUpdateConfig);
     on<GroupChatCreateBranch>(_onCreateBranch);
@@ -102,6 +106,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     try {
       await _storage.deleteGroupChatSession(event.groupId);
       _replyingGroups.remove(event.groupId);
+      _forcedSpeakers.remove(event.groupId);
       emit(GroupChatDeleted(event.groupId));
     } catch (e) {
       LogService.instance.e('GroupChat', '_onDelete failed: $e');
@@ -306,10 +311,20 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       random: _random,
     );
 
-    var activated = selectSpeakers(
-      strategy: session.activationStrategy,
-      ctx: ctx,
-    );
+    var activated;
+    final forcedIds = _forcedSpeakers[groupId] ?? const <String>[];
+    if (forcedIds.isNotEmpty) {
+      activated = resolveForcedSpeakers(
+        forcedIds: forcedIds,
+        memberIds: session.aiCharacterIds,
+        disabledMemberIds: session.disabledMemberIds,
+      );
+    } else {
+      activated = selectSpeakers(
+        strategy: session.activationStrategy,
+        ctx: ctx,
+      );
+    }
     if (excludeCharacterId != null) {
       activated = activated.where((id) => id != excludeCharacterId).toList();
     }
@@ -734,6 +749,13 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     } catch (e) {
       LogService.instance.e('GroupChat', '_onMarkRead failed: $e');
     }
+  }
+
+  Future<void> _onSetSpeakers(
+    GroupChatSetSpeakers event,
+    Emitter<GroupChatState> emit,
+  ) async {
+    _forcedSpeakers[event.groupId] = List<String>.from(event.speakerIds);
   }
 
   // ═══════════════════════════════════════════════════════

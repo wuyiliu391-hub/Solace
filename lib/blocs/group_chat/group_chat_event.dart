@@ -135,6 +135,18 @@ class GroupChatMarkRead extends GroupChatEvent {
   List<Object?> get props => [groupId];
 }
 
+/// 手动锁定发言人（内存态，对标 ST 手动激活；不落库）
+class GroupChatSetSpeakers extends GroupChatEvent {
+  final String groupId;
+  final List<String> speakerIds;
+  const GroupChatSetSpeakers({
+    required this.groupId,
+    required this.speakerIds,
+  });
+  @override
+  List<Object?> get props => [groupId, speakerIds];
+}
+
 /// 更新群聊引擎配置（激活策略/生成模式/禁言/允自答/自动接话）
 class GroupChatUpdateConfig extends GroupChatEvent {
   final String groupId;
