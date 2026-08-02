@@ -6,6 +6,7 @@ import '../../blocs/group_chat/group_chat_bloc.dart';
 import '../../models/group_chat_session.dart';
 import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
+import '../../utils/avatar_resolver.dart';
 import '../../utils/character_color.dart';
 import 'group_chat_create_screen.dart';
 import 'group_chat_detail_screen.dart';
@@ -297,8 +298,8 @@ class _GroupChatTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 头像（成员拼接）
-            _memberStack(members, colorScheme),
+            // 头像（自定义群头像优先，否则成员拼接）
+            _memberStack(session.avatarUrl, members, colorScheme),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -492,7 +493,25 @@ class _GroupChatTile extends StatelessWidget {
     );
   }
 
-  Widget _memberStack(List<AICharacter> members, ColorScheme cs) {
+  Widget _memberStack(String? avatarUrl, List<AICharacter> members,
+      ColorScheme cs) {
+    // 自定义群头像优先；无则回退成员拼接
+    if (avatarUrl != null && avatarUrl.isNotEmpty) {
+      return Container(
+        width: 48,
+        height: 48,
+        clipBehavior: Clip.antiAlias,
+        decoration: const BoxDecoration(shape: BoxShape.circle),
+        child: AvatarResolver.imageWidget(
+          avatarUrl,
+          width: 48,
+          height: 48,
+          fit: BoxFit.cover,
+          onError: () => _groupAvatarFallback(cs),
+        ) ??
+            _groupAvatarFallback(cs),
+      );
+    }
     final shown = members.take(3).toList();
     if (shown.isEmpty) {
       return Container(
@@ -538,15 +557,30 @@ class _GroupChatTile extends StatelessWidget {
     );
   }
 
+  Widget _groupAvatarFallback(ColorScheme cs) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: cs.tertiaryContainer,
+      ),
+      child: Center(
+        child: Text('群',
+            style: TextStyle(
+                color: cs.tertiary, fontSize: 18, fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+
   Widget _miniAvatar(AICharacter c, ColorScheme cs) {
     final color = characterColor(colorHex: c.colorHex, name: c.name, cs: cs);
-    if (c.avatarUrl != null && c.avatarUrl!.isNotEmpty) {
-      return Image.network(
-        c.avatarUrl!,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _miniAvatarText(c, color),
-      );
-    }
+    final img = AvatarResolver.imageWidget(
+      c.avatarUrl,
+      fit: BoxFit.cover,
+      onError: () => _miniAvatarText(c, color),
+    );
+    if (img != null) return img;
     return _miniAvatarText(c, color);
   }
 

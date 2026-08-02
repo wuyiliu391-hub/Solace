@@ -13,6 +13,7 @@ import '../../models/group_chat_branch.dart';
 import '../../models/ai_character.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../repositories/local_storage_repository.dart';
+import '../../utils/avatar_resolver.dart';
 import '../../utils/character_color.dart';
 import '../../utils/vision_image_encoder.dart';
 import '../../widgets/group_chat/group_top_bar.dart';
@@ -372,6 +373,24 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
 
   Widget _memberStackAvatar() {
     final cs = Theme.of(context).colorScheme;
+    final avatarUrl = _session.avatarUrl;
+    if (avatarUrl != null && avatarUrl.isNotEmpty) {
+      return SizedBox(
+        width: 40,
+        height: 30,
+        child: Center(
+          child: ClipOval(
+            child: AvatarResolver.imageWidget(
+              avatarUrl,
+              width: 32,
+              height: 32,
+              fit: BoxFit.cover,
+              onError: () => const Icon(Icons.group, size: 14),
+            ),
+          ),
+        ),
+      );
+    }
     final shown = _members.take(3).toList();
     if (shown.isEmpty) {
       return CircleAvatar(
