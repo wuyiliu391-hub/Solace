@@ -6,6 +6,7 @@ import '../../blocs/group_chat/group_chat_bloc.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../models/ai_character.dart';
 import '../../blocs/auth/auth_bloc.dart';
+import '../../utils/character_color.dart';
 
 class GroupChatCreateScreen extends StatefulWidget {
   const GroupChatCreateScreen({super.key});
@@ -81,13 +82,47 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                // AI 角色选择
+                _buildSelectedBar(colorScheme),
+                // AI 角色选择（已选排前，可拖拽排序）
                 Expanded(
                   child: _buildCharacterSelection(colorScheme),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildSelectedBar(ColorScheme colorScheme) {
+    if (_selectedAiCharacterIds.isEmpty) return const SizedBox.shrink();
+    final byId = {for (final c in _allCharacters) c.id: c};
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _selectedAiCharacterIds.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        itemBuilder: (context, index) {
+          final c = byId[_selectedAiCharacterIds[index]];
+          if (c == null) return const SizedBox.shrink();
+          final color = characterColor(
+              colorHex: c.colorHex, name: c.name, cs: colorScheme);
+          return Chip(
+            avatar: CircleAvatar(
+              backgroundColor: color.withValues(alpha: 0.15),
+              child: Text(
+                c.name.isNotEmpty ? c.name.substring(0, 1) : '?',
+                style: TextStyle(color: color, fontSize: 11),
+              ),
+            ),
+            label: Text(c.name, style: const TextStyle(fontSize: 12)),
+            onDeleted: () =>
+                setState(() => _selectedAiCharacterIds.remove(c.id)),
+            deleteIconColor: colorScheme.onSurfaceVariant,
+          );
+        },
+      ),
     );
   }
 
@@ -102,20 +137,36 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
       );
     }
 
-    return ListView.separated(
-      itemCount: _allCharacters.length,
-      separatorBuilder: (context, index) => Divider(
-        height: 0.5,
-        indent: 60,
-        color: colorScheme.outline.withOpacity(0.15),
-      ),
+    final selected = _selectedAiCharacterIds.toSet();
+    final byId = {for (final c in _allCharacters) c.id: c};
+    final ordered = [
+      ..._selectedAiCharacterIds.map((id) => byId[id]).whereType<AICharacter>(),
+      ..._allCharacters.where((c) => !selected.contains(c.id)),
+    ];
+
+    return ReorderableListView.builder(
+      itemCount: ordered.length,
+      onReorder: (oldIndex, newIndex) {
+        setState(() {
+          if (newIndex > oldIndex) newIndex -= 1;
+          final moved = ordered.removeAt(oldIndex);
+          ordered.insert(newIndex, moved);
+          _selectedAiCharacterIds
+            ..clear()
+            ..addAll(ordered
+                .where((c) => selected.contains(c.id))
+                .map((c) => c.id));
+        });
+      },
       itemBuilder: (context, index) {
-        final character = _allCharacters[index];
-        final isSelected = _selectedAiCharacterIds.contains(character.id);
+        final character = ordered[index];
+        final isSelected = selected.contains(character.id);
         return ListTile(
+          key: ValueKey(character.id),
           leading: CircleAvatar(
             backgroundColor: colorScheme.primaryContainer,
-            child: character.avatarUrl != null && character.avatarUrl!.isNotEmpty
+            child: character.avatarUrl != null &&
+                    character.avatarUrl!.isNotEmpty
                 ? ClipOval(
                     child: Image.network(
                       character.avatarUrl!,
@@ -139,11 +190,13 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
           ),
           title: Text(
             character.userAlias ?? character.name,
-            style: TextStyle(fontSize: 15),
+            style: const TextStyle(fontSize: 15),
           ),
           trailing: Icon(
             isSelected ? Icons.check_circle : Icons.circle_outlined,
-            color: isSelected ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.2),
+            color: isSelected
+                ? colorScheme.primary
+                : colorScheme.onSurface.withOpacity(0.2),
           ),
           onTap: () {
             setState(() {
