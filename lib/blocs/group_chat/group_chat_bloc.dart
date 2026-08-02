@@ -13,6 +13,7 @@ import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/log_service.dart';
 import '../../utils/message_sanitizer.dart';
+import '../../utils/content_filter.dart';
 import 'group_chat_speaker.dart';
 import 'group_chat_prompts.dart';
 
@@ -146,6 +147,15 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     try {
       final now = DateTime.now();
       final session = await _storage.getGroupChatSession(event.groupId);
+      // NSFW 内容检测：法模式下跳过（对齐单聊 chat_bloc 语义）
+      final faMode = _storage.isFaModeEnabled();
+      final nsfwResult = faMode
+          ? const ContentFilterResult()
+          : ContentFilter.check(event.content);
+      if (nsfwResult.isNSFW) {
+        emit(GroupChatError('检测到违规内容，消息未发送。'));
+        return;
+      }
       final msg = GroupChatMessage(
         id: _uuid.v4(),
         groupId: event.groupId,
