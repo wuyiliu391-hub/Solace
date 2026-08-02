@@ -44,7 +44,6 @@ import 'screens/novel/novel_shelf_screen.dart';
 import 'screens/phone/phone_home_shell.dart';
 import 'screens/shop/shop_screen.dart';
 
-import 'screens/group_chat/group_chat_list_screen.dart';
 import 'blocs/group_chat/group_chat_bloc.dart';
 
 import 'screens/usage/usage_screen.dart';
@@ -851,8 +850,6 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
       //   return const ForumScreen();
       case '/lucky_wheel':
         return const LuckyWheelScreen();
-      case '/group_chat':
-        return const GroupChatListScreen();
       // P2: 世界功能暂不开放
       // case '/world':
       //   return const WorldHomeScreen();
