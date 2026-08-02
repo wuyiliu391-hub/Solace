@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/ai_character.dart';
+import '../../utils/avatar_resolver.dart';
 import '../../utils/character_color.dart';
 
 /// 输入框上方成员激活条（对标 ST 手动激活）：
@@ -66,7 +67,7 @@ class _MemberActivationBarState extends State<MemberActivationBar> {
             ),
           ),
         SizedBox(
-          height: 60,
+          height: 64,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -159,17 +160,14 @@ class _MemberActivationBarState extends State<MemberActivationBar> {
   }
 
   Widget _avatar(AICharacter c, Color color) {
-    if (c.avatarUrl != null && c.avatarUrl!.isNotEmpty) {
-      return ClipOval(
-        child: Image.network(
-          c.avatarUrl!,
-          fit: BoxFit.cover,
-          width: 32,
-          height: 32,
-          errorBuilder: (_, __, ___) => _avatarText(c, color),
-        ),
-      );
-    }
+    final img = AvatarResolver.imageWidget(
+      c.avatarUrl,
+      width: 32,
+      height: 32,
+      fit: BoxFit.cover,
+      onError: () => _avatarText(c, color),
+    );
+    if (img != null) return ClipOval(child: img);
     return _avatarText(c, color);
   }
 
