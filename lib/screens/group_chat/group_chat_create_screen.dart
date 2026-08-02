@@ -16,7 +16,8 @@ class GroupChatCreateScreen extends StatefulWidget {
 
 class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
   final TextEditingController _nameController = TextEditingController();
-  final List<String> _selectedMemberIds = [];
+  // Removed unused _selectedMemberIds - group chats use AI character IDs only
+  // final List<String> _selectedMemberIds = [];
   final List<String> _selectedAiCharacterIds = [];
   bool _isLoadingCharacters = true;
   List<AICharacter> _allCharacters = [];
@@ -28,7 +29,8 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
   }
 
   Future<void> _loadCharacters() async {
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    // Use context.read instead of RepositoryProvider.of to avoid adding listeners during init
+    final storage = context.read<LocalStorageRepository>();
     final chars = await storage.getAllAICharacters();
     if (mounted) {
       setState(() {
@@ -192,18 +194,18 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
       aiCharacterIds: List<String>.from(_selectedAiCharacterIds),
     ));
 
-    // 监听创建结果
-    final state = await bloc.stream.firstWhere(
-      (s) => s is GroupChatCreated || s is GroupChatError,
-      orElse: () => bloc.state,
-    );
-
-    if (state is GroupChatCreated && mounted) {
-      Navigator.pop(context, true);
-    } else if (state is GroupChatError && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('创建失败: ${state.message}')),
-      );
-    }
+    // Listen for creation result - non-blocking, using a simple stream subscription
+    // We don't wait here; instead, we let the BLoC update the UI state automatically
+    // If we need immediate feedback, showSnackBar is called within the Bloc listener
+    bloc.stream.listen((state) {
+      if (!mounted) return;
+      if (state is GroupChatCreated) {
+        Navigator.pop(context, true);
+      } else if (state is GroupChatError) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('创建失败: ${state.message}')),
+        );
+      }
+    }, onDone: () {});
   }
 }

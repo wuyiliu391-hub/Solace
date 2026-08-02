@@ -223,44 +223,48 @@ class _ProfileScreenState extends State<ProfileScreen>
             children: [
               GestureDetector(
                 onTap: _changeAvatar,
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: colorScheme.surface,
-                      width: 4,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: ClipOval(
-                    child: hasValidAvatar
-                        ? Image.file(avatarFile, fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: colorScheme.surfaceContainerHigh,
-                              child: Icon(
-                                Icons.person,
-                                size: 40,
-                                color: colorScheme.onSurface.withOpacity(0.7),
-                              ),
-                            ),
-                          )
-                        : Container(
-                            color: colorScheme.surfaceContainerHigh,
-                            child: Icon(
-                              Icons.person,
-                              size: 40,
-                              color: colorScheme.onSurface.withOpacity(0.7),
-                            ),
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: colorScheme.surface,
+                          width: 4,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
                           ),
-                  ),
+                        ],
+                      ),
+                      child: ClipOval(
+                        child: hasValidAvatar
+                            ? Image.file(avatarFile, fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                  color: colorScheme.surfaceContainerHigh,
+                                  child: Icon(
+                                    Icons.person,
+                                    size: 40,
+                                    color: colorScheme.onSurface.withOpacity(0.7),
+                                  ),
+                                ),
+                              )
+                            : Container(
+                                color: colorScheme.surfaceContainerHigh,
+                                child: Icon(
+                                  Icons.person,
+                                  size: 40,
+                                  color: colorScheme.onSurface.withOpacity(0.7),
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 16),

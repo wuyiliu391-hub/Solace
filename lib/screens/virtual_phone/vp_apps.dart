@@ -347,14 +347,14 @@ class _ChatThreadPage extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: isOwner
-                ? const Color(0xFFD2E3FC)
+                ? const Color(0xFFFFFFFF)
                 : const Color(0xFFE8E4EC),
           ),
           child: Text(
             name.isNotEmpty ? String.fromCharCode(name.runes.first) : '?',
             style: TextStyle(
                 color: isOwner
-                    ? const Color(0xFF1A73E8)
+                    ? const Color(0xFF2B7BF5)
                     : const Color(0xFF9C27B0),
                 fontSize: 14,
                 fontWeight: FontWeight.w600),

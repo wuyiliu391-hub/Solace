@@ -1881,7 +1881,7 @@ class LocalStorageRepository {
     if (oldVersion < 64) {
       // v64: 强制校验 shop_items schema
       await _ensureShopItemsSchema(db, force: true);
-      debugPrint(' v64 迁移: shop_items 强制 schema 就绪');
+      debugPrint('✅ v64 迁移: shop_items 强制 schema 就绪');
     }
   }
 

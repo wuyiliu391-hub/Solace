@@ -220,8 +220,10 @@ class ShopBloc extends Bloc<ShopEvent, ShopState> {
         await _storage.saveChatMessage(ChatMessage(
           id: _uuid.v4(),
           chatId: event.chatSessionId,
-          senderId: 'system',
-          content: '${event.item.name} 已送出！',
+          senderId: event.buyerId,
+          senderName: event.buyerType == 'user' ? '你' : '',
+          content: '${event.item.emoji} ${event.item.name}',
+          isUser: event.buyerType == 'user',
           type: MessageType.system,
           status: MessageStatus.sent,
           createdAt: DateTime.now(),
