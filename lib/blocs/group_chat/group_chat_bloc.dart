@@ -84,6 +84,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       final now = DateTime.now();
       final session = GroupChatSession(
         id: 'gc_${_uuid.v4()}',
+        userId: event.userId,
         name: event.name,
         avatarUrl: event.avatarUrl,
         memberIds: List<String>.from(event.memberIds),

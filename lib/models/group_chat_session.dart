@@ -12,6 +12,9 @@ class GroupChatSession extends Equatable {
   /// 会话唯一 ID
   final String id;
 
+  /// 所属用户 ID
+  final String userId;
+
   /// 群名称
   final String name;
 
@@ -86,6 +89,7 @@ class GroupChatSession extends Equatable {
 
   const GroupChatSession({
     required this.id,
+    this.userId = '',
     required this.name,
     this.avatarUrl,
     required this.memberIds,
@@ -114,6 +118,7 @@ class GroupChatSession extends Equatable {
 
   GroupChatSession copyWith({
     String? id,
+    String? userId,
     String? name,
     String? avatarUrl,
     List<String>? memberIds,
@@ -141,6 +146,7 @@ class GroupChatSession extends Equatable {
   }) {
     return GroupChatSession(
       id: id ?? this.id,
+      userId: userId ?? this.userId,
       name: name ?? this.name,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       memberIds: memberIds ?? this.memberIds,
@@ -171,6 +177,7 @@ class GroupChatSession extends Equatable {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'userId': userId,
       'name': name,
       'avatarUrl': avatarUrl,
       'memberIds': jsonEncode(memberIds),
@@ -257,6 +264,7 @@ class GroupChatSession extends Equatable {
 
     return GroupChatSession(
       id: map['id'] as String,
+      userId: map['userId']?.toString() ?? '',
       name: map['name'] as String? ?? '',
       avatarUrl: map['avatarUrl'] as String?,
       memberIds: parseStringList(map['memberIds']),
@@ -289,6 +297,7 @@ class GroupChatSession extends Equatable {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'userId': userId,
       'name': name,
       'avatarUrl': avatarUrl,
       'memberIds': memberIds,
@@ -328,6 +337,7 @@ class GroupChatSession extends Equatable {
         : GroupGenerationMode.swap;
     return GroupChatSession(
       id: json['id'] as String? ?? '',
+      userId: json['userId']?.toString() ?? '',
       name: json['name'] as String? ?? '',
       avatarUrl: json['avatarUrl'] as String?,
       memberIds: (json['memberIds'] as List<dynamic>?)?.cast<String>() ?? [],

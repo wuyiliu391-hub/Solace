@@ -906,6 +906,7 @@ class LocalStorageRepository {
       'updatedAt': 'TEXT NOT NULL DEFAULT ""',
     },
     'group_chat_sessions': {
+      'userId': 'TEXT NOT NULL DEFAULT ""',
       'name': 'TEXT NOT NULL DEFAULT ""',
       'avatarUrl': 'TEXT',
       'memberIds': 'TEXT NOT NULL DEFAULT "[]"',
@@ -1114,6 +1115,7 @@ class LocalStorageRepository {
       case 'group_chat_sessions':
         await db.execute(''' CREATE TABLE IF NOT EXISTS group_chat_sessions (
           id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL DEFAULT '',
           name TEXT NOT NULL DEFAULT '',
           avatarUrl TEXT,
           memberIds TEXT NOT NULL DEFAULT '[]',
@@ -1130,6 +1132,9 @@ class LocalStorageRepository {
           updatedAt TEXT,
           sync_seq INTEGER NOT NULL DEFAULT 0
         ) ''');
+        // 兼容旧表缺少 userId 列的情况（老版本建的表可能含 userId 或缺失）
+        await _addColumnIfNotExists(
+            db, 'group_chat_sessions', 'userId', 'TEXT NOT NULL DEFAULT ""');
         // 兼容旧表缺少 creatorId 列的情况（v56 之前创建的旧表无此列）
         await _addColumnIfNotExists(
             db, 'group_chat_sessions', 'creatorId', 'TEXT NOT NULL DEFAULT ""');
@@ -2172,6 +2177,7 @@ class LocalStorageRepository {
     // AI 群聊模块（v56 新增）—— _onCreate 必须补建，否则全新安装无表
     await db.execute(''' CREATE TABLE IF NOT EXISTS group_chat_sessions (
       id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL DEFAULT '',
       name TEXT NOT NULL DEFAULT '',
       avatarUrl TEXT,
       memberIds TEXT NOT NULL DEFAULT '[]',
