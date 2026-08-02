@@ -230,6 +230,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                         state.groupId == _groupId) {
                       _messages = state.messages;
                       _aiTyping = false;
+                      _streamingText = '';
+                      _streamingCharacter = '';
                       _isLoading = false;
                       return _buildMessageList();
                     }
@@ -303,8 +305,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     final displayMessages = List<GroupChatMessage>.from(_messages);
 
     if (streaming != null) {
-      // 流式中的 AI 消息：临时追加为气泡
-      displayMessages.add(GroupChatMessage(
+      // 流式中的 AI 消息：插入列表头部（DESC 序 index 0 = 视觉底部最新）
+      displayMessages.insert(0, GroupChatMessage(
         id: '_streaming_',
         groupId: _groupId,
         senderId: '_streaming_',
@@ -342,16 +344,12 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       padding: const EdgeInsets.all(12),
       itemCount: displayMessages.length + (typingCharacter != null ? 1 : 0),
       itemBuilder: (context, index) {
-        if (typingCharacter != null &&
-            index == displayMessages.length) {
+        if (typingCharacter != null && index == 0) {
           return _TypingIndicator(name: typingCharacter);
         }
         final msg = displayMessages[index];
-        final showAvatar = index == 0 ||
-            _messages.isEmpty ||
-            (index < _messages.length &&
-                _messages[index - 1].senderId != msg.senderId) ||
-            index >= _messages.length;
+        final prev = index > 0 ? displayMessages[index - 1] : null;
+        final showAvatar = prev == null || prev.senderId != msg.senderId;
         return GroupMessageBubble(
           message: msg,
           showAvatar: showAvatar,
