@@ -62,3 +62,33 @@ class GroupChatAIReplying extends GroupChatState {
   @override
   List<Object?> get props => [groupId, statusText];
 }
+
+/// 某个 AI 角色正在输入中
+class GroupChatTyping extends GroupChatState {
+  final String groupId;
+  final String characterName;
+  final List<GroupChatMessage> messages;
+  const GroupChatTyping(
+    this.groupId,
+    this.characterName, {
+    this.messages = const [],
+  });
+  @override
+  List<Object?> get props => [groupId, characterName, messages];
+}
+
+/// 某个 AI 角色流式输出中
+class GroupChatStreaming extends GroupChatState {
+  final String groupId;
+  final String characterName;
+  final String streamingText;
+  final List<GroupChatMessage> messages;
+  const GroupChatStreaming(
+    this.groupId,
+    this.characterName,
+    this.streamingText, {
+    this.messages = const [],
+  });
+  @override
+  List<Object?> get props => [groupId, characterName, streamingText, messages];
+}

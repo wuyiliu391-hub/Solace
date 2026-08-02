@@ -6,7 +6,6 @@ import '../../blocs/group_chat/group_chat_bloc.dart';
 import '../../models/group_chat_session.dart';
 import 'group_chat_create_screen.dart';
 import 'group_chat_detail_screen.dart';
-
 class GroupChatListScreen extends StatelessWidget {
   const GroupChatListScreen({super.key});
 
@@ -215,10 +214,15 @@ class _GroupChatTile extends StatelessWidget {
           ),
         ).then((_) {
           if (context.mounted) {
-            context.read<GroupChatBloc>().add(const GroupChatMarkRead(''));
+            // 修复：此前传空字符串导致未读清零永不生效
+            context.read<GroupChatBloc>().add(GroupChatMarkRead(session.id));
+            context
+                .read<GroupChatBloc>()
+                .add(const GroupChatLoadSessions('local_user'));
           }
         });
       },
+      onLongPress: () => _showContextMenu(context),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
@@ -261,6 +265,12 @@ class _GroupChatTile extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      if (session.notice?.isNotEmpty == true) ...[
+                        const SizedBox(width: 4),
+                        Icon(Icons.campaign_outlined,
+                            size: 14,
+                            color: colorScheme.primary.withOpacity(0.6)),
+                      ],
                       if (timeText.isNotEmpty) ...[
                         const SizedBox(width: 8),
                         Text(
@@ -275,7 +285,11 @@ class _GroupChatTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    session.lastMessage ?? '暂无消息',
+                    session.notice?.isNotEmpty == true &&
+                        (session.lastMessage == null ||
+                            session.lastMessage!.isEmpty)
+                        ? '公告：${session.notice}'
+                        : (session.lastMessage ?? '暂无消息'),
                     style: TextStyle(
                       fontSize: 14,
                       color: session.lastMessage != null
@@ -310,6 +324,116 @@ class _GroupChatTile extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 长按菜单：重命名 / 删除
+  void _showContextMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(ctx).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16, top: 8),
+                decoration: BoxDecoration(
+                  color: Theme.of(ctx)
+                      .colorScheme
+                      .onSurfaceVariant
+                      .withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.drive_file_rename_outline),
+                title: const Text('重命名群聊'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showRenameDialog(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline,
+                    color: Color(0xFFE53935)),
+                title: const Text('删除群聊',
+                    style: TextStyle(color: Color(0xFFE53935))),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _confirmDelete(context);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showRenameDialog(BuildContext context) {
+    final controller = TextEditingController(text: session.name);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名群聊'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 20,
+          decoration: const InputDecoration(hintText: '输入新群名'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              context.read<GroupChatBloc>().add(GroupChatUpdateSession(
+                    groupId: session.id,
+                    name: name,
+                  ));
+              Navigator.pop(ctx);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除群聊'),
+        content: Text('确定要删除群聊"${session.name}"吗？此操作不可撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.read<GroupChatBloc>().add(GroupChatDelete(session.id));
+            },
+            style:
+                TextButton.styleFrom(foregroundColor: const Color(0xFFE53935)),
+            child: const Text('删除'),
+          ),
+        ],
       ),
     );
   }

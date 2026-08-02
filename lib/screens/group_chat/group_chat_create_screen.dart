@@ -194,10 +194,11 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
       aiCharacterIds: List<String>.from(_selectedAiCharacterIds),
     ));
 
-    // Listen for creation result - non-blocking, using a simple stream subscription
-    // We don't wait here; instead, we let the BLoC update the UI state automatically
-    // If we need immediate feedback, showSnackBar is called within the Bloc listener
-    bloc.stream.listen((state) {
+    // 一次性监听创建结果（修复：原 listen 永不取消，叠加在全局单例上导致多次 pop）
+    final subscription = bloc.stream.firstWhere(
+      (state) => state is GroupChatCreated || state is GroupChatError,
+    );
+    subscription.then((state) {
       if (!mounted) return;
       if (state is GroupChatCreated) {
         Navigator.pop(context, true);
@@ -206,6 +207,6 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
           SnackBar(content: Text('创建失败: ${state.message}')),
         );
       }
-    }, onDone: () {});
+    });
   }
 }

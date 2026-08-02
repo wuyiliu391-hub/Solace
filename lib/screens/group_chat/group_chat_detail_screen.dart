@@ -1,11 +1,18 @@
 // 群聊详情页面（对标 ChatDetailScreen 简化版）
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 import '../../blocs/group_chat/group_chat_bloc.dart';
 import '../../models/group_chat_session.dart';
 import '../../models/group_chat_message.dart';
+import '../../models/ai_character.dart';
 import '../../blocs/auth/auth_bloc.dart';
+import '../../repositories/local_storage_repository.dart';
+import '../../utils/vision_image_encoder.dart';
 
 class GroupChatDetailScreen extends StatefulWidget {
   final GroupChatSession session;
@@ -19,14 +26,33 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   late String _groupId;
+
+  /// 会话可变副本：静音/置顶/改名后即时刷新
+  late GroupChatSession _session;
   List<GroupChatMessage> _messages = [];
   bool _isLoading = true;
+
+  /// 当前流式输出的 AI 角色名 + 文本（来自 GroupChatStreaming）
+  String? _streamingCharacter;
+  String _streamingText = '';
+  bool _aiTyping = false;
+
+  /// 待发图片
+  final List<String> _pendingImagePaths = [];
 
   @override
   void initState() {
     super.initState();
     _groupId = widget.session.id;
+    _session = widget.session;
     _loadMessages();
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadMessages() async {
@@ -35,26 +61,43 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     if (mounted) setState(() {});
   }
 
+  /// 根据会话变更事件刷新本地副本（静音/置顶/改名/公告）
+  void _refreshSession(GroupChatState state) {
+    if (state is GroupChatSessionsLoaded) {
+      for (final s in state.sessions) {
+        if (s.id == _groupId) {
+          _session = s;
+          break;
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: Text(widget.session.name),
+        title: Text(_session.name),
         actions: [
           IconButton(
-            icon: Icon(widget.session.isMuted ? Icons.notifications_off : Icons.notifications),
+            icon: Icon(_session.isMuted
+                ? Icons.notifications_off
+                : Icons.notifications),
             onPressed: () {
               context.read<GroupChatBloc>().add(GroupChatUpdateSession(
-                groupId: _groupId,
-                isMuted: !widget.session.isMuted,
-              ));
+                    groupId: _groupId,
+                    isMuted: !_session.isMuted,
+                  ));
             },
           ),
           PopupMenuButton<String>(
             onSelected: _handleMenuAction,
             itemBuilder: (ctx) => [
-              const PopupMenuItem(value: 'pin', child: Text('置顶群聊')),
+              PopupMenuItem(
+                value: 'pin',
+                child: Text(_session.isPinned ? '取消置顶' : '置顶群聊'),
+              ),
               const PopupMenuItem(value: 'settings', child: Text('群设置')),
               const PopupMenuItem(value: 'delete', child: Text('删除群聊')),
             ],
@@ -63,20 +106,42 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       ),
       body: Column(
         children: [
+          // 群公告条
+          if (_session.notice != null && _session.notice!.trim().isNotEmpty)
+            _buildNoticeBar(_session.notice!),
           Expanded(
             child: BlocBuilder<GroupChatBloc, GroupChatState>(
               builder: (context, state) {
+                _refreshSession(state);
+
+                // 流式输出中：AI 回复实时显示
+                if (state is GroupChatStreaming &&
+                    state.groupId == _groupId) {
+                  _streamingCharacter = state.characterName;
+                  _streamingText = state.streamingText;
+                  _aiTyping = true;
+                  _isLoading = false;
+                  return _buildMessageList(streaming: state);
+                }
+                if (state is GroupChatTyping && state.groupId == _groupId) {
+                  _aiTyping = true;
+                  _streamingText = '';
+                  _isLoading = false;
+                  return _buildMessageList(
+                      typingCharacter: state.characterName);
+                }
+                if (state is GroupChatMessagesLoaded &&
+                    state.groupId == _groupId) {
+                  _messages = state.messages;
+                  _aiTyping = false;
+                  _isLoading = false;
+                  return _buildMessageList();
+                }
                 if (state is GroupChatLoading && _isLoading) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (state is GroupChatError) {
                   return Center(child: Text('加载失败: ${state.message}'));
-                }
-                if (state is GroupChatMessagesLoaded && state.groupId == _groupId) {
-                  _messages = state.messages;
-                  _isLoading = false;
-                  if (mounted) setState(() {});
-                  return _buildMessageList();
                 }
                 return const Center(child: CircularProgressIndicator());
               },
@@ -88,18 +153,66 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     );
   }
 
-  Widget _buildMessageList() {
-    if (_messages.isEmpty) {
+  Widget _buildNoticeBar(String notice) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4),
+      child: Row(
+        children: [
+          Icon(Icons.campaign_outlined,
+              size: 16, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              notice,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageList({
+    GroupChatStreaming? streaming,
+    String? typingCharacter,
+  }) {
+    final displayMessages = List<GroupChatMessage>.from(_messages);
+
+    if (streaming != null) {
+      // 流式中的 AI 消息：临时追加为气泡
+      displayMessages.add(GroupChatMessage(
+        id: '_streaming_',
+        groupId: _groupId,
+        senderId: '_streaming_',
+        senderName: streaming.characterName,
+        content: streaming.streamingText,
+        isUser: false,
+        type: GroupChatMessageType.text,
+        timestamp: DateTime.now(),
+      ));
+    }
+
+    if (displayMessages.isEmpty && typingCharacter == null) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.chat_bubble_outline, size: 48,
+            Icon(Icons.chat_bubble_outline,
+                size: 48,
                 color: Theme.of(context).colorScheme.primary.withOpacity(0.4)),
             const SizedBox(height: 16),
             Text(
               '暂无消息',
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+              style: TextStyle(
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
             ),
           ],
         ),
@@ -110,11 +223,19 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       controller: _scrollController,
       reverse: true,
       padding: const EdgeInsets.all(12),
-      itemCount: _messages.length,
+      itemCount: displayMessages.length + (typingCharacter != null ? 1 : 0),
       itemBuilder: (context, index) {
-        final msg = _messages[index];
+        if (typingCharacter != null &&
+            index == displayMessages.length) {
+          return _TypingIndicator(name: typingCharacter);
+        }
+        final msg = displayMessages[index];
         final isUser = msg.isUser;
-        final showAvatar = index == 0 || _messages[index - 1].senderId != msg.senderId;
+        final showAvatar = index == 0 ||
+            _messages.isEmpty ||
+            (index < _messages.length &&
+                _messages[index - 1].senderId != msg.senderId) ||
+            index >= _messages.length;
         return _MessageBubble(
           message: msg,
           isUser: isUser,
@@ -131,44 +252,164 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
-        border: Border(top: BorderSide(color: colorScheme.outline.withOpacity(0.2))),
+        border:
+            Border(top: BorderSide(color: colorScheme.outline.withOpacity(0.2))),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _messageController,
-              decoration: InputDecoration(
-                hintText: '输入消息...',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: colorScheme.surface,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          // 待发图片预览
+          if (_pendingImagePaths.isNotEmpty)
+            SizedBox(
+              height: 72,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                itemCount: _pendingImagePaths.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final p = _pendingImagePaths[index];
+                  return Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(p),
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 64,
+                            height: 64,
+                            color: colorScheme.surfaceContainerHighest,
+                            child: const Icon(Icons.broken_image, size: 20),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: GestureDetector(
+                          onTap: () =>
+                              setState(() => _pendingImagePaths.removeAt(index)),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.close,
+                                size: 14, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
-              maxLines: null,
-              textCapitalization: TextCapitalization.sentences,
-              onSubmitted: _sendMessage,
             ),
-          ),
-          const SizedBox(width: 8),
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: colorScheme.primary,
-            child: IconButton(
-              icon: const Icon(Icons.send, color: Colors.white, size: 18),
-              onPressed: () => _sendMessage(_messageController.text),
-            ),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+                onPressed: _pickAndAttachImages,
+                tooltip: '发送图片',
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  decoration: InputDecoration(
+                    hintText: '输入消息...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: colorScheme.surface,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                  ),
+                  maxLines: null,
+                  textCapitalization: TextCapitalization.sentences,
+                  onSubmitted: _sendMessage,
+                ),
+              ),
+              const SizedBox(width: 8),
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: colorScheme.primary,
+                child: IconButton(
+                  icon: const Icon(Icons.send, color: Colors.white, size: 18),
+                  onPressed: _sendCurrentMessage,
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
+  void _sendCurrentMessage() {
+    _sendMessage(_messageController.text);
+  }
+
+  Future<void> _pickAndAttachImages() async {
+    try {
+      final picker = ImagePicker();
+      final images = await picker.pickMultiImage(imageQuality: 85);
+      if (images.isEmpty || !mounted) return;
+
+      // 转存持久目录，避免清缓存后裂图
+      final appDir = await getApplicationDocumentsDirectory();
+      final imgDir = Directory('${appDir.path}/chat_images');
+      if (!await imgDir.exists()) {
+        await imgDir.create(recursive: true);
+      }
+
+      final kept = <String>[];
+      for (final imgFile in images) {
+        final p = imgFile.path;
+        if (p.isEmpty) continue;
+        try {
+          final ext =
+              p.contains('.') ? p.substring(p.lastIndexOf('.')) : '.jpg';
+          final dest = '${imgDir.path}/gc_${const Uuid().v4()}$ext';
+          await File(p).copy(dest);
+          kept.add(dest);
+        } catch (e) {
+          debugPrint('群聊图片持久化失败: $e');
+        }
+      }
+
+      if (kept.isEmpty || !mounted) return;
+      setState(() => _pendingImagePaths.addAll(kept));
+
+      // 与 vision 请求上限对齐
+      if (_pendingImagePaths.length > VisionImageEncoder.maxImagesPerRequest) {
+        final overflow = _pendingImagePaths.length -
+            VisionImageEncoder.maxImagesPerRequest;
+        setState(() => _pendingImagePaths.removeRange(
+            VisionImageEncoder.maxImagesPerRequest,
+            _pendingImagePaths.length));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(
+                  '最多发送 ${VisionImageEncoder.maxImagesPerRequest} 张，已截断 $overflow 张')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('选择图片失败: $e')),
+      );
+    }
+  }
+
   void _sendMessage(String content) {
-    if (content.trim().isEmpty) return;
+    final text = content.trim();
+    final hasImages = _pendingImagePaths.isNotEmpty;
+    if (text.isEmpty && !hasImages) return;
+
     final authState = context.read<AuthBloc>().state;
     String userId = 'local_user';
     if (authState is AuthAuthenticated) {
@@ -178,9 +419,11 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     context.read<GroupChatBloc>().add(GroupChatSendMessage(
           groupId: _groupId,
           userId: userId,
-          content: content.trim(),
+          content: text,
+          imagePaths: hasImages ? List<String>.from(_pendingImagePaths) : null,
         ));
     _messageController.clear();
+    if (hasImages) setState(() => _pendingImagePaths.clear());
 
     // 滚动到底部
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -199,7 +442,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       case 'pin':
         context.read<GroupChatBloc>().add(GroupChatUpdateSession(
               groupId: _groupId,
-              isPinned: !widget.session.isPinned,
+              isPinned: !_session.isPinned,
             ));
         break;
       case 'settings':
@@ -218,7 +461,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       builder: (ctx) => Container(
         decoration: BoxDecoration(
           color: Theme.of(ctx).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: SafeArea(
           child: Padding(
@@ -231,23 +475,54 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
-                    color: Theme.of(ctx).colorScheme.onSurfaceVariant.withOpacity(0.2),
+                    color: Theme.of(ctx)
+                        .colorScheme
+                        .onSurfaceVariant
+                        .withOpacity(0.2),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
                 ListTile(
-                  leading: Icon(Icons.group),
+                  leading: const Icon(Icons.drive_file_rename_outline),
+                  title: const Text('重命名群聊'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showRenameDialog();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.campaign_outlined),
+                  title: const Text('群公告'),
+                  subtitle: Text(_session.notice?.isNotEmpty == true
+                      ? _session.notice!
+                      : '未设置'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showNoticeDialog();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.group),
                   title: const Text('群成员'),
-                  subtitle: Text('${widget.session.memberIds.length} 人'),
+                  subtitle: Text('${_session.memberIds.length} 人'),
                   onTap: () {
                     Navigator.pop(ctx);
                     _showMembers();
                   },
                 ),
                 ListTile(
-                  leading: Icon(Icons.info_outline),
+                  leading: const Icon(Icons.person_add_alt_outlined),
+                  title: const Text('邀请 AI 角色'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showInviteDialog();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.info_outline),
                   title: const Text('群信息'),
-                  subtitle: Text('创建者: ${widget.session.creatorId.substring(0, 8)}...'),
+                  subtitle:
+                      Text('创建者: ${_session.creatorId.substring(0, 8)}...'),
                   onTap: () {
                     Navigator.pop(ctx);
                   },
@@ -260,21 +535,90 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     );
   }
 
+  void _showRenameDialog() {
+    final controller = TextEditingController(text: _session.name);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名群聊'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 20,
+          decoration: const InputDecoration(hintText: '输入新群名'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              context.read<GroupChatBloc>().add(GroupChatUpdateSession(
+                    groupId: _groupId,
+                    name: name,
+                  ));
+              Navigator.pop(ctx);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showNoticeDialog() {
+    final controller = TextEditingController(text: _session.notice ?? '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('群公告'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 50,
+          maxLines: 3,
+          decoration: const InputDecoration(hintText: '输入群公告'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              final notice = controller.text.trim();
+              context.read<GroupChatBloc>().add(GroupChatUpdateSession(
+                    groupId: _groupId,
+                    notice: notice.isEmpty ? null : notice,
+                  ));
+              Navigator.pop(ctx);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showMembers() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('${widget.session.name} - 成员'),
+        title: Text('${_session.name} - 成员'),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.separated(
             shrinkWrap: true,
-            itemCount: widget.session.memberIds.length,
+            itemCount: _session.memberIds.length,
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (ctx, index) {
-              final memberId = widget.session.memberIds[index];
-              final isAi = widget.session.aiCharacterIds.contains(memberId);
+              final memberId = _session.memberIds[index];
+              final isAi = _session.aiCharacterIds.contains(memberId);
               return ListTile(
+                dense: true,
                 leading: CircleAvatar(
                   backgroundColor: isAi
                       ? Theme.of(ctx).colorScheme.tertiaryContainer
@@ -287,8 +631,21 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                         : Theme.of(ctx).colorScheme.primary,
                   ),
                 ),
-                title: Text(isAi ? 'AI 角色' : (memberId == 'local_user' ? '我' : memberId)),
+                title: Text(
+                    isAi ? 'AI 角色' : (memberId == 'local_user' ? '我' : memberId)),
                 subtitle: Text(isAi ? 'AI' : '用户'),
+                trailing: isAi && memberId != 'local_user'
+                    ? IconButton(
+                        icon: const Icon(Icons.exit_to_app,
+                            size: 18, color: Color(0xFFE53935)),
+                        tooltip: '移出群聊',
+                        onPressed: () {
+                          context.read<GroupChatBloc>().add(
+                              GroupChatRemoveMember(_groupId, memberId));
+                          Navigator.pop(ctx);
+                        },
+                      )
+                    : null,
               );
             },
           ),
@@ -303,12 +660,69 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     );
   }
 
+  void _showInviteDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => FutureBuilder<List<AICharacter>>(
+        future:
+            RepositoryProvider.of<LocalStorageRepository>(ctx).getAllAICharacters(),
+        builder: (ctx, snap) {
+          final all = snap.data ?? <AICharacter>[];
+          final inGroup = _session.aiCharacterIds.toSet();
+          final candidates =
+              all.where((c) => !inGroup.contains(c.id)).toList();
+
+          return AlertDialog(
+            title: const Text('邀请 AI 角色'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 320,
+              child: candidates.isEmpty
+                  ? const Center(child: Text('所有 AI 角色都已在群里'))
+                  : ListView.separated(
+                      itemCount: candidates.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (ctx, index) {
+                        final ch = candidates[index];
+                        return ListTile(
+                          dense: true,
+                          leading: CircleAvatar(
+                            backgroundColor:
+                                Theme.of(ctx).colorScheme.tertiaryContainer,
+                            child: const Icon(Icons.smart_toy, size: 18),
+                          ),
+                          title: Text(ch.name),
+                          subtitle: Text(ch.personality.length > 20
+                              ? ch.personality.substring(0, 20)
+                              : ch.personality),
+                          trailing: const Icon(Icons.add, size: 20),
+                          onTap: () {
+                            context.read<GroupChatBloc>().add(
+                                GroupChatAddMember(_groupId, ch.id));
+                            Navigator.pop(ctx);
+                          },
+                        );
+                      },
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('关闭'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _confirmDelete() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除群聊'),
-        content: Text('确定要删除群聊"${widget.session.name}"吗？此操作不可撤销。'),
+        content: Text('确定要删除群聊"${_session.name}"吗？此操作不可撤销。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -322,10 +736,78 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 Navigator.pop(context, true);
               }
             },
-            style: TextButton.styleFrom(foregroundColor: const Color(0xFFE53935)),
+            style:
+                TextButton.styleFrom(foregroundColor: const Color(0xFFE53935)),
             child: const Text('删除'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 群聊 AI 输入中指示
+class _TypingIndicator extends StatelessWidget {
+  final String name;
+  const _TypingIndicator({required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: cs.tertiaryContainer,
+            ),
+            child: Center(
+              child: Text(
+                name.isNotEmpty ? name.substring(0, 1) : '?',
+                style: TextStyle(
+                  color: cs.tertiary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(16).copyWith(
+                bottomLeft: const Radius.circular(4),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _dot(cs),
+                const SizedBox(width: 4),
+                _dot(cs),
+                const SizedBox(width: 4),
+                _dot(cs),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dot(ColorScheme cs) {
+    return Container(
+      width: 6,
+      height: 6,
+      decoration: BoxDecoration(
+        color: cs.onSurfaceVariant.withOpacity(0.5),
+        shape: BoxShape.circle,
       ),
     );
   }
@@ -350,28 +832,56 @@ class _MessageBubble extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final isMe = isUser;
 
+    // 系统消息：居中灰条
+    if (message.isSystem) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerHighest.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              message.content,
+              style: TextStyle(
+                fontSize: 11,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isMe) ...[
-            _messageAvatar(message.senderName, colorScheme),
+            if (showAvatar)
+              _messageAvatar(message.senderName, colorScheme)
+            else
+              const SizedBox(width: 32),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    message.senderName,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: colorScheme.primary.withOpacity(0.7),
-                      fontWeight: FontWeight.w500,
+                  if (showAvatar) ...[
+                    Text(
+                      message.senderName,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colorScheme.primary.withOpacity(0.7),
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  _buildContentBubble(message.content, colorScheme, false),
+                    const SizedBox(height: 2),
+                  ],
+                  _buildContentBubble(message, colorScheme, false),
                 ],
               ),
             ),
@@ -380,7 +890,7 @@ class _MessageBubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  _buildContentBubble(message.content, colorScheme, true),
+                  _buildContentBubble(message, colorScheme, true),
                   const SizedBox(height: 2),
                   Text(
                     _formatTime(message.timestamp),
@@ -400,7 +910,45 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildContentBubble(String content, ColorScheme cs, bool isMe) {
+  Widget _buildContentBubble(
+      GroupChatMessage msg, ColorScheme cs, bool isMe) {
+    // 图片消息
+    if (msg.type == GroupChatMessageType.image) {
+      final paths = (msg.metadata?['imagePaths'] as List?)?.cast<String>() ??
+          (msg.content.isNotEmpty ? [msg.content] : <String>[]);
+      final first = paths.isNotEmpty ? paths.first : null;
+      return Container(
+        constraints: BoxConstraints(maxWidth: screenWidth * 0.6),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: isMe ? cs.primary : cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16).copyWith(
+            bottomRight: isMe ? const Radius.circular(4) : null,
+            bottomLeft: isMe ? null : const Radius.circular(4),
+          ),
+        ),
+        child: first != null && File(first).existsSync()
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(
+                  File(first),
+                  width: 160,
+                  height: 160,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const SizedBox(
+                    width: 160,
+                    height: 160,
+                    child: Icon(Icons.broken_image),
+                  ),
+                ),
+              )
+            : const Padding(
+                padding: EdgeInsets.all(12),
+                child: Icon(Icons.broken_image),
+              ),
+      );
+    }
+
     return Container(
       constraints: BoxConstraints(
         maxWidth: screenWidth * 0.7,
@@ -414,7 +962,7 @@ class _MessageBubble extends StatelessWidget {
         ),
       ),
       child: Text(
-        content,
+        msg.content,
         style: TextStyle(
           fontSize: 15,
           color: isMe ? cs.onPrimary : cs.onSurface,

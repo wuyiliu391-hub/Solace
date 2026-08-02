@@ -45,6 +45,9 @@ class GroupChatSession extends Equatable {
   /// 背景图 URL
   final String? backgroundImage;
 
+  /// 群公告
+  final String? notice;
+
   /// 同步序列号
   final int syncSeq;
 
@@ -63,6 +66,7 @@ class GroupChatSession extends Equatable {
     this.isMuted = false,
     this.isPinned = false,
     this.backgroundImage,
+    this.notice,
     this.syncSeq = 0,
   });
 
@@ -81,6 +85,7 @@ class GroupChatSession extends Equatable {
     bool? isMuted,
     bool? isPinned,
     String? backgroundImage,
+    String? notice,
     int? syncSeq,
   }) {
     return GroupChatSession(
@@ -98,6 +103,7 @@ class GroupChatSession extends Equatable {
       isMuted: isMuted ?? this.isMuted,
       isPinned: isPinned ?? this.isPinned,
       backgroundImage: backgroundImage ?? this.backgroundImage,
+      notice: notice ?? this.notice,
       syncSeq: syncSeq ?? this.syncSeq,
     );
   }
@@ -118,6 +124,7 @@ class GroupChatSession extends Equatable {
       'isMuted': isMuted ? 1 : 0,
       'isPinned': isPinned ? 1 : 0,
       'backgroundImage': backgroundImage,
+      'notice': notice,
       'sync_seq': syncSeq,
     };
   }
@@ -175,6 +182,7 @@ class GroupChatSession extends Equatable {
       isMuted: map['isMuted'] == 1 || map['isMuted'] == true,
       isPinned: map['isPinned'] == 1 || map['isPinned'] == true,
       backgroundImage: map['backgroundImage'] as String?,
+      notice: map['notice'] as String?,
       syncSeq: (map['sync_seq'] ?? map['syncSeq']) as int? ?? 0,
     );
   }
@@ -195,6 +203,7 @@ class GroupChatSession extends Equatable {
       'isMuted': isMuted,
       'isPinned': isPinned,
       'backgroundImage': backgroundImage,
+      'notice': notice,
       'syncSeq': syncSeq,
     };
   }
@@ -222,6 +231,7 @@ class GroupChatSession extends Equatable {
       isMuted: json['isMuted'] as bool? ?? false,
       isPinned: json['isPinned'] as bool? ?? false,
       backgroundImage: json['backgroundImage'] as String?,
+      notice: json['notice'] as String?,
       syncSeq: json['syncSeq'] as int? ?? 0,
     );
   }
@@ -242,6 +252,7 @@ class GroupChatSession extends Equatable {
         isMuted,
         isPinned,
         backgroundImage,
+        notice,
         syncSeq,
       ];
 }

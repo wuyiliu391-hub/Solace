@@ -54,13 +54,15 @@ class GroupChatSendMessage extends GroupChatEvent {
   final String groupId;
   final String userId;
   final String content;
+  final List<String>? imagePaths;
   const GroupChatSendMessage({
     required this.groupId,
     required this.userId,
     required this.content,
+    this.imagePaths,
   });
   @override
-  List<Object?> get props => [groupId, userId, content];
+  List<Object?> get props => [groupId, userId, content, imagePaths];
 }
 
 /// 更新群聊信息
@@ -71,6 +73,7 @@ class GroupChatUpdateSession extends GroupChatEvent {
   final bool? isMuted;
   final bool? isPinned;
   final String? backgroundImage;
+  final String? notice; // 群公告（存 metadata['notice']）
   const GroupChatUpdateSession({
     required this.groupId,
     this.name,
@@ -78,9 +81,32 @@ class GroupChatUpdateSession extends GroupChatEvent {
     this.isMuted,
     this.isPinned,
     this.backgroundImage,
+    this.notice,
   });
   @override
-  List<Object?> get props => [groupId, name, avatarUrl, isMuted, isPinned, backgroundImage];
+  List<Object?> get props => [
+        groupId,
+        name,
+        avatarUrl,
+        isMuted,
+        isPinned,
+        backgroundImage,
+        notice,
+      ];
+}
+
+/// AI 角色回复完成（内部触发接话/接力）
+class GroupChatAIMessageSaved extends GroupChatEvent {
+  final String groupId;
+  final String characterId;
+  final String content;
+  const GroupChatAIMessageSaved({
+    required this.groupId,
+    required this.characterId,
+    required this.content,
+  });
+  @override
+  List<Object?> get props => [groupId, characterId, content];
 }
 
 /// 添加成员到群聊

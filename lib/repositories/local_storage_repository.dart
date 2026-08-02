@@ -915,6 +915,7 @@ class LocalStorageRepository {
       'isMuted': 'INTEGER NOT NULL DEFAULT 0',
       'isPinned': 'INTEGER NOT NULL DEFAULT 0',
       'backgroundImage': 'TEXT',
+      'notice': 'TEXT',
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'updatedAt': 'TEXT',
       'sync_seq': 'INTEGER NOT NULL DEFAULT 0',
@@ -1122,6 +1123,7 @@ class LocalStorageRepository {
           isMuted INTEGER NOT NULL DEFAULT 0,
           isPinned INTEGER NOT NULL DEFAULT 0,
           backgroundImage TEXT,
+          notice TEXT,
           createdAt TEXT NOT NULL DEFAULT '',
           updatedAt TEXT,
           sync_seq INTEGER NOT NULL DEFAULT 0
@@ -1131,6 +1133,8 @@ class LocalStorageRepository {
             db, 'group_chat_sessions', 'creatorId', 'TEXT NOT NULL DEFAULT ""');
         await _addColumnIfNotExists(
             db, 'group_chat_sessions', 'sync_seq', 'INTEGER NOT NULL DEFAULT 0');
+        await _addColumnIfNotExists(
+            db, 'group_chat_sessions', 'notice', 'TEXT');
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_gc_sessions_creator ON group_chat_sessions(creatorId)');
         await db.execute(
@@ -2116,6 +2120,7 @@ class LocalStorageRepository {
       isMuted INTEGER NOT NULL DEFAULT 0,
       isPinned INTEGER NOT NULL DEFAULT 0,
       backgroundImage TEXT,
+      notice TEXT,
       createdAt TEXT NOT NULL DEFAULT '',
       updatedAt TEXT,
       sync_seq INTEGER NOT NULL DEFAULT 0

@@ -1325,7 +1325,7 @@ class SolaceApp extends StatelessWidget {
             create: (_) => AuthBloc(storageRepo)..add(AuthCheckRequested()),
           ),
           BlocProvider(
-            create: (_) => GroupChatBloc(storageRepo),
+            create: (_) => GroupChatBloc(storageRepo, aiService),
           ),
           BlocProvider(
             create: (_) => ShopBloc(storageRepo),
