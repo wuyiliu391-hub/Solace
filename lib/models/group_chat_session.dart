@@ -1,6 +1,12 @@
 import 'package:equatable/equatable.dart';
 import 'dart:convert';
 
+/// 群聊激活策略（对标 SillyTavern group_activation_strategy）
+enum GroupActivationStrategy { natural, list, manual, pooled }
+
+/// 群聊生成模式（对标 SillyTavern group_generation_mode）
+enum GroupGenerationMode { swap, append, appendDisabled }
+
 /// AI 群聊会话（对标 ChatSession 模式）
 class GroupChatSession extends Equatable {
   /// 会话唯一 ID
@@ -51,6 +57,33 @@ class GroupChatSession extends Equatable {
   /// 同步序列号
   final int syncSeq;
 
+  /// 当前聊天记录 id（多聊天记录，默认=群 id）
+  final String chatId;
+
+  /// 激活策略：natural 提及+话痨 / list 按序轮流 / manual 手动 / pooled 轮转池
+  final GroupActivationStrategy activationStrategy;
+
+  /// 生成模式：swap 逐角色 / append 合并卡 / appendDisabled 合并卡(禁言排除)
+  final GroupGenerationMode generationMode;
+
+  /// 允许同一角色连续发言
+  final bool allowSelfResponses;
+
+  /// 禁言成员 id 列表
+  final List<String> disabledMemberIds;
+
+  /// 自动接话轮询间隔（秒，对标 auto_mode_delay 默认 5）
+  final int autoModeDelay;
+
+  /// 自动接话总开关
+  final bool autoModeEnabled;
+
+  /// APPEND 合并角色卡字段前缀模板
+  final String joinPrefix;
+
+  /// APPEND 合并角色卡字段后缀模板
+  final String joinSuffix;
+
   const GroupChatSession({
     required this.id,
     required this.name,
@@ -68,7 +101,16 @@ class GroupChatSession extends Equatable {
     this.backgroundImage,
     this.notice,
     this.syncSeq = 0,
-  });
+    String? chatId,
+    this.activationStrategy = GroupActivationStrategy.natural,
+    this.generationMode = GroupGenerationMode.swap,
+    this.allowSelfResponses = false,
+    this.disabledMemberIds = const [],
+    this.autoModeDelay = 5,
+    this.autoModeEnabled = false,
+    this.joinPrefix = '',
+    this.joinSuffix = '',
+  }) : chatId = chatId ?? id;
 
   GroupChatSession copyWith({
     String? id,
@@ -87,6 +129,15 @@ class GroupChatSession extends Equatable {
     String? backgroundImage,
     String? notice,
     int? syncSeq,
+    String? chatId,
+    GroupActivationStrategy? activationStrategy,
+    GroupGenerationMode? generationMode,
+    bool? allowSelfResponses,
+    List<String>? disabledMemberIds,
+    int? autoModeDelay,
+    bool? autoModeEnabled,
+    String? joinPrefix,
+    String? joinSuffix,
   }) {
     return GroupChatSession(
       id: id ?? this.id,
@@ -105,6 +156,15 @@ class GroupChatSession extends Equatable {
       backgroundImage: backgroundImage ?? this.backgroundImage,
       notice: notice ?? this.notice,
       syncSeq: syncSeq ?? this.syncSeq,
+      chatId: chatId ?? this.chatId,
+      activationStrategy: activationStrategy ?? this.activationStrategy,
+      generationMode: generationMode ?? this.generationMode,
+      allowSelfResponses: allowSelfResponses ?? this.allowSelfResponses,
+      disabledMemberIds: disabledMemberIds ?? this.disabledMemberIds,
+      autoModeDelay: autoModeDelay ?? this.autoModeDelay,
+      autoModeEnabled: autoModeEnabled ?? this.autoModeEnabled,
+      joinPrefix: joinPrefix ?? this.joinPrefix,
+      joinSuffix: joinSuffix ?? this.joinSuffix,
     );
   }
 
@@ -126,6 +186,15 @@ class GroupChatSession extends Equatable {
       'backgroundImage': backgroundImage,
       'notice': notice,
       'sync_seq': syncSeq,
+      'chatId': chatId,
+      'activationStrategy': activationStrategy.index,
+      'generationMode': generationMode.index,
+      'allowSelfResponses': allowSelfResponses ? 1 : 0,
+      'disabledMemberIds': jsonEncode(disabledMemberIds),
+      'autoModeDelay': autoModeDelay,
+      'autoModeEnabled': autoModeEnabled ? 1 : 0,
+      'joinPrefix': joinPrefix,
+      'joinSuffix': joinSuffix,
     };
   }
 
@@ -167,6 +236,25 @@ class GroupChatSession extends Equatable {
       return [];
     }
 
+    final chatIdVal =
+        map['chatId']?.toString() ?? map['id']?.toString() ?? '';
+    final asVal = map['activationStrategy'];
+    final asEnum = asVal is int && asVal >= 0 && asVal < GroupActivationStrategy.values.length
+        ? GroupActivationStrategy.values[asVal]
+        : GroupActivationStrategy.natural;
+    final gmVal = map['generationMode'];
+    final gmEnum = gmVal is int && gmVal >= 0 && gmVal < GroupGenerationMode.values.length
+        ? GroupGenerationMode.values[gmVal]
+        : GroupGenerationMode.swap;
+    final rawDisabled = map['disabledMemberIds'];
+    List<String> disabled = [];
+    if (rawDisabled is String && rawDisabled.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawDisabled);
+        if (decoded is List) disabled = decoded.cast<String>();
+      } catch (_) {}
+    }
+
     return GroupChatSession(
       id: map['id'] as String,
       name: map['name'] as String? ?? '',
@@ -184,6 +272,17 @@ class GroupChatSession extends Equatable {
       backgroundImage: map['backgroundImage'] as String?,
       notice: map['notice'] as String?,
       syncSeq: (map['sync_seq'] ?? map['syncSeq']) as int? ?? 0,
+      chatId: chatIdVal,
+      activationStrategy: asEnum,
+      generationMode: gmEnum,
+      allowSelfResponses:
+          map['allowSelfResponses'] == 1 || map['allowSelfResponses'] == true,
+      disabledMemberIds: disabled,
+      autoModeDelay: (map['autoModeDelay'] as int?) ?? 5,
+      autoModeEnabled:
+          map['autoModeEnabled'] == 1 || map['autoModeEnabled'] == true,
+      joinPrefix: map['joinPrefix']?.toString() ?? '',
+      joinSuffix: map['joinSuffix']?.toString() ?? '',
     );
   }
 
@@ -205,10 +304,28 @@ class GroupChatSession extends Equatable {
       'backgroundImage': backgroundImage,
       'notice': notice,
       'syncSeq': syncSeq,
+      'chatId': chatId,
+      'activationStrategy': activationStrategy.index,
+      'generationMode': generationMode.index,
+      'allowSelfResponses': allowSelfResponses,
+      'disabledMemberIds': disabledMemberIds,
+      'autoModeDelay': autoModeDelay,
+      'autoModeEnabled': autoModeEnabled,
+      'joinPrefix': joinPrefix,
+      'joinSuffix': joinSuffix,
     };
   }
 
   factory GroupChatSession.fromJson(Map<String, dynamic> json) {
+    final chatIdVal = json['chatId']?.toString() ?? json['id']?.toString() ?? '';
+    final asVal = json['activationStrategy'];
+    final asEnum = asVal is int && asVal >= 0 && asVal < GroupActivationStrategy.values.length
+        ? GroupActivationStrategy.values[asVal]
+        : GroupActivationStrategy.natural;
+    final gmVal = json['generationMode'];
+    final gmEnum = gmVal is int && gmVal >= 0 && gmVal < GroupGenerationMode.values.length
+        ? GroupGenerationMode.values[gmVal]
+        : GroupGenerationMode.swap;
     return GroupChatSession(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
@@ -233,6 +350,16 @@ class GroupChatSession extends Equatable {
       backgroundImage: json['backgroundImage'] as String?,
       notice: json['notice'] as String?,
       syncSeq: json['syncSeq'] as int? ?? 0,
+      chatId: chatIdVal,
+      activationStrategy: asEnum,
+      generationMode: gmEnum,
+      allowSelfResponses: json['allowSelfResponses'] as bool? ?? false,
+      disabledMemberIds:
+          (json['disabledMemberIds'] as List<dynamic>?)?.cast<String>() ?? [],
+      autoModeDelay: json['autoModeDelay'] as int? ?? 5,
+      autoModeEnabled: json['autoModeEnabled'] as bool? ?? false,
+      joinPrefix: json['joinPrefix'] as String? ?? '',
+      joinSuffix: json['joinSuffix'] as String? ?? '',
     );
   }
 
@@ -254,5 +381,14 @@ class GroupChatSession extends Equatable {
         backgroundImage,
         notice,
         syncSeq,
+        chatId,
+        activationStrategy,
+        generationMode,
+        allowSelfResponses,
+        disabledMemberIds,
+        autoModeDelay,
+        autoModeEnabled,
+        joinPrefix,
+        joinSuffix,
       ];
 }
