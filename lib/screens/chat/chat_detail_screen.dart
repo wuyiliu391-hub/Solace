@@ -1548,7 +1548,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
     _scrollController.addListener(_onScroll);
     _initialize();
-    BuiltinStickerService.loadDefaultPack();
+    unawaited(BuiltinStickerService.loadDefaultPack().catchError((_) {}));
     _startUsageReminderTimer();
 
     // 监听模式切换（小说模式等），切换后立即重建所有气泡

@@ -2602,6 +2602,7 @@ $tail
 
       // 如果 AI 没有返回内容且没有执行工具，走普通角色聊天路径
       // （非工具请求也会走到这里，aiVisibleText 为空，触发 normal AI response）
+      List<RegExpMatch> aiStickerMatches = const [];
       if (aiVisibleText.isEmpty && !agentHadTool) {
         // 非工具请求或工具路径未返回内容，走角色聊天路径
         try {
@@ -2624,6 +2625,7 @@ $tail
           );
           aiVisibleText = normalResult.cleanText;
           reasoningText = normalResult.reasoning;
+          aiStickerMatches = normalResult.stickerMatches;
 
           if (aiVisibleText.contains('<DEVICE_ACTION>')) {
             final deviceResult =
@@ -2715,6 +2717,33 @@ $tail
         LogService.instance.e('Bloc',
             '_onSendMessage: AI reply save failed: ',
             chatId: event.chatId);
+      }
+
+      // AI 回复中带贴纸标签 → 追加保存为独立的贴纸消息（此前提取后从未消费，贴纸丢失）
+      if (_isStickerReplyEnabled(character) && aiStickerMatches.isNotEmpty) {
+        await BuiltinStickerService.loadDefaultPack();
+        for (final match in aiStickerMatches) {
+          final stickerId = match.group(1) ?? '';
+          final sticker = BuiltinStickerService.findStickerById(stickerId);
+          if (sticker == null) continue;
+          await _storage.saveChatMessage(ChatMessage(
+            id: _uuid.v4(),
+            chatId: event.chatId,
+            senderId: 'ai_${character.id}',
+            senderName: character.name,
+            content: sticker.id,
+            type: MessageType.sticker,
+            status: MessageStatus.sent,
+            createdAt: DateTime.now(),
+            metadata: {
+              'stickerId': sticker.id,
+              'stickerName': sticker.name,
+              'isBuiltinSticker': true,
+              'stickerFile': sticker.file,
+            },
+          ));
+        }
+        emit(ChatMessagesLoaded(await _storage.getChatMessages(event.chatId)));
       }
 
       // 文本单聊：AI 回复成功后结算亲密度（此前漏接导致永远不加）
@@ -2867,8 +2896,11 @@ $tail
               await _storage.getChatMessages(event.chatId), character.name));
         }
         final part = parts[i];
-        final stickerMatch =
-            stickerReplyEnabled ? _stickerFullLineRe.firstMatch(part) : null;
+        // 兼容整行贴纸 [STICKER:x] 或文本夹带（哈哈[STICKER:x]）
+        final stickerMatch = stickerReplyEnabled
+            ? (_stickerFullLineRe.firstMatch(part) ??
+                _stickerTagRe.firstMatch(part))
+            : null;
         if (stickerMatch != null) {
           final stickerId = stickerMatch.group(1)!;
           final sticker = BuiltinStickerService.findStickerById(stickerId);
@@ -2888,6 +2920,37 @@ $tail
                 'isBuiltinSticker': true,
                 'stickerFile': sticker.file
               },
+            ));
+            // 文本夹带贴纸：剩余文本另存一条
+            if (!_stickerFullLineRe.hasMatch(part)) {
+              final remainder =
+                  part.replaceAll(_stickerTagRe, '').trim();
+              if (remainder.isNotEmpty) {
+                await _storage.saveChatMessage(ChatMessage(
+                  id: _uuid.v4(),
+                  chatId: event.chatId,
+                  senderId: 'ai_${character.id}',
+                  senderName: character.name,
+                  content: remainder,
+                  type: MessageType.text,
+                  status: MessageStatus.sent,
+                  createdAt: DateTime.now(),
+                  metadata: const {'isProactive': true},
+                ));
+              }
+            }
+          } else {
+            // 贴纸 ID 不在内置库：降级为纯文本展示
+            await _storage.saveChatMessage(ChatMessage(
+              id: _uuid.v4(),
+              chatId: event.chatId,
+              senderId: 'ai_${character.id}',
+              senderName: character.name,
+              content: part,
+              type: MessageType.text,
+              status: MessageStatus.sent,
+              createdAt: DateTime.now(),
+              metadata: const {'isProactive': true},
             ));
           }
         } else {
@@ -3449,6 +3512,9 @@ $tail
       String userMessageForAI;
       SentimentResult sentimentResult;
 
+      // 确保内置贴纸包已加载（否则描述退化为"一个表情包"，AI 读不到具体情绪）
+      await BuiltinStickerService.loadDefaultPack();
+
       final stickerDesc =
           BuiltinStickerService.getStickerDescription(event.sticker);
       userMessageForAI = '[用户发送了一个表情包：$stickerDesc]';
@@ -3520,8 +3586,11 @@ $tail
         }
 
         final part = messageParts[i];
-        final stickerMatch =
-            stickerReplyEnabled ? _stickerFullLineRe.firstMatch(part) : null;
+        // 兼容两种格式：整行贴纸 [STICKER:x] 或文本中夹带（哈哈[STICKER:x]）
+        final stickerMatch = stickerReplyEnabled
+            ? (_stickerFullLineRe.firstMatch(part) ??
+                _stickerTagRe.firstMatch(part))
+            : null;
         if (stickerMatch != null) {
           final stickerId = stickerMatch.group(1)!;
           final sticker = BuiltinStickerService.findStickerById(stickerId);
@@ -3543,6 +3612,35 @@ $tail
               },
             );
             await _storage.saveChatMessage(aiMessage);
+            // 整行贴纸：不再存文本；文本夹带贴纸：剩余文本另存一条
+            if (!_stickerFullLineRe.hasMatch(part)) {
+              final remainder =
+                  part.replaceAll(_stickerTagRe, '').trim();
+              if (remainder.isNotEmpty) {
+                await _storage.saveChatMessage(ChatMessage(
+                  id: _uuid.v4(),
+                  chatId: event.chatId,
+                  senderId: 'ai_${character.id}',
+                  senderName: character.name,
+                  content: remainder,
+                  type: MessageType.text,
+                  status: MessageStatus.sent,
+                  createdAt: DateTime.now(),
+                ));
+              }
+            }
+          } else {
+            // 贴纸 ID 不在内置库：降级为纯文本展示
+            await _storage.saveChatMessage(ChatMessage(
+              id: _uuid.v4(),
+              chatId: event.chatId,
+              senderId: 'ai_${character.id}',
+              senderName: character.name,
+              content: part,
+              type: MessageType.text,
+              status: MessageStatus.sent,
+              createdAt: DateTime.now(),
+            ));
           }
         } else {
           final aiMessage = ChatMessage(
