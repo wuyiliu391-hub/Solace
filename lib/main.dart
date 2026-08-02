@@ -23,8 +23,6 @@ import 'screens/pure_ai/pure_ai_chat_screen.dart';
 import 'screens/memory/memory_screen.dart';
 import 'screens/moments/moments_screen.dart';
 import 'screens/profile/profile_screen.dart';
-// P2: 世界功能暂不开放
-// import 'screens/world/world_home_screen.dart';
 import 'screens/discover/growth_track_screen.dart';
 import 'screens/discover/ai_activity_feed_screen.dart';
 import 'screens/discover/relationship_dashboard.dart';
@@ -70,8 +68,6 @@ import 'services/memory_engine.dart';
 import 'services/core_hub.dart';
 import 'services/usage_meter_service.dart';
 import 'services/memory_rebuild_service.dart';
-// P2: 世界功能暂不开放
-// import 'services/world_engine.dart';
 import 'services/llm_service.dart';
 import 'models/app_config_data.dart';
 
@@ -850,9 +846,6 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
       //   return const ForumScreen();
       case '/lucky_wheel':
         return const LuckyWheelScreen();
-      // P2: 世界功能暂不开放
-      // case '/world':
-      //   return const WorldHomeScreen();
       default:
         return null;
     }
