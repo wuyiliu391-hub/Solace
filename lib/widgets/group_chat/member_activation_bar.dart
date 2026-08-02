@@ -70,7 +70,8 @@ class _MemberActivationBarState extends State<MemberActivationBar> {
           height: 64,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            // 视口 = 64 - 2*4 = 56px ≥ 条目高度(38+2+名字行高≈53)，避免底部 1px 溢出
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             itemCount: widget.members.length,
             separatorBuilder: (_, __) => const SizedBox(width: 10),
             itemBuilder: (context, index) {

@@ -133,6 +133,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
           groupId: event.groupId,
           branches: branches,
           currentChatId: session.chatId ?? '',
+          // 同批消息随分支态携带：UI 若因同帧合并只看到本状态，也能渲染消息区
+          messages: messages,
         ));
       }
     } catch (e) {

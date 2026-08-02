@@ -98,11 +98,16 @@ class GroupChatBranchesLoaded extends GroupChatState {
   final String groupId;
   final List<GroupChatBranch> branches;
   final String currentChatId;
+
+  /// 加载时附带的同批消息。_onLoadMessages 会紧随其后 emit MessagesLoaded，
+  /// 两帧合并时中间态可能被吞掉，故分支态自携带消息，供 UI 兜底渲染。
+  final List<GroupChatMessage> messages;
   const GroupChatBranchesLoaded({
     required this.groupId,
     required this.branches,
     required this.currentChatId,
+    this.messages = const [],
   });
   @override
-  List<Object?> get props => [groupId, branches, currentChatId];
+  List<Object?> get props => [groupId, branches, currentChatId, messages];
 }

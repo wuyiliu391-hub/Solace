@@ -226,11 +226,28 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                       _isLoading = false;
                       return _buildMessageList();
                     }
+                    if (state is GroupChatBranchesLoaded &&
+                        state.groupId == _groupId) {
+                      // _onLoadMessages 紧随 MessagesLoaded 又 emit 本状态，
+                      // 同帧合并时 MessagesLoaded 可能被吞 → 分支态自携带消息兜底，
+                      // 确保空列表也有「已加载」终止分支，不再回到转圈。
+                      if (state.messages.isNotEmpty) {
+                        _messages = state.messages;
+                      }
+                      _isLoading = false;
+                      return _buildMessageList();
+                    }
                     if (state is GroupChatLoading && _isLoading) {
                       return const Center(child: CircularProgressIndicator());
                     }
                     if (state is GroupChatError) {
                       return Center(child: Text('加载失败: ${state.message}'));
+                    }
+                    // 已加载过（含空列表）的终止分支：GroupChatBloc 是全局共享单例，
+                    // 列表页/主页的 GroupChatLoadSessions 刷新会随时把状态切回
+                    // Loading/SessionsLoaded。若此时没有此分支，页面会回到转圈。
+                    if (!_isLoading) {
+                      return _buildMessageList();
                     }
                     return const Center(child: CircularProgressIndicator());
                   },
