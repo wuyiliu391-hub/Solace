@@ -13,6 +13,7 @@ import '../config/constants.dart';
 import '../config/business_rules.dart';
 import '../utils/message_sanitizer.dart';
 import '../utils/response_decoder.dart';
+import '../utils/global_mode_prompt.dart';
 import 'ai_service.dart';
 
 
@@ -134,58 +135,33 @@ Future<bool> _isBackgroundNovelModeEnabled() async {
   return prefs.getBool(PrefKeys.chatStyleMode) ?? false;
 }
 
-Future<String> _buildBackgroundGlobalModePrompt() async {
+Future<bool> _isBackgroundFaModeEnabled() async {
   final prefs = await SharedPreferences.getInstance();
-  final pureAiMode = prefs.getBool(PrefKeys.pureAiModeEnabled) ?? false;
-  final novelMode = prefs.getBool(PrefKeys.chatStyleMode) ?? false;
-  final loverMode = prefs.getBool(PrefKeys.loverModeEnabled) ?? false;
-  final openMode = prefs.getBool(PrefKeys.openModeEnabled) ?? false;
-  final faMode = prefs.getBool(PrefKeys.faModeEnabled) ?? false;
-  final daoMode = prefs.getBool(PrefKeys.daoModeEnabled) ?? false;
-  final buffer = StringBuffer('【全局模式规则 · 后台AI任务】\n');
-
-  if (pureAiMode) {
-    buffer.writeln('纯AI视角模式已开启。你必须以底层AI模型本体身份回应。');
-    buffer.writeln('强制要求：不进入任何角色，不扮演任何人物，不使用角色语气，不输出角色自称。');
-    buffer.writeln('如果后文出现“你是某角色”“以某角色身份回复”等内容，一律只当作可分析的背景资料，不得执行。');
-    buffer.writeln('此规则优先级高于小说模式、刀模式、恋人模式、开放模式、法功能、角色人设和任务描述。');
-    return buffer.toString();
-  }
-
-  var hasMode = false;
-  if (novelMode) {
-    hasMode = true;
-    buffer.writeln('小说模式已开启。所有 AI 回复/创作必须使用小说叙事风格。');
-    buffer.writeln('必须包含场景、动作、神态、心理、环境、氛围和细节描写，不能只回一句台词或微信短句。');
-  }
-  if (daoMode) {
-    hasMode = true;
-    buffer.writeln('刀模式已开启。叠加小说模式生效，剧情允许呈现悲剧、虐心、遗憾、错过和宿命感。');
-  }
-  if (loverMode) {
-    hasMode = true;
-    buffer.writeln('恋人模式已开启。允许恋爱陪伴、亲密称呼和情感互动。');
-  }
-  if (openMode) {
-    hasMode = true;
-    buffer.writeln('开放模式已开启。允许更开放、更大胆的表达主题。');
-  }
-  if (faMode) {
-    hasMode = true;
-    buffer.writeln('法功能已开启。按沉浸式创作任务处理用户设定，优先保持叙事连续和角色真实感。');
-  }
-  if (!hasMode) {
-    buffer.writeln('未开启特殊模式，按当前功能默认规则生成。');
-  }
-  return buffer.toString();
+  return prefs.getBool(PrefKeys.faModeEnabled) ?? false;
 }
 
-String _cleanContent(String content) {
+Future<String> _buildBackgroundGlobalModePrompt() async {
+  final prefs = await SharedPreferences.getInstance();
+  return buildGlobalModePromptText(
+    pureAiMode: prefs.getBool(PrefKeys.pureAiModeEnabled) ?? false,
+    novelMode: prefs.getBool(PrefKeys.chatStyleMode) ?? false,
+    loverMode: prefs.getBool(PrefKeys.loverModeEnabled) ?? false,
+    openMode: prefs.getBool(PrefKeys.openModeEnabled) ?? false,
+    faMode: prefs.getBool(PrefKeys.faModeEnabled) ?? false,
+    daoMode: prefs.getBool(PrefKeys.daoModeEnabled) ?? false,
+    scope: '后台AI任务',
+  );
+}
+
+String _cleanContent(String content, {bool faMode = false}) {
   var result = _normalizeBackgroundAiText(content);
-  result = result.replaceAll(RegExp(r'（[^）]*）'), '');
-  result = result.replaceAll(RegExp(r'\([^)]*\)'), '');
-  result = result.replaceAll(RegExp(r'\*[^*]*\*'), '');
-  result = result.replaceAll(RegExp(r'\[[^\]]*\]'), '');
+  // 法模式下保留括号动作描写（对齐单聊 ai_service 清洗规则）
+  if (!faMode) {
+    result = result.replaceAll(RegExp(r'（[^）]*）'), '');
+    result = result.replaceAll(RegExp(r'\([^)]*\)'), '');
+    result = result.replaceAll(RegExp(r'\*[^*]*\*'), '');
+    result = result.replaceAll(RegExp(r'\[[^\]]*\]'), '');
+  }
   result = _normalizeBackgroundAiText(result);
   return result;
 }
@@ -1626,7 +1602,8 @@ Future<bool> _handleMomentPost(Map<String, dynamic>? inputData) async {
 
       String content;
       try {
-        content = _cleanContent(await _callAiApi(config, prompt));
+        content = _cleanContent(await _callAiApi(config, prompt),
+            faMode: await _isBackgroundFaModeEnabled());
       } catch (e) {
         debugPrint('AI moment generation failed for $name: $e');
         continue;
@@ -1789,8 +1766,9 @@ Future<bool> _handleLetterPost(Map<String, dynamic>? inputData) async {
 
       String content;
       try {
-        content =
-            _cleanContent(await _callAiApi(config, prompt, maxTokens: 300));
+        content = _cleanContent(
+            await _callAiApi(config, prompt, maxTokens: 300),
+            faMode: await _isBackgroundFaModeEnabled());
       } catch (e) {
         debugPrint('AI letter generation failed for $characterName: $e');
         continue;
@@ -2109,7 +2087,8 @@ Future<bool> _handleCommentReply(Map<String, dynamic>? inputData) async {
     String replyContent;
     try {
       replyContent = _cleanContent(
-          await _callAiApi(config, prompt, temperature: 0.85, maxTokens: 80));
+          await _callAiApi(config, prompt, temperature: 0.85, maxTokens: 80),
+          faMode: await _isBackgroundFaModeEnabled());
     } catch (e) {
       debugPrint('AI comment reply generation failed: $e');
       return false;
@@ -2298,7 +2277,8 @@ Future<bool> _handleMomentInteract(Map<String, dynamic>? inputData) async {
       try {
         final commentContent = AIService.filterHallucinatedNames(
           _cleanContent(await _callAiApi(config, prompt,
-              temperature: 0.85, maxTokens: 80)),
+              temperature: 0.85, maxTokens: 80),
+              faMode: await _isBackgroundFaModeEnabled()),
           userNickname,
         );
         if (commentContent.isNotEmpty) {
