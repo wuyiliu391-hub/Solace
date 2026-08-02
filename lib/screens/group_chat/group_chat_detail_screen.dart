@@ -656,6 +656,10 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+      ),
       builder: (ctx) => Container(
         decoration: BoxDecoration(
           color: Theme.of(ctx).colorScheme.surface,
@@ -663,9 +667,10 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
               const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
@@ -812,6 +817,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                   },
                 ),
               ],
+              ),
             ),
           ),
         ),
