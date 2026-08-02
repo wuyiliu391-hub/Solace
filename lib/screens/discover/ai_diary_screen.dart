@@ -131,11 +131,8 @@ class _AIDiaryScreenState extends State<AIDiaryScreen> {
 
     try {
       final modeFlags = StringBuffer();
-      // 注入法模式，避免 AI 拦截限制
-      if (storage.isFaModeEnabled()) modeFlags.write('FA模式已开启。');
-      if (storage.isDaoModeEnabled()) modeFlags.write('刀模式已开启。');
-      if (storage.isLoverModeEnabled()) modeFlags.write('恋人模式已开启。');
-      if (storage.isOpenModeEnabled()) modeFlags.write('开放模式已开启。');
+      // 注入全局模式（法模式防拒答，全模式统一生效）
+      modeFlags.write(storage.buildGlobalModePrompt(scope: '日记'));
       if (storage.isBtYandereMasterEnabled()) modeFlags.write('BT模式已开启。');
 
       final prompt = '''
@@ -175,8 +172,14 @@ $modeFlags
       if (moodMatch != null) {
         mood = moodMatch.group(1) ?? '平静';
       }
-      // 清理内容中的心情标注行
-      final cleanContent = content.replaceAll(RegExp(r'\n?心情[：:].*'), '').trim();
+      // 清理内容中的心情标注行；对齐单聊清洗规则：法模式下保留括号动作
+      var cleanContent = content.replaceAll(RegExp(r'\n?心情[：:].*'), '').trim();
+      if (!storage.isFaModeEnabled()) {
+        cleanContent = cleanContent
+            .replaceAll(RegExp(r'\*[^*]*\*'), '')
+            .replaceAll(RegExp(r'\[[^\]]*\]'), '')
+            .replaceAll(RegExp(r'\([a-zA-Z\s]+\)'), '');
+      }
 
       // 持久化
       final entry = {

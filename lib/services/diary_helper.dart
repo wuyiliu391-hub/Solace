@@ -68,12 +68,8 @@ class DiaryHelper {
     final config = await storage.getActiveAIConfig();
     if (config == null) return;
 
-    // 注入法模式
-    final modeFlags = StringBuffer();
-    if (storage.isFaModeEnabled()) modeFlags.write('FA模式已开启。');
-    if (storage.isDaoModeEnabled()) modeFlags.write('刀模式已开启。');
-    if (storage.isLoverModeEnabled()) modeFlags.write('恋人模式已开启。');
-    if (storage.isOpenModeEnabled()) modeFlags.write('开放模式已开启。');
+    // 注入全局模式（法模式防拒答、小说/刀/恋人/开放统一生效）
+    final modeFlags = storage.buildGlobalModePrompt(scope: '日记');
 
     final prompt = '''
 你是$characterName，一个真实存在的角色，不是AI。
@@ -123,7 +119,14 @@ ${userMessages.map((m) => '- $m').join('\n')}
     String mood = '平静';
     final moodMatch = RegExp(r'心情[：:]\s*(\S+)').firstMatch(content);
     if (moodMatch != null) mood = moodMatch.group(1) ?? '平静';
-    final cleanContent = content.replaceAll(RegExp(r'\n?心情[：:].*'), '').trim();
+    var cleanContent = content.replaceAll(RegExp(r'\n?心情[：:].*'), '').trim();
+    // 对齐单聊清洗规则（ai_service:912-916）：法模式下保留括号动作
+    if (!storage.isFaModeEnabled()) {
+      cleanContent = cleanContent
+          .replaceAll(RegExp(r'\*[^*]*\*'), '')
+          .replaceAll(RegExp(r'\[[^\]]*\]'), '')
+          .replaceAll(RegExp(r'\([a-zA-Z\s]+\)'), '');
+    }
 
     final raw = storage.getString(PrefKeys.diaryEntriesV2) ?? '[]';
     final List<dynamic> entries = jsonDecode(raw);
