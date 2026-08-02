@@ -1157,6 +1157,17 @@ class LocalStorageRepository {
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_gc_msgs_group ON group_chat_messages(groupId, createdAt DESC)');
         break;
+      case 'group_chat_branches':
+        await db.execute('''CREATE TABLE IF NOT EXISTS group_chat_branches (
+          branchId TEXT PRIMARY KEY,
+          groupId TEXT NOT NULL DEFAULT '',
+          name TEXT NOT NULL DEFAULT '',
+          createdAt TEXT NOT NULL DEFAULT '',
+          updatedAt TEXT
+        )''');
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_gc_branches_group ON group_chat_branches(groupId)');
+        break;
     }
   }
 
@@ -1887,6 +1898,56 @@ class LocalStorageRepository {
       await _ensureShopItemsSchema(db, force: true);
       debugPrint('✅ v64 迁移: shop_items 强制 schema 就绪');
     }
+    if (oldVersion < 65) {
+      // v65: SillyTavern 群聊引擎还原 — 配置字段 + 多聊天记录 + 话痨属性
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'talkativeness', 'REAL NOT NULL DEFAULT 0.5');
+      await _addColumnIfNotExists(
+          db, 'group_chat_sessions', 'chatId', 'TEXT NOT NULL DEFAULT ""');
+      await _addColumnIfNotExists(db, 'group_chat_sessions',
+          'activationStrategy', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'group_chat_sessions', 'generationMode', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'group_chat_sessions',
+          'allowSelfResponses', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'group_chat_sessions',
+          'disabledMemberIds', 'TEXT NOT NULL DEFAULT "[]"');
+      await _addColumnIfNotExists(
+          db, 'group_chat_sessions', 'autoModeDelay', 'INTEGER NOT NULL DEFAULT 5');
+      await _addColumnIfNotExists(
+          db, 'group_chat_sessions', 'autoModeEnabled', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'group_chat_sessions', 'joinPrefix', 'TEXT NOT NULL DEFAULT ""');
+      await _addColumnIfNotExists(
+          db, 'group_chat_sessions', 'joinSuffix', 'TEXT NOT NULL DEFAULT ""');
+      await _addColumnIfNotExists(
+          db, 'group_chat_messages', 'chatId', 'TEXT NOT NULL DEFAULT ""');
+      // 老消息归入默认分支（chatId=groupId）
+      await db.execute(
+          'UPDATE group_chat_messages SET chatId = groupId WHERE chatId = ""');
+      await db.execute('''CREATE TABLE IF NOT EXISTS group_chat_branches (
+        branchId TEXT PRIMARY KEY,
+        groupId TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL DEFAULT '',
+        createdAt TEXT NOT NULL DEFAULT '',
+        updatedAt TEXT
+      )''');
+      // 每个群补默认分支 + 当前 chatId 指向群 id
+      final sessions = await db.query('group_chat_sessions');
+      for (final row in sessions) {
+        final gid = row['id'] as String;
+        await db.insert('group_chat_branches', {
+          'branchId': gid,
+          'groupId': gid,
+          'name': '默认聊天',
+          'createdAt': DateTime.now().toIso8601String(),
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        await db.rawUpdate(
+            'UPDATE group_chat_sessions SET chatId = ? WHERE id = ? AND chatId = ""',
+            [gid, gid]);
+      }
+      debugPrint(' v65 迁移: 群聊引擎字段 + 分支表已就绪');
+    }
   }
 
   /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
@@ -2144,6 +2205,31 @@ class LocalStorageRepository {
     ) ''');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_gc_msgs_group ON group_chat_messages(groupId, createdAt DESC)');
+
+    // v65: 群聊分支表（多聊天记录）+ 引擎配置字段 + 话痨属性
+    await createMissingTable(db, 'group_chat_branches');
+    await _addColumnIfNotExists(
+        db, 'ai_characters', 'talkativeness', 'REAL NOT NULL DEFAULT 0.5');
+    await _addColumnIfNotExists(
+        db, 'group_chat_sessions', 'chatId', 'TEXT NOT NULL DEFAULT ""');
+    await _addColumnIfNotExists(
+        db, 'group_chat_sessions', 'activationStrategy', 'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfNotExists(
+        db, 'group_chat_sessions', 'generationMode', 'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfNotExists(
+        db, 'group_chat_sessions', 'allowSelfResponses', 'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfNotExists(
+        db, 'group_chat_sessions', 'disabledMemberIds', 'TEXT NOT NULL DEFAULT "[]"');
+    await _addColumnIfNotExists(
+        db, 'group_chat_sessions', 'autoModeDelay', 'INTEGER NOT NULL DEFAULT 5');
+    await _addColumnIfNotExists(
+        db, 'group_chat_sessions', 'autoModeEnabled', 'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfNotExists(
+        db, 'group_chat_sessions', 'joinPrefix', 'TEXT NOT NULL DEFAULT ""');
+    await _addColumnIfNotExists(
+        db, 'group_chat_sessions', 'joinSuffix', 'TEXT NOT NULL DEFAULT ""');
+    await _addColumnIfNotExists(
+        db, 'group_chat_messages', 'chatId', 'TEXT NOT NULL DEFAULT ""');
   }
 
   Future<void> saveUser(User user) async {
