@@ -40,11 +40,6 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   List<GroupChatMessage> _messages = [];
   bool _isLoading = true;
 
-  /// 当前流式输出的 AI 角色名 + 文本（来自 GroupChatStreaming）
-  String? _streamingCharacter;
-  String _streamingText = '';
-  bool _aiTyping = false;
-
   /// 群内 AI 成员（激活条/侧滑面板/角色色）
   List<AICharacter> _members = [];
 
@@ -212,16 +207,11 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     // 流式输出中：AI 回复实时显示
                     if (state is GroupChatStreaming &&
                         state.groupId == _groupId) {
-                      _streamingCharacter = state.characterName;
-                      _streamingText = state.streamingText;
-                      _aiTyping = true;
                       _isLoading = false;
                       return _buildMessageList(streaming: state);
                     }
                     if (state is GroupChatTyping &&
                         state.groupId == _groupId) {
-                      _aiTyping = true;
-                      _streamingText = '';
                       _isLoading = false;
                       return _buildMessageList(
                           typingCharacter: state.characterName);
@@ -229,9 +219,6 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     if (state is GroupChatMessagesLoaded &&
                         state.groupId == _groupId) {
                       _messages = state.messages;
-                      _aiTyping = false;
-                      _streamingText = '';
-                      _streamingCharacter = '';
                       _isLoading = false;
                       return _buildMessageList();
                     }
