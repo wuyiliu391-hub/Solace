@@ -928,6 +928,10 @@ ${majorEventDescription != null ? '【重大事件】\n$majorEventDescription\n'
       body: jsonEncode({
         'model': config.modelName,
         'messages': [
+          {
+            'role': 'system',
+            'content': _storage.buildGlobalModePrompt(scope: '人格进化')
+          },
           {'role': 'user', 'content': prompt}
         ],
         'temperature': 0.5,
