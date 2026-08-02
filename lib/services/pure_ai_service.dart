@@ -9,12 +9,14 @@ import '../repositories/local_storage_repository.dart';
 import '../config/constants.dart';
 import '../utils/response_decoder.dart';
 import '../utils/message_sanitizer.dart';
+import '../utils/vision_image_encoder.dart';
 import 'bing_cn_mcp_service.dart';
 import 'prompt_rewriter.dart';
 import 'usage_meter_service.dart';
 
 class PureAIService {
   final LocalStorageRepository _storage;
+  final VisionImageEncoder _visionEncoder = VisionImageEncoder();
   Map<String, dynamic>? _lastWebSearchTrace;
 
   Map<String, dynamic>? get lastWebSearchTrace => _lastWebSearchTrace;
@@ -25,6 +27,7 @@ class PureAIService {
     required String userMessage,
     required List<PureAIMessage> chatHistory,
     String? imageDescription,
+    List<String>? imagePaths,
     bool enableWebSearch = false,
   }) async {
     debugPrint('===== PureAIService.sendPureAIMessage: ENTRY =====');
@@ -40,6 +43,7 @@ class PureAIService {
       userMessage: userMessage,
       chatHistory: chatHistory,
       imageDescription: imageDescription,
+      imagePaths: imagePaths,
       enableWebSearch: enableWebSearch,
     );
 
@@ -51,6 +55,7 @@ class PureAIService {
     required String userMessage,
     required List<PureAIMessage> chatHistory,
     String? imageDescription,
+    List<String>? imagePaths,
     bool enableWebSearch = false,
   }) async* {
     final config = await _storage.getActiveAIConfig();
@@ -60,6 +65,7 @@ class PureAIService {
       userMessage: userMessage,
       chatHistory: chatHistory,
       imageDescription: imageDescription,
+      imagePaths: imagePaths,
       enableWebSearch: enableWebSearch,
     );
 
@@ -67,7 +73,7 @@ class PureAIService {
   }
 
   Stream<AIStreamChunk> _streamAPI(
-      AIConfig config, List<Map<String, String>> messages) async* {
+      AIConfig config, List<Map<String, dynamic>> messages) async* {
     String baseUrl = config.baseUrl.trim();
     while (baseUrl.endsWith('/')) {
       baseUrl = baseUrl.substring(0, baseUrl.length - 1);
@@ -304,13 +310,14 @@ class PureAIService {
     throw Exception('网络请求失败，请检查网络连接');
   }
 
-  Future<List<Map<String, String>>> _buildMessages({
+  Future<List<Map<String, dynamic>>> _buildMessages({
     required String userMessage,
     required List<PureAIMessage> chatHistory,
     String? imageDescription,
+    List<String>? imagePaths,
     bool enableWebSearch = false,
   }) async {
-    final List<Map<String, String>> messages = [];
+    final List<Map<String, dynamic>> messages = [];
 
     // 提取系统指令
     final systemDirective = _extractSystemDirective(userMessage);
@@ -388,14 +395,80 @@ class PureAIService {
                 '【最终回复要求】本轮是联网搜索问答。你的下一条回复必须直接回答用户问题；禁止角色扮演、禁止动作描写、禁止说自己正在搜索。若搜索结果为空，只回复搜索结果中没有找到相关信息。',
           });
         }
+        // 带图：构建多模态 user content（text + image_url）
+        final userContent = await _buildUserContent(
+          text: finalUserMessage,
+          imagePaths: imagePaths,
+        );
         messages.add({
           'role': 'user',
-          'content': finalUserMessage,
+          'content': userContent,
+        });
+      } else if (imagePaths != null && imagePaths.isNotEmpty) {
+        // 纯发图（无文字）
+        final userContent = await _buildUserContent(
+          text: '',
+          imagePaths: imagePaths,
+        );
+        messages.add({
+          'role': 'user',
+          'content': userContent,
         });
       }
     }
 
     return messages;
+  }
+
+  /// 构建 OpenAI 兼容多模态 user content（text + image_url[]）
+  /// 无图或全失败时返回纯文本
+  Future<Object> _buildUserContent({
+    required String text,
+    List<String>? imagePaths,
+  }) async {
+    if (imagePaths == null || imagePaths.isEmpty) {
+      return text;
+    }
+    final uniquePaths = <String>[];
+    for (final p in imagePaths) {
+      final t = p.trim();
+      if (t.isEmpty) continue;
+      if (!uniquePaths.contains(t)) uniquePaths.add(t);
+      if (uniquePaths.length >= VisionImageEncoder.maxImagesPerRequest) break;
+    }
+    if (uniquePaths.isEmpty) return text;
+
+    final detail = VisionImageEncoder.detailForCount(uniquePaths.length);
+    final parts = <Map<String, dynamic>>[
+      {
+        'type': 'text',
+        'text': text.isEmpty ? '请查看这张图片并自然回应。' : text,
+      },
+    ];
+
+    var encodedCount = 0;
+    for (final path in uniquePaths) {
+      final payload = await _visionEncoder.encodeFile(path);
+      if (payload == null) continue;
+      parts.add({
+        'type': 'image_url',
+        'image_url': {
+          'url': payload.dataUrl,
+          'detail': detail,
+        },
+      });
+      encodedCount++;
+    }
+
+    if (encodedCount == 0) {
+      return text.isEmpty
+          ? '（用户发送了图片，但读取或压缩失败。请换 JPG/PNG 再试。）'
+          : text;
+    }
+
+    debugPrint(
+        '[PureAIService] 多模态 content: text + $encodedCount image(s), detail=$detail');
+    return parts;
   }
 
   Future<List<Map<String, String>>> _buildBingSearchContext(
@@ -597,7 +670,7 @@ class PureAIService {
 
   /// API调用（含多key轮询和重试）
   Future<String> _callAPI(
-      AIConfig config, List<Map<String, String>> messages) async {
+      AIConfig config, List<Map<String, dynamic>> messages) async {
     String baseUrl = config.baseUrl.trim();
     while (baseUrl.endsWith('/')) {
       baseUrl = baseUrl.substring(0, baseUrl.length - 1);

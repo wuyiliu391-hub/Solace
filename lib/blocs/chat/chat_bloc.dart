@@ -488,6 +488,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         userMessage: userMessage,
         chatHistory: _toPureAIHistory(chatHistory),
         imageDescription: imageDescription,
+        imagePaths: imagePaths,
         enableWebSearch: enableWebSearch,
       );
     }
@@ -574,6 +575,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         userMessage: userMessage,
         chatHistory: _toPureAIHistory(chatHistory),
         imageDescription: imageDescription,
+        imagePaths: imagePaths,
         enableWebSearch: enableWebSearch,
       );
     }
@@ -1111,6 +1113,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         memories: memories,
         intimacyLevel: session.intimacyLevel,
         sentiment: sentiment,
+        imageDescription: imageDescription,
+        imagePaths: imagePaths,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
       )) {
@@ -1149,6 +1153,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         memories: memories,
         intimacyLevel: session.intimacyLevel,
         sentiment: sentiment,
+        imageDescription: imageDescription,
+        imagePaths: imagePaths,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
       )) {
@@ -2116,7 +2122,7 @@ $tail
       intimacyLevel: session.intimacyLevel,
       messageContent: event.content,
       consecutiveAiReplies: _consecutiveAiReplies[event.chatId] ?? 0,
-      messageType: MessageType.text,
+      messageType: userMsg.type,
     );
     if (shouldSkip) {
       _consecutiveAiReplies[event.chatId] = 0;
@@ -2774,9 +2780,16 @@ $tail
           '_onSendMessage: unhandled error: $e\n$stack',
           chatId: event.chatId);
       _chatProcessingState = ChatProcessingState.error;
+      // Show actual error instead of generic message
+      String errorDisplay = e.toString();
+      if (errorDisplay.contains('Timeout') || errorDisplay.contains('timeout')) {
+        errorDisplay = 'AI请求超时，请检查网络连接后重试';
+      } else if (errorDisplay.contains('Socket') || errorDisplay.contains('connection')) {
+        errorDisplay = '连接AI服务失败，请检查网络设置';
+      }
       emit(ChatAIProcessing(
         await _storage.getChatMessages(event.chatId),
-        '处理消息时出错',
+        errorDisplay,
         '',
         processingState: _chatProcessingState,
       ));
@@ -3100,6 +3113,7 @@ $tail
             )
           : '收到啦，谢谢';
 
+      // 2. 保存AI回复消息
       await _storage.saveChatMessage(ChatMessage(
         id: _uuid.v4(),
         chatId: event.chatId,

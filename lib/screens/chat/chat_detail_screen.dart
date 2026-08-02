@@ -9,6 +9,7 @@ import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/chat/chat_bloc.dart';
 import '../../models/chat_session.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -491,13 +492,44 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           onPressed: () =>
               _modePanelVisible.value = !_modePanelVisible.value,
         ),
-        IconButton(
+        PopupMenuButton<String>(
           icon: Icon(
             Icons.more_horiz_rounded,
             color: isDark ? Colors.white : Colors.black,
             size: 24,
           ),
-          onPressed: () => _openChatSettings(context),
+          tooltip: '更多',
+          offset: const Offset(0, 50),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          itemBuilder: (context) => [
+            PopupMenuItem(
+              value: 'call',
+              child: Row(
+                children: [
+                  Icon(Icons.call, color: Colors.green, size: 20),
+                  const SizedBox(width: 12),
+                  const Text('语音通话'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'settings',
+              child: Row(
+                children: [
+                  Icon(Icons.settings_outlined, size: 20),
+                  SizedBox(width: 12),
+                  Text('聊天设置'),
+                ],
+              ),
+            ),
+          ],
+          onSelected: (value) {
+            if (value == 'call') {
+              _startVoiceCall();
+            } else if (value == 'settings') {
+              _openChatSettings(context);
+            }
+          },
         ),
       ],
     );
@@ -2191,21 +2223,98 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final images = await picker.pickMultiImage(imageQuality: 85);
       if (images.isEmpty || !mounted) return;
 
+      // 转存到持久目录：避免系统缓存被清后历史图片裂图
+      final appDir = await getApplicationDocumentsDirectory();
+      final chatImgDir = Directory('${appDir.path}/chat_images');
+      if (!await chatImgDir.exists()) {
+        await chatImgDir.create(recursive: true);
+      }
+
+      final kept = <String>[];
+      var unsupported = 0;
+      for (final imgFile in images) {
+        final p = imgFile.path;
+        if (p.isEmpty || _pendingImagePaths.contains(p)) continue;
+        final lower = p.toLowerCase();
+        final isHeic = lower.endsWith('.heic') || lower.endsWith('.heif');
+        try {
+          if (isHeic) {
+            // HEIC/HEIF → 解码转 JPEG（image 包 4.x 支持），否则丢弃
+            final bytes = await File(p).readAsBytes();
+            final decoded = img.decodeImage(bytes);
+            if (decoded == null) {
+              unsupported++;
+              continue;
+            }
+            var out = img.bakeOrientation(decoded);
+            if (out.numChannels == 4) {
+              final flat = img.Image(
+                width: out.width,
+                height: out.height,
+                numChannels: 3,
+              );
+              img.fill(flat, color: img.ColorRgb8(255, 255, 255));
+              img.compositeImage(flat, out);
+              out = flat;
+            }
+            final dest =
+                '${chatImgDir.path}/chat_${const Uuid().v4()}.jpg';
+            await File(dest).writeAsBytes(img.encodeJpg(out, quality: 85));
+            kept.add(dest);
+          } else {
+            final ext =
+                p.contains('.') ? p.substring(p.lastIndexOf('.')) : '.jpg';
+            final dest =
+                '${chatImgDir.path}/chat_${const Uuid().v4()}$ext';
+            await File(p).copy(dest);
+            kept.add(dest);
+          }
+        } catch (e) {
+          debugPrint('图片持久化失败: $e path=$p');
+          unsupported++;
+        }
+      }
+
+      if (kept.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(unsupported > 0
+                  ? '所选图片格式无法读取，已跳过 $unsupported 张'
+                  : '未获取到可用图片'),
+            ),
+          );
+        }
+        return;
+      }
+
+      var truncated = 0;
       setState(() {
-        for (final img in images) {
-          final p = img.path;
-          if (p.isNotEmpty && !_pendingImagePaths.contains(p)) {
+        for (final p in kept) {
+          if (!_pendingImagePaths.contains(p)) {
             _pendingImagePaths.add(p);
           }
         }
         // 与 vision 请求上限对齐（OpenAI/中转稳妥）
         final maxN = VisionImageEncoder.maxImagesPerRequest;
         if (_pendingImagePaths.length > maxN) {
+          truncated = _pendingImagePaths.length - maxN;
           _pendingImagePaths.removeRange(maxN, _pendingImagePaths.length);
         }
       });
       _syncCanSend();
       _messageFocusNode.requestFocus();
+
+      if (mounted && (unsupported > 0 || truncated > 0)) {
+        final hints = <String>[
+          if (unsupported > 0) '跳过 $unsupported 张无法读取的图片',
+          if (truncated > 0)
+            '最多发送 ${VisionImageEncoder.maxImagesPerRequest} 张，已截断 $truncated 张',
+        ];
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(hints.join('；'))),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3783,23 +3892,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                   ? Colors.white.withOpacity(0.6)
                                   : Colors.black.withOpacity(0.5),
                               size: 24,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        // 语音通话按钮
-                        GestureDetector(
-                          onTap: _startVoiceCall,
-                          child: Container(
-                            width: 36,
-                            height: 40,
-                            alignment: Alignment.center,
-                            child: Icon(
-                              Icons.phone_outlined,
-                              color: isDark
-                                  ? Colors.white.withOpacity(0.6)
-                                  : Colors.black.withOpacity(0.5),
-                              size: 22,
                             ),
                           ),
                         ),
