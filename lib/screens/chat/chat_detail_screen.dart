@@ -40,7 +40,6 @@ import '../../blocs/shop/shop_bloc.dart';
 import '../../widgets/animated_list_item.dart';
 import '../../widgets/typing_indicator.dart';
 import '../../widgets/voice_message_bubble.dart';
-import '../../widgets/mode_control_mini_panel.dart';
 import '../../utils/ui_utils.dart';
 import '../../utils/avatar_resolver.dart';
 import '../../config/constants.dart';
@@ -124,7 +123,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   List<ChatMessage> _cachedMessages = [];
   ChatMessage? _replyToMessage;
   bool _pureAiPanelExpanded = false;
-  final ValueNotifier<bool> _modePanelVisible = ValueNotifier<bool>(false);
   VoidCallback? _onModeSettingsChanged;
   LocalStorageRepository? _modeSettingsStorage;
   
@@ -155,33 +153,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Timer? _recordTimer;
   int _recordSeconds = 0;
 
-  /// 获取当前会话的有效小说模式：会话级设置优先，否则跟随全局
+  /// 小说模式全局生效（会话级覆盖已随调色板下线移除）
   bool _isNovelModeEnabled() {
-    final session = _currentSession ?? widget.session;
-    if (session.novelMode == -1) {
-      // 跟随全局设置
-      return RepositoryProvider.of<LocalStorageRepository>(context)
-          .isChatStyleNovelModeEnabled();
-    }
-    return session.novelMode == 1;
-  }
-
-  /// 切换当前会话的小说模式（显式开/关，不再走「跟随全局」三态）
-  ///
-  /// 旧三态：-1→1→0→-1。当全局小说模式为开且会话为 -1 时，
-  /// 用户点「关」会先变成 1（开），离开再进又因跟随全局再次打开。
-  Future<void> _toggleSessionNovelMode(bool enabled) async {
-    final session = _currentSession ?? widget.session;
-    final next = enabled ? 1 : 0;
-    if (session.novelMode == next) return;
-    final updated = session.copyWith(novelMode: next);
-    setState(() => _currentSession = updated);
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    await storage.saveChatSession(updated);
-    // 关闭时同步关掉全局，避免其它入口/历史逻辑仍按全局开判定
-    if (!enabled && storage.isChatStyleNovelModeEnabled()) {
-      await storage.setChatStyleMode(false);
-    }
+    return RepositoryProvider.of<LocalStorageRepository>(context)
+        .isChatStyleNovelModeEnabled();
   }
 
   @override
@@ -481,16 +456,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             size: 22,
           ),
           onPressed: () => _openVirtualPhone(context),
-        ),
-        IconButton(
-          tooltip: '模式与颜色',
-          icon: Icon(
-            Icons.palette_outlined,
-            color: isDark ? Colors.white : Colors.black,
-            size: 22,
-          ),
-          onPressed: () =>
-              _modePanelVisible.value = !_modePanelVisible.value,
         ),
         PopupMenuButton<String>(
           icon: Icon(
@@ -1294,11 +1259,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   );
                 },
               ),
-              ModeControlMiniPanel(
-                visible: _modePanelVisible,
-                novelModeEnabled: _isNovelModeEnabled(),
-                onNovelModeToggle: _toggleSessionNovelMode,
-              ),
             ],
           ),
         ),
@@ -1861,7 +1821,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _messageController.dispose();
     _messageFocusNode.dispose();
     _scrollController.dispose();
-    _modePanelVisible.dispose();
     _isAiTypingNotifier.dispose();
     _canSendNotifier.dispose();
     _showNewMessageBannerNotifier.dispose();

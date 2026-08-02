@@ -117,21 +117,13 @@ class AIService {
   late final EmotionEngine _emotionEngine;
   late final PromptBuilder _promptBuilder;
 
-  /// 会话级小说模式覆盖：由 ChatBloc 在调用前设置，null 表示使用全局设置
-  bool? _novelModeOverride;
-
   /// 最近一次请求的角色性别/名字（用于输出侧人称轻量纠错）
   String? _lastCharacterGender;
   String? _lastCharacterName;
 
-  /// 设置当前会话的小说模式覆盖（null = 跟随全局）
-  void setNovelModeOverride(bool? override) {
-    _novelModeOverride = override;
-  }
-
-  /// 判断小说模式是否开启：会话级覆盖优先，否则回退到全局
+  /// 判断小说模式是否开启（全局开关）
   bool _isNovelModeEnabled() {
-    return _novelModeOverride ?? _storage.isChatStyleNovelModeEnabled();
+    return _storage.isChatStyleNovelModeEnabled();
   }
   String? _lastParsedStatus;
   Map<String, dynamic>? _lastWebSearchTrace;

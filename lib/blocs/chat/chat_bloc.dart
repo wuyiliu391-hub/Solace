@@ -1037,11 +1037,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     }
 
     // 1. 流式输出（后台中断时保留已收到的部分内容）
-    // 设置当前会话的小说模式覆盖（会话级优先于全局）
-    final bool? novelOverride = session.novelMode == -1
-        ? null // 跟随全局
-        : session.novelMode == 1;
-    _aiService.setNovelModeOverride(novelOverride);
     try {
       await for (final chunk in _bridgeSendMessageStream(
         character: character,
@@ -1170,9 +1165,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       finalReasoning = '';
     }
 
-    // 小说模式：会话级优先（-1=跟随全局, 0=关, 1=开），否则回退全局
-    final novelModeActive = session.novelMode == 1 ||
-        (session.novelMode == -1 && _storage.isChatStyleNovelModeEnabled());
+    // 小说模式：全局开关（会话级覆盖已移除）
+    final novelModeActive = _storage.isChatStyleNovelModeEnabled();
     final novelMode = novelModeActive && !_storage.isPureAiModeEnabled();
     if (novelMode && _shouldContinueNovelResponse(finalContent, finishReason)) {
       finalContent = await _continueNovelResponseIfNeeded(

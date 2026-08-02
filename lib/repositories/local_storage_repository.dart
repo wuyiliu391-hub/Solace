@@ -4436,21 +4436,6 @@ class LocalStorageRepository {
     return _prefs?.getBool(PrefKeys.pureAiModeEnabled) ?? false;
   }
 
-  Future<void> setModeControlBallOffset({
-    required double x,
-    required double y,
-  }) async {
-    await _prefs?.setDouble('mode_control_ball_x', x);
-    await _prefs?.setDouble('mode_control_ball_y', y);
-  }
-
-  Map<String, double>? getModeControlBallOffset() {
-    final x = _prefs?.getDouble('mode_control_ball_x');
-    final y = _prefs?.getDouble('mode_control_ball_y');
-    if (x == null || y == null) return null;
-    return {'x': x, 'y': y};
-  }
-
   String buildGlobalModePrompt({String scope = 'AI回复'}) {
     return buildGlobalModePromptText(
       pureAiMode: isPureAiModeEnabled(),
