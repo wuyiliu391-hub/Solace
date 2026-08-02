@@ -47,6 +47,7 @@ import '../models/device_agent_action.dart';
 import '../models/novel.dart';
 import '../models/group_chat_session.dart';
 import '../models/group_chat_message.dart';
+import '../models/group_chat_branch.dart';
 import '../services/bt_operation_lock_service.dart';
 import '../config/business_rules.dart';
 import '../config/constants.dart';
@@ -6831,9 +6832,49 @@ class LocalStorageRepository {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  /// 获取群聊消息列表
+  /// 获取群的全部聊天记录（分支）
+  Future<List<GroupChatBranch>> getGroupChatBranches(String groupId) async {
+    final db = await _ensureDb();
+    final maps = await db.query('group_chat_branches',
+        where: 'groupId = ?', whereArgs: [groupId],
+        orderBy: 'createdAt ASC');
+    return maps.map(GroupChatBranch.fromMap).toList();
+  }
+
+  /// 新建聊天记录（分支）
+  Future<GroupChatBranch> createGroupChatBranch(
+      String groupId, String name) async {
+    final branch = GroupChatBranch(
+      branchId: 'br_${DateTime.now().microsecondsSinceEpoch}',
+      groupId: groupId,
+      name: name,
+      createdAt: DateTime.now(),
+    );
+    final db = await _ensureDb();
+    await db.insert('group_chat_branches', branch.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    return branch;
+  }
+
+  /// 重命名聊天记录（分支）
+  Future<void> renameGroupChatBranch(String branchId, String name) async {
+    final db = await _ensureDb();
+    await db.update('group_chat_branches', {'name': name},
+        where: 'branchId = ?', whereArgs: [branchId]);
+  }
+
+  /// 删除聊天记录（分支）及其中消息
+  Future<void> deleteGroupChatBranch(String groupId, String branchId) async {
+    final db = await _ensureDb();
+    await db.delete('group_chat_branches',
+        where: 'branchId = ?', whereArgs: [branchId]);
+    await db.delete('group_chat_messages',
+        where: 'groupId = ? AND chatId = ?', whereArgs: [groupId, branchId]);
+  }
+
+  /// 获取群聊消息列表（chatId 非空时按聊天记录过滤）
   Future<List<GroupChatMessage>> getGroupChatMessages(String groupId,
-      {int limit = 100, int offset = 0}) async {
+      {int limit = 100, int offset = 0, String? chatId}) async {
     if (_isWeb) {
       final keys = _prefs?.getKeys().where((k) => k.startsWith('gc_msg_')).toList() ?? [];
       final messages = <GroupChatMessage>[];
@@ -6842,7 +6883,8 @@ class LocalStorageRepository {
         if (data != null) {
           try {
             final msg = GroupChatMessage.fromJson(jsonDecode(data));
-            if (msg.groupId == groupId) {
+            if (msg.groupId == groupId &&
+                (chatId == null || chatId.isEmpty || msg.chatId == chatId)) {
               messages.add(msg);
             }
           } catch (_) {}
@@ -6852,14 +6894,23 @@ class LocalStorageRepository {
       return messages.skip(offset).take(limit).toList();
     }
     final db = await _ensureDb();
-    final maps = await db.query(
-      'group_chat_messages',
-      where: 'groupId = ?',
-      whereArgs: [groupId],
-      orderBy: 'createdAt DESC',
-      limit: limit,
-      offset: offset,
-    );
+    final maps = chatId != null && chatId.isNotEmpty
+        ? await db.query(
+            'group_chat_messages',
+            where: 'groupId = ? AND chatId = ?',
+            whereArgs: [groupId, chatId],
+            orderBy: 'createdAt DESC',
+            limit: limit,
+            offset: offset,
+          )
+        : await db.query(
+            'group_chat_messages',
+            where: 'groupId = ?',
+            whereArgs: [groupId],
+            orderBy: 'createdAt DESC',
+            limit: limit,
+            offset: offset,
+          );
     return maps.map((m) => GroupChatMessage.fromMap(m)).toList();
   }
 

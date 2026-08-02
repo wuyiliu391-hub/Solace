@@ -29,6 +29,9 @@ class GroupChatMessage {
   /// 群聊会话 ID
   final String groupId;
 
+  /// 所属聊天记录 id（多聊天记录，默认=groupId）
+  final String chatId;
+
   /// 发送者 ID
   final String senderId;
 
@@ -59,6 +62,7 @@ class GroupChatMessage {
   GroupChatMessage({
     required this.id,
     this.groupId = '',
+    this.chatId = '',
     required this.senderId,
     this.senderName = '',
     this.content = '',
@@ -74,6 +78,7 @@ class GroupChatMessage {
   GroupChatMessage copyWith({
     String? id,
     String? groupId,
+    String? chatId,
     String? senderId,
     String? senderName,
     String? content,
@@ -87,6 +92,7 @@ class GroupChatMessage {
     return GroupChatMessage(
       id: id ?? this.id,
       groupId: groupId ?? this.groupId,
+      chatId: chatId ?? this.chatId,
       senderId: senderId ?? this.senderId,
       senderName: senderName ?? this.senderName,
       content: content ?? this.content,
@@ -103,6 +109,7 @@ class GroupChatMessage {
   Map<String, dynamic> toMap() => {
         'id': id,
         'groupId': groupId,
+        'chatId': chatId,
         'senderId': senderId,
         'senderName': senderName,
         'content': content,
@@ -128,6 +135,7 @@ class GroupChatMessage {
     return GroupChatMessage(
       id: (map['id'] as String?) ?? '',
       groupId: (map['groupId'] as String?) ?? '',
+      chatId: (map['chatId'] as String?) ?? '',
       senderId: (map['senderId'] as String?) ?? '',
       senderName: (map['senderName'] as String?) ?? '',
       content: (map['content'] as String?) ?? '',
@@ -185,6 +193,7 @@ class GroupChatMessage {
   Map<String, dynamic> toJson() => {
         'id': id,
         'groupId': groupId,
+        'chatId': chatId,
         'senderId': senderId,
         'senderName': senderName,
         'content': content,
@@ -200,6 +209,7 @@ class GroupChatMessage {
     return GroupChatMessage(
       id: json['id'] as String? ?? '',
       groupId: json['groupId'] as String? ?? '',
+      chatId: json['chatId'] as String? ?? '',
       senderId: json['senderId'] as String? ?? '',
       senderName: json['senderName'] as String? ?? '',
       content: json['content'] as String? ?? '',
