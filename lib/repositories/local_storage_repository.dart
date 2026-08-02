@@ -1193,6 +1193,117 @@ class LocalStorageRepository {
     }
   }
 
+  /// 强制重建 group_chat_sessions 表（统一 schema，userId 带默认值）。
+  /// 备份旧表 → DROP 重建 → 按备份真实列回迁（缺失列给默认值）。
+  /// 解决历史脏表 `userId TEXT NOT NULL`（无默认）导致创建群 INSERT 崩溃。
+  static Future<void> _rebuildGroupChatSessionsTable(Database db) async {
+    try {
+      final exists = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='group_chat_sessions'");
+      if (exists.isEmpty) return;
+
+      const allCols = [
+        'id', 'userId', 'name', 'avatarUrl', 'memberIds', 'aiCharacterIds',
+        'creatorId', 'lastMessage', 'lastMessageTime', 'unreadCount',
+        'createdAt', 'updatedAt', 'isMuted', 'isPinned', 'backgroundImage',
+        'notice', 'sync_seq', 'chatId', 'activationStrategy', 'generationMode',
+        'allowSelfResponses', 'disabledMemberIds', 'autoModeDelay',
+        'autoModeEnabled', 'joinPrefix', 'joinSuffix',
+      ];
+
+      await db.execute('DROP TABLE IF EXISTS group_chat_sessions_bak');
+      await db.execute(
+          'ALTER TABLE group_chat_sessions RENAME TO group_chat_sessions_bak');
+
+      await db.execute(''' CREATE TABLE group_chat_sessions (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL DEFAULT '',
+        avatarUrl TEXT,
+        memberIds TEXT NOT NULL DEFAULT '[]',
+        aiCharacterIds TEXT NOT NULL DEFAULT '[]',
+        creatorId TEXT NOT NULL DEFAULT '',
+        lastMessage TEXT,
+        lastMessageTime TEXT,
+        unreadCount INTEGER NOT NULL DEFAULT 0,
+        isMuted INTEGER NOT NULL DEFAULT 0,
+        isPinned INTEGER NOT NULL DEFAULT 0,
+        backgroundImage TEXT,
+        notice TEXT,
+        createdAt TEXT NOT NULL DEFAULT '',
+        updatedAt TEXT,
+        sync_seq INTEGER NOT NULL DEFAULT 0,
+        chatId TEXT NOT NULL DEFAULT '',
+        activationStrategy INTEGER NOT NULL DEFAULT 0,
+        generationMode INTEGER NOT NULL DEFAULT 0,
+        allowSelfResponses INTEGER NOT NULL DEFAULT 0,
+        disabledMemberIds TEXT NOT NULL DEFAULT '[]',
+        autoModeDelay INTEGER NOT NULL DEFAULT 5,
+        autoModeEnabled INTEGER NOT NULL DEFAULT 0,
+        joinPrefix TEXT NOT NULL DEFAULT '',
+        joinSuffix TEXT NOT NULL DEFAULT ''
+      ) ''');
+
+      final bakCols = (await db
+              .rawQuery('PRAGMA table_info(group_chat_sessions_bak)'))
+          .map((r) => r['name'] as String)
+          .toSet();
+      final cols = allCols.where(bakCols.contains).toList();
+      if (cols.isNotEmpty) {
+        final colList = cols.join(',');
+        final selectExprs = cols.map((c) {
+          switch (c) {
+            case 'userId':
+              return "COALESCE(userId, '')";
+            case 'name':
+              return "COALESCE(name, '')";
+            case 'creatorId':
+              return "COALESCE(creatorId, '')";
+            case 'memberIds':
+              return "COALESCE(memberIds, '[]')";
+            case 'aiCharacterIds':
+              return "COALESCE(aiCharacterIds, '[]')";
+            case 'disabledMemberIds':
+              return "COALESCE(disabledMemberIds, '[]')";
+            case 'createdAt':
+              return "COALESCE(createdAt, '')";
+            case 'unreadCount':
+              return 'COALESCE(unreadCount, 0)';
+            case 'isMuted':
+              return 'COALESCE(isMuted, 0)';
+            case 'isPinned':
+              return 'COALESCE(isPinned, 0)';
+            case 'sync_seq':
+              return 'COALESCE(sync_seq, 0)';
+            case 'chatId':
+              return 'COALESCE(chatId, id)';
+            case 'activationStrategy':
+              return 'COALESCE(activationStrategy, 0)';
+            case 'generationMode':
+              return 'COALESCE(generationMode, 0)';
+            case 'allowSelfResponses':
+              return 'COALESCE(allowSelfResponses, 0)';
+            case 'autoModeDelay':
+              return 'COALESCE(autoModeDelay, 5)';
+            case 'autoModeEnabled':
+              return 'COALESCE(autoModeEnabled, 0)';
+            case 'joinPrefix':
+              return "COALESCE(joinPrefix, '')";
+            case 'joinSuffix':
+              return "COALESCE(joinSuffix, '')";
+            default:
+              return c;
+          }
+        }).join(',');
+        await db.execute(
+            'INSERT INTO group_chat_sessions ($colList) SELECT $selectExprs FROM group_chat_sessions_bak');
+      }
+      await db.execute('DROP TABLE IF EXISTS group_chat_sessions_bak');
+    } catch (e) {
+      debugPrint('[schema] _rebuildGroupChatSessionsTable failed: $e');
+    }
+  }
+
   /// shop_items 完整建表 SQL（_onCreate / 缺表 / 重建共用）
   static const String _shopItemsCreateSql =
       ''' CREATE TABLE IF NOT EXISTS shop_items (
@@ -1954,6 +2065,13 @@ class LocalStorageRepository {
             [gid, gid]);
       }
       debugPrint(' v65 迁移: 群聊引擎字段 + 分支表已就绪');
+    }
+    if (oldVersion < 66) {
+      // v66: 强制重建 group_chat_sessions —— 老设备表可能含
+      // `userId TEXT NOT NULL`（无默认值），导致创建群 INSERT 时 NULL 约束崩溃。
+      // 备份 → 统一 schema 重建 → 回迁，保证 userId 列带默认值。
+      await _rebuildGroupChatSessionsTable(db);
+      debugPrint(' v66 迁移: group_chat_sessions 强制重建完成');
     }
   }
 
@@ -6716,8 +6834,17 @@ class LocalStorageRepository {
       return;
     }
     final db = await _ensureDb();
+    // 按真实列过滤，避免历史脏表缺列/多列导致 INSERT 崩溃（对齐 shop_items 安全写入）
+    final cols = await getTableColumns(db, 'group_chat_sessions');
     final map = session.toMap();
-    await db.insert('group_chat_sessions', map,
+    final safe = <String, dynamic>{};
+    for (final e in map.entries) {
+      if (cols.contains(e.key)) safe[e.key] = e.value;
+    }
+    if (!safe.containsKey('id')) {
+      throw StateError('group_chat_sessions insert missing id, cols=$cols');
+    }
+    await db.insert('group_chat_sessions', safe,
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
