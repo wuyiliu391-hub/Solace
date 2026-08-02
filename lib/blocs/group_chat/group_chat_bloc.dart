@@ -114,8 +114,20 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     Emitter<GroupChatState> emit,
   ) async {
     try {
-      final messages = await _storage.getGroupChatMessages(event.groupId);
+      final session = await _storage.getGroupChatSession(event.groupId);
+      final chatId = session?.chatId;
+      final messages =
+          await _storage.getGroupChatMessages(event.groupId, chatId: chatId);
       emit(GroupChatMessagesLoaded(event.groupId, messages));
+      // 顺带加载分支列表，供 UI 聊天记录管理
+      if (session != null) {
+        final branches = await _storage.getGroupChatBranches(event.groupId);
+        emit(GroupChatBranchesLoaded(
+          groupId: event.groupId,
+          branches: branches,
+          currentChatId: session.chatId ?? '',
+        ));
+      }
     } catch (e) {
       LogService.instance.e('GroupChat', '_onLoadMessages failed: $e');
       emit(GroupChatError(e.toString()));
@@ -128,9 +140,11 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
   ) async {
     try {
       final now = DateTime.now();
+      final session = await _storage.getGroupChatSession(event.groupId);
       final msg = GroupChatMessage(
         id: _uuid.v4(),
         groupId: event.groupId,
+        chatId: session?.chatId ?? '',
         senderId: event.userId,
         senderName: '我',
         content: event.content,
@@ -147,7 +161,6 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       await _storage.saveGroupChatMessage(msg);
 
       // 更新会话最后消息
-      final session = await _storage.getGroupChatSession(event.groupId);
       if (session != null) {
         final updated = session.copyWith(
           lastMessage: event.content.isNotEmpty
@@ -160,7 +173,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       }
 
       // 加载最新消息列表
-      final messages = await _storage.getGroupChatMessages(event.groupId);
+      final messages = await _storage
+          .getGroupChatMessages(event.groupId, chatId: session?.chatId);
       emit(GroupChatMessagesLoaded(event.groupId, messages));
 
       // 触发 AI 回复（真人群聊：轮流单角色回复 + 可能接话）

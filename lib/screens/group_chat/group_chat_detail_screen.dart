@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../../blocs/group_chat/group_chat_bloc.dart';
 import '../../models/group_chat_session.dart';
 import '../../models/group_chat_message.dart';
+import '../../models/group_chat_branch.dart';
 import '../../models/ai_character.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../repositories/local_storage_repository.dart';
@@ -99,6 +100,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 child: Text(_session.isPinned ? '取消置顶' : '置顶群聊'),
               ),
               const PopupMenuItem(value: 'settings', child: Text('群设置')),
+              const PopupMenuItem(value: 'branches', child: Text('聊天记录')),
               const PopupMenuItem(value: 'delete', child: Text('删除群聊')),
             ],
           ),
@@ -448,6 +450,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       case 'settings':
         _showGroupSettings();
         break;
+      case 'branches':
+        _showBranchManager();
+        break;
       case 'delete':
         _confirmDelete();
         break;
@@ -518,6 +523,92 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     _showInviteDialog();
                   },
                 ),
+                // ─── SillyTavern 引擎配置 ───
+                StatefulBuilder(builder: (ctx2, setSheet) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Divider(height: 24),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text('群聊引擎',
+                              style: TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      ListTile(
+                        leading: const Icon(Icons.rule),
+                        title: const Text('激活策略'),
+                        subtitle: Text(_strategyLabel(_session
+                                .activationStrategy) ??
+                            '自然'),
+                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        onTap: () async {
+                          final v = await _showStrategyPicker();
+                          if (v != null) {
+                            _dispatchConfig(activationStrategy: v);
+                            setSheet(() {});
+                          }
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.merge_type),
+                        title: const Text('生成模式'),
+                        subtitle: Text(
+                            _generationModeLabel(_session.generationMode) ??
+                                '逐角色切换'),
+                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        onTap: () async {
+                          final v = await _showGenerationModePicker();
+                          if (v != null) {
+                            _dispatchConfig(generationMode: v);
+                            setSheet(() {});
+                          }
+                        },
+                      ),
+                      SwitchListTile(
+                        secondary: const Icon(Icons.repeat),
+                        title: const Text('允许同一角色连续发言'),
+                        value: _session.allowSelfResponses ?? false,
+                        onChanged: (v) {
+                          _dispatchConfig(allowSelfResponses: v);
+                          setSheet(() {});
+                        },
+                      ),
+                      SwitchListTile(
+                        secondary: const Icon(Icons.auto_awesome),
+                        title: const Text('自动接话'),
+                        subtitle: const Text('AI 之间持续聊天（对标 SillyTavern Auto Mode）'),
+                        value: _session.autoModeEnabled ?? false,
+                        onChanged: (v) {
+                          _dispatchConfig(autoModeEnabled: v);
+                          setSheet(() {});
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.timer_outlined),
+                        title: const Text('自动接话间隔'),
+                        subtitle: Text('${_session.autoModeDelay ?? 5} 秒'),
+                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        onTap: () => _showAutoModeDelayPicker(),
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.block),
+                        title: const Text('禁言成员'),
+                        subtitle: Text(_session.disabledMemberIds.isEmpty
+                            ? '无'
+                            : '${_session.disabledMemberIds.length} 人被禁言'),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _showMuteMembersPicker();
+                        },
+                      ),
+                    ],
+                  );
+                }),
                 ListTile(
                   leading: const Icon(Icons.info_outline),
                   title: const Text('群信息'),
@@ -533,6 +624,252 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
         ),
       ),
     );
+  }
+
+  // ─── 群聊引擎配置辅助 ───
+
+  void _dispatchConfig({
+    GroupActivationStrategy? activationStrategy,
+    GroupGenerationMode? generationMode,
+    bool? allowSelfResponses,
+    int? autoModeDelay,
+    bool? autoModeEnabled,
+    List<String>? disabledMemberIds,
+  }) {
+    context.read<GroupChatBloc>().add(GroupChatUpdateConfig(
+          groupId: _groupId,
+          activationStrategy: activationStrategy,
+          generationMode: generationMode,
+          allowSelfResponses: allowSelfResponses,
+          autoModeDelay: autoModeDelay,
+          autoModeEnabled: autoModeEnabled,
+          disabledMemberIds: disabledMemberIds,
+        ));
+  }
+
+  String _strategyLabel(GroupActivationStrategy s) {
+    switch (s) {
+      case GroupActivationStrategy.natural:
+        return '自然(提及+健谈度)';
+      case GroupActivationStrategy.list:
+        return '按列表轮流';
+      case GroupActivationStrategy.pooled:
+        return '轮转池';
+      case GroupActivationStrategy.manual:
+        return '手动点名';
+    }
+  }
+
+  String _generationModeLabel(GroupGenerationMode m) {
+    switch (m) {
+      case GroupGenerationMode.swap:
+        return '逐角色切换';
+      case GroupGenerationMode.append:
+        return '合并角色卡';
+      case GroupGenerationMode.appendDisabled:
+        return '合并卡(排除禁言)';
+    }
+  }
+
+  Future<GroupActivationStrategy?> _showStrategyPicker() {
+    return showDialog<GroupActivationStrategy>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('激活策略'),
+        children: GroupActivationStrategy.values
+            .map((s) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, s),
+                  child: Text(_strategyLabel(s)),
+                ))
+            .toList(),
+      ),
+    );
+  }
+
+  Future<GroupGenerationMode?> _showGenerationModePicker() {
+    return showDialog<GroupGenerationMode>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('生成模式'),
+        children: GroupGenerationMode.values
+            .map((m) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, m),
+                  child: Text(_generationModeLabel(m)),
+                ))
+            .toList(),
+      ),
+    );
+  }
+
+  void _showAutoModeDelayPicker() {
+    showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('自动接话间隔（秒）'),
+        children: [5, 10, 15, 20, 30]
+            .map((d) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, d),
+                  child: Text('$d 秒'),
+                ))
+            .toList(),
+      ),
+    ).then((d) {
+      if (d != null) _dispatchConfig(autoModeDelay: d);
+    });
+  }
+
+  void _showMuteMembersPicker() {
+    final session = _session;
+    final disabled = Set<String>.from(session.disabledMemberIds);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('禁言成员'),
+        content: FutureBuilder<List<AICharacter>>(
+          future: _loadMemberCharacters(session),
+          builder: (ctx, snap) {
+            final chars = snap.data ?? [];
+            return SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: chars.map((c) {
+                  return CheckboxListTile(
+                    title: Text(c.name),
+                    value: disabled.contains(c.id),
+                    onChanged: (v) {
+                      v == true ? disabled.add(c.id) : disabled.remove(c.id);
+                    },
+                  );
+                }).toList(),
+              ),
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              _dispatchConfig(disabledMemberIds: disabled.toList());
+              Navigator.pop(ctx);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<List<AICharacter>> _loadMemberCharacters(
+      GroupChatSession session) async {
+    final repo = RepositoryProvider.of<LocalStorageRepository>(context);
+    final list = <AICharacter>[];
+    for (final id in session.aiCharacterIds) {
+      final c = await repo.getAICharacter(id);
+      if (c != null) list.add(c);
+    }
+    return list;
+  }
+
+  // ─── 聊天记录（分支）管理 ───
+
+  void _showBranchManager() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => BlocBuilder<GroupChatBloc, GroupChatState>(
+        builder: (ctx, state) {
+          final branches = state is GroupChatBranchesLoaded
+              ? state.branches
+              : const <GroupChatBranch>[];
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.add),
+                  title: const Text('新建聊天记录'),
+                  onTap: () => _createBranch(),
+                ),
+                const Divider(height: 1),
+                if (branches.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('暂无聊天记录'),
+                  )
+                else
+                  ...branches.map((b) => ListTile(
+                        title: Text(b.name),
+                        subtitle: Text(b.branchId == _session.chatId
+                            ? '当前'
+                            : ''),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_forward),
+                              tooltip: '切换到此记录',
+                              onPressed: b.branchId == _session.chatId
+                                  ? null
+                                  : () => context
+                                      .read<GroupChatBloc>()
+                                      .add(GroupChatSwitchBranch(
+                                          groupId: _groupId,
+                                          chatId: b.branchId)),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline),
+                              tooltip: '删除记录',
+                              onPressed: branches.length <= 1
+                                  ? null
+                                  : () => context
+                                      .read<GroupChatBloc>()
+                                      .add(GroupChatDeleteBranch(
+                                          groupId: _groupId,
+                                          chatId: b.branchId)),
+                            ),
+                          ],
+                        ),
+                      )),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _createBranch() {
+    final controller = TextEditingController();
+    showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('新建聊天记录'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 20,
+          decoration: const InputDecoration(hintText: '记录名称'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    ).then((name) {
+      if (name != null && name.isNotEmpty) {
+        context.read<GroupChatBloc>().add(
+            GroupChatCreateBranch(groupId: _groupId, name: name));
+      }
+    });
   }
 
   void _showRenameDialog() {
