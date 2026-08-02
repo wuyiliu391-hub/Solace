@@ -243,6 +243,8 @@ class AICharacter extends Equatable {
   final int syncSeq;
   final String? immutableAnchor;
   final double deviationRadius;
+  /// 健谈度 0~1（群聊 NATURAL 激活策略用，默认 0.5，对标 SillyTavern talkativeness）
+  final double talkativeness;
   final bool evolutionEnabled;
   final bool qualitativeEvolutionEnabled;
   final String? currentAnchor;
@@ -294,6 +296,7 @@ class AICharacter extends Equatable {
     this.syncSeq = 0,
     this.immutableAnchor,
     this.deviationRadius = 0.4,
+    this.talkativeness = 0.5,
     this.evolutionEnabled = true,
     this.qualitativeEvolutionEnabled = false,
     this.currentAnchor,
@@ -333,6 +336,7 @@ class AICharacter extends Equatable {
     int? syncSeq,
     String? immutableAnchor,
     double? deviationRadius,
+    double? talkativeness,
     bool? evolutionEnabled,
     bool? qualitativeEvolutionEnabled,
     String? currentAnchor,
@@ -384,6 +388,7 @@ class AICharacter extends Equatable {
       syncSeq: syncSeq ?? this.syncSeq,
       immutableAnchor: immutableAnchor ?? this.immutableAnchor,
       deviationRadius: deviationRadius ?? this.deviationRadius,
+      talkativeness: talkativeness ?? this.talkativeness,
       evolutionEnabled: evolutionEnabled ?? this.evolutionEnabled,
       qualitativeEvolutionEnabled:
           qualitativeEvolutionEnabled ?? this.qualitativeEvolutionEnabled,
@@ -431,6 +436,7 @@ class AICharacter extends Equatable {
       'sync_seq': syncSeq,
       'immutableAnchor': immutableAnchor,
       'deviationRadius': deviationRadius,
+      'talkativeness': talkativeness,
       'evolutionEnabled': evolutionEnabled ? 1 : 0,
       'qualitativeEvolutionEnabled': qualitativeEvolutionEnabled ? 1 : 0,
       'currentAnchor': currentAnchor,
@@ -499,6 +505,7 @@ class AICharacter extends Equatable {
       syncSeq: (map['sync_seq'] ?? map['syncSeq']) as int? ?? 0,
       immutableAnchor: map['immutableAnchor'] as String?,
       deviationRadius: (map['deviationRadius'] as num?)?.toDouble() ?? 0.4,
+      talkativeness: (map['talkativeness'] as num?)?.toDouble() ?? 0.5,
       evolutionEnabled: map.containsKey('evolutionEnabled')
           ? (map['evolutionEnabled'] == 1 || map['evolutionEnabled'] == true)
           : true,
@@ -554,6 +561,7 @@ class AICharacter extends Equatable {
         syncSeq,
         immutableAnchor,
         deviationRadius,
+        talkativeness,
         evolutionEnabled,
         qualitativeEvolutionEnabled,
         currentAnchor,
