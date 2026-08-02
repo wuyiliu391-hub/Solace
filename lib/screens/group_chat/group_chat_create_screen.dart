@@ -7,6 +7,7 @@ import '../../repositories/local_storage_repository.dart';
 import '../../models/ai_character.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../utils/character_color.dart';
+import '../../widgets/avatar_picker.dart';
 
 class GroupChatCreateScreen extends StatefulWidget {
   const GroupChatCreateScreen({super.key});
@@ -20,6 +21,7 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
   // Removed unused _selectedMemberIds - group chats use AI character IDs only
   // final List<String> _selectedMemberIds = [];
   final List<String> _selectedAiCharacterIds = [];
+  String? _avatarUrl;
   bool _isLoadingCharacters = true;
   List<AICharacter> _allCharacters = [];
 
@@ -79,6 +81,18 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
                       ),
                       filled: true,
                       fillColor: colorScheme.surfaceContainerHighest,
+                    ),
+                  ),
+                ),
+                // 群头像（可选，选图自动存持久目录防丢失）
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Center(
+                    child: AvatarPicker(
+                      currentAvatar: _avatarUrl,
+                      onAvatarSelected: (path) =>
+                          setState(() => _avatarUrl = path),
+                      size: 80,
                     ),
                   ),
                 ),
@@ -243,6 +257,7 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
     bloc.add(GroupChatCreate(
       userId: userId,
       name: _nameController.text.trim(),
+      avatarUrl: _avatarUrl,
       memberIds: memberIds,
       aiCharacterIds: List<String>.from(_selectedAiCharacterIds),
     ));
