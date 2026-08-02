@@ -92,3 +92,17 @@ class GroupChatStreaming extends GroupChatState {
   @override
   List<Object?> get props => [groupId, characterName, streamingText, messages];
 }
+
+/// 群聊聊天记录（分支）列表已加载
+class GroupChatBranchesLoaded extends GroupChatState {
+  final String groupId;
+  final List<GroupChatBranch> branches;
+  final String currentChatId;
+  const GroupChatBranchesLoaded({
+    required this.groupId,
+    required this.branches,
+    required this.currentChatId,
+  });
+  @override
+  List<Object?> get props => [groupId, branches, currentChatId];
+}

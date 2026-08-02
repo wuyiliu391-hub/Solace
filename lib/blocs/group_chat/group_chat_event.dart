@@ -134,3 +134,60 @@ class GroupChatMarkRead extends GroupChatEvent {
   @override
   List<Object?> get props => [groupId];
 }
+
+/// 更新群聊引擎配置（激活策略/生成模式/禁言/允自答/自动接话）
+class GroupChatUpdateConfig extends GroupChatEvent {
+  final String groupId;
+  final GroupActivationStrategy? activationStrategy;
+  final GroupGenerationMode? generationMode;
+  final bool? allowSelfResponses;
+  final List<String>? disabledMemberIds;
+  final int? autoModeDelay;
+  final bool? autoModeEnabled;
+  const GroupChatUpdateConfig({
+    required this.groupId,
+    this.activationStrategy,
+    this.generationMode,
+    this.allowSelfResponses,
+    this.disabledMemberIds,
+    this.autoModeDelay,
+    this.autoModeEnabled,
+  });
+  @override
+  List<Object?> get props => [
+        groupId,
+        activationStrategy,
+        generationMode,
+        allowSelfResponses,
+        disabledMemberIds,
+        autoModeDelay,
+        autoModeEnabled,
+      ];
+}
+
+/// 新建聊天记录（分支）
+class GroupChatCreateBranch extends GroupChatEvent {
+  final String groupId;
+  final String name;
+  const GroupChatCreateBranch({required this.groupId, required this.name});
+  @override
+  List<Object?> get props => [groupId, name];
+}
+
+/// 切换聊天记录
+class GroupChatSwitchBranch extends GroupChatEvent {
+  final String groupId;
+  final String chatId;
+  const GroupChatSwitchBranch({required this.groupId, required this.chatId});
+  @override
+  List<Object?> get props => [groupId, chatId];
+}
+
+/// 删除聊天记录
+class GroupChatDeleteBranch extends GroupChatEvent {
+  final String groupId;
+  final String chatId;
+  const GroupChatDeleteBranch({required this.groupId, required this.chatId});
+  @override
+  List<Object?> get props => [groupId, chatId];
+}

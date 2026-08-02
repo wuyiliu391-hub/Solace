@@ -53,7 +53,7 @@ CombinedCard buildCombinedCard({
   String collectField(String Function(AICharacter) getter) {
     final values = <String>[];
     for (final c in members) {
-      final v = getter(c)?.trim() ?? '';
+      final v = getter(c).trim();
       if (v.isEmpty) continue;
       values.add('$joinPrefix$v$joinSuffix');
     }
@@ -74,7 +74,7 @@ CombinedCard buildCombinedCard({
 
 String _firstNonEmpty(List<String?> values) {
   for (final v in values) {
-    if (v != null && v.trim().isNotEmpty) return v!;
+    if (v != null && v.trim().isNotEmpty) return v;
   }
   return '';
 }
