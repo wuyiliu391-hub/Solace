@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../blocs/group_chat/group_chat_bloc.dart';
 import '../../models/group_chat_session.dart';
+import '../../models/ai_character.dart';
+import '../../repositories/local_storage_repository.dart';
+import '../../utils/character_color.dart';
 import 'group_chat_create_screen.dart';
 import 'group_chat_detail_screen.dart';
 class GroupChatListScreen extends StatefulWidget {
@@ -14,6 +17,9 @@ class GroupChatListScreen extends StatefulWidget {
 }
 
 class _GroupChatListScreenState extends State<GroupChatListScreen> {
+  final Map<String, List<AICharacter>> _membersByGroup = {};
+  final Map<String, String> _lastSpeakerNames = {};
+
   @override
   void initState() {
     super.initState();
@@ -21,6 +27,39 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<GroupChatBloc>().add(const GroupChatLoadSessions('local_user'));
+      _loadMemberData();
+    });
+  }
+
+  Future<void> _loadMemberData() async {
+    final repo = RepositoryProvider.of<LocalStorageRepository>(context);
+    final all = await repo.getAllAICharacters();
+    if (!mounted) return;
+    final byId = {for (final c in all) c.id: c};
+    final bloc = context.read<GroupChatBloc>();
+    final sessions = bloc.state is GroupChatSessionsLoaded
+        ? (bloc.state as GroupChatSessionsLoaded).sessions
+        : <GroupChatSession>[];
+    final membersByGroup = <String, List<AICharacter>>{};
+    final lastSpeakerNames = <String, String>{};
+    for (final s in sessions) {
+      membersByGroup[s.id] = s.aiCharacterIds
+          .map((id) => byId[id])
+          .whereType<AICharacter>()
+          .toList();
+      final latest =
+          await repo.getGroupChatMessages(s.id, limit: 1, chatId: s.chatId);
+      if (latest.isNotEmpty) {
+        final m = latest.first;
+        lastSpeakerNames[s.id] = m.isUser ? '我' : m.senderName;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _membersByGroup.clear();
+      _membersByGroup.addAll(membersByGroup);
+      _lastSpeakerNames.clear();
+      _lastSpeakerNames.addAll(lastSpeakerNames);
     });
   }
 
@@ -89,6 +128,11 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
       return bTime.compareTo(aTime);
     });
 
+    // 会话列表变化时刷新成员数据（简单去抖）
+    if (_membersByGroup.length != sessions.length) {
+      _loadMemberData();
+    }
+
     return ListView.separated(
       itemCount: sorted.length,
       separatorBuilder: (context, index) => Divider(
@@ -99,7 +143,11 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
       ),
       itemBuilder: (context, index) {
         final session = sorted[index];
-        return _GroupChatTile(session: session);
+        return _GroupChatTile(
+          session: session,
+          members: _membersByGroup[session.id] ?? const <AICharacter>[],
+          lastSpeakerName: _lastSpeakerNames[session.id],
+        );
       },
     );
   }
@@ -211,7 +259,13 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
 /// 群聊列表项
 class _GroupChatTile extends StatelessWidget {
   final GroupChatSession session;
-  const _GroupChatTile({required this.session});
+  final List<AICharacter> members;
+  final String? lastSpeakerName;
+  const _GroupChatTile({
+    required this.session,
+    required this.members,
+    this.lastSpeakerName,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -243,24 +297,8 @@ class _GroupChatTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 头像
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: colorScheme.tertiaryContainer,
-              ),
-              child: ClipOval(
-                child: session.avatarUrl != null && session.avatarUrl!.isNotEmpty
-                    ? Image.network(
-                        session.avatarUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _avatarFallback(colorScheme),
-                      )
-                    : _avatarFallback(colorScheme),
-              ),
-            ),
+            // 头像（成员拼接）
+            _memberStack(members, colorScheme),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -300,14 +338,15 @@ class _GroupChatTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    session.notice?.isNotEmpty == true &&
-                        (session.lastMessage == null ||
-                            session.lastMessage!.isEmpty)
-                        ? '公告：${session.notice}'
-                        : (session.lastMessage ?? '暂无消息'),
+                    session.lastMessage == null || session.lastMessage!.isEmpty
+                        ? (session.notice?.isNotEmpty == true
+                            ? '公告：${session.notice}'
+                            : '暂无消息')
+                        : '${lastSpeakerName ?? ''}: ${session.lastMessage}',
                     style: TextStyle(
                       fontSize: 14,
-                      color: session.lastMessage != null
+                      color: session.lastMessage != null &&
+                              session.lastMessage!.isNotEmpty
                           ? colorScheme.onSurface.withOpacity(0.55)
                           : colorScheme.onSurface.withOpacity(0.3),
                     ),
@@ -453,15 +492,70 @@ class _GroupChatTile extends StatelessWidget {
     );
   }
 
-  Widget _avatarFallback(ColorScheme cs) {
+  Widget _memberStack(List<AICharacter> members, ColorScheme cs) {
+    final shown = members.take(3).toList();
+    if (shown.isEmpty) {
+      return Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: cs.tertiaryContainer,
+        ),
+        child: Center(
+          child: Text('群',
+              style: TextStyle(
+                  color: cs.tertiary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600)),
+        ),
+      );
+    }
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Stack(
+        children: [
+          for (var i = 0; i < shown.length; i++)
+            Positioned(
+              left: i * 13,
+              top: i * 8,
+              child: Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: cs.surfaceContainerHighest,
+                  border: Border.all(color: cs.surface, width: 2),
+                ),
+                child: ClipOval(
+                  child: _miniAvatar(shown[i], cs),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniAvatar(AICharacter c, ColorScheme cs) {
+    final color = characterColor(colorHex: c.colorHex, name: c.name, cs: cs);
+    if (c.avatarUrl != null && c.avatarUrl!.isNotEmpty) {
+      return Image.network(
+        c.avatarUrl!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _miniAvatarText(c, color),
+      );
+    }
+    return _miniAvatarText(c, color);
+  }
+
+  Widget _miniAvatarText(AICharacter c, Color color) {
     return Center(
       child: Text(
-        '群',
+        c.name.isNotEmpty ? c.name.substring(0, 1) : '?',
         style: TextStyle(
-          color: cs.tertiary,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-        ),
+            color: color, fontSize: 12, fontWeight: FontWeight.w600),
       ),
     );
   }
