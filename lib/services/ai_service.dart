@@ -2725,7 +2725,8 @@ $messageTexts
     final messages = <Map<String, String>>[
       {
         'role': 'system',
-        'content': '你是一个记忆档案管理器。你的任务是维护一份全面、准确、不遗漏的对话记忆档案。用自然的中文书写，保留所有细节。'
+        'content':
+            '${_storage.buildGlobalModePrompt(scope: '记忆档案')}\n你是一个记忆档案管理器。你的任务是维护一份全面、准确、不遗漏的对话记忆档案。用自然的中文书写，保留所有细节。'
       },
       {'role': 'user', 'content': prompt},
     ];

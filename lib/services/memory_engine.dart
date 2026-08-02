@@ -1050,6 +1050,10 @@ ${userMessages.join('\n')}
           body: jsonEncode({
             'model': config.modelName,
             'messages': [
+              {
+                'role': 'system',
+                'content': _storage.buildGlobalModePrompt(scope: '记忆提取')
+              },
               {'role': 'user', 'content': prompt}
             ],
             'temperature': 0.3,
