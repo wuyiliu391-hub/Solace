@@ -6,8 +6,23 @@ import '../../blocs/group_chat/group_chat_bloc.dart';
 import '../../models/group_chat_session.dart';
 import 'group_chat_create_screen.dart';
 import 'group_chat_detail_screen.dart';
-class GroupChatListScreen extends StatelessWidget {
+class GroupChatListScreen extends StatefulWidget {
   const GroupChatListScreen({super.key});
+
+  @override
+  State<GroupChatListScreen> createState() => _GroupChatListScreenState();
+}
+
+class _GroupChatListScreenState extends State<GroupChatListScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // 修复：首次进入不加载 → 一直转圈，必须点加号返回才有数据
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<GroupChatBloc>().add(const GroupChatLoadSessions('local_user'));
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
