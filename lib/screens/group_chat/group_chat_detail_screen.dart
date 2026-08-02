@@ -13,7 +13,12 @@ import '../../models/group_chat_branch.dart';
 import '../../models/ai_character.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../repositories/local_storage_repository.dart';
+import '../../utils/character_color.dart';
 import '../../utils/vision_image_encoder.dart';
+import '../../widgets/group_chat/group_top_bar.dart';
+import '../../widgets/group_chat/member_activation_bar.dart';
+import '../../widgets/group_chat/group_message_bubble.dart';
+import '../../widgets/group_chat/group_member_drawer.dart';
 
 class GroupChatDetailScreen extends StatefulWidget {
   final GroupChatSession session;
@@ -26,6 +31,7 @@ class GroupChatDetailScreen extends StatefulWidget {
 class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late String _groupId;
 
   /// 会话可变副本：静音/置顶/改名后即时刷新
@@ -38,6 +44,18 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   String _streamingText = '';
   bool _aiTyping = false;
 
+  /// 群内 AI 成员（激活条/侧滑面板/角色色）
+  List<AICharacter> _members = [];
+
+  /// 角色 id → 角色色缓存
+  final Map<String, Color> _memberColors = {};
+
+  /// 手动锁定发言人（内存态）
+  List<String> _forcedSpeakerIds = [];
+
+  /// 当前聊天记录名（顶部悬浮条显示）
+  String _chatName = '默认聊天';
+
   /// 待发图片
   final List<String> _pendingImagePaths = [];
 
@@ -47,6 +65,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     _groupId = widget.session.id;
     _session = widget.session;
     _loadMessages();
+    _loadMembers();
   }
 
   @override
@@ -62,6 +81,29 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _loadMembers() async {
+    final repo = RepositoryProvider.of<LocalStorageRepository>(context);
+    final all = await repo.getAllAICharacters();
+    final byId = {for (final c in all) c.id: c};
+    if (!mounted) return;
+    setState(() {
+      _members = _session.aiCharacterIds
+          .map((id) => byId[id])
+          .whereType<AICharacter>()
+          .toList();
+      _memberColors
+        ..clear()
+        ..addEntries(_members.map((c) => MapEntry(
+              c.id,
+              characterColor(
+                colorHex: c.colorHex,
+                name: c.name,
+                cs: Theme.of(context).colorScheme,
+              ),
+            )));
+    });
+  }
+
   /// 根据会话变更事件刷新本地副本（静音/置顶/改名/公告）
   void _refreshSession(GroupChatState state) {
     if (state is GroupChatSessionsLoaded) {
@@ -72,14 +114,45 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
         }
       }
     }
+    if (state is GroupChatBranchesLoaded && state.groupId == _groupId) {
+      _chatName = state.branches
+              .where((b) => b.branchId == state.currentChatId)
+              .firstOrNull
+              ?.name ??
+          _chatName;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      key: _scaffoldKey,
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
-        title: Text(_session.name),
+        title: InkWell(
+          onTap: () => _scaffoldKey.currentState?.openEndDrawer(),
+          borderRadius: BorderRadius.circular(8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _memberStackAvatar(),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  _session.name,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onSurface,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
         actions: [
           IconButton(
             icon: Icon(_session.isMuted
@@ -106,48 +179,89 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           ),
         ],
       ),
+      endDrawer: GroupMemberDrawer(
+        session: _session,
+        members: _members,
+        forcedSpeakerIds: _forcedSpeakerIds,
+        onToggleMute: (id) {
+          final next = List<String>.from(_session.disabledMemberIds);
+          next.contains(id) ? next.remove(id) : next.add(id);
+          _dispatchConfig(disabledMemberIds: next);
+        },
+        onRemove: (id) {
+          context
+              .read<GroupChatBloc>()
+              .add(GroupChatRemoveMember(_groupId, id));
+          Navigator.pop(context);
+        },
+        onSpeakersChanged: _setForcedSpeakers,
+      ),
       body: Column(
         children: [
           // 群公告条
           if (_session.notice != null && _session.notice!.trim().isNotEmpty)
             _buildNoticeBar(_session.notice!),
           Expanded(
-            child: BlocBuilder<GroupChatBloc, GroupChatState>(
-              builder: (context, state) {
-                _refreshSession(state);
+            child: Stack(
+              children: [
+                BlocBuilder<GroupChatBloc, GroupChatState>(
+                  builder: (context, state) {
+                    _refreshSession(state);
 
-                // 流式输出中：AI 回复实时显示
-                if (state is GroupChatStreaming &&
-                    state.groupId == _groupId) {
-                  _streamingCharacter = state.characterName;
-                  _streamingText = state.streamingText;
-                  _aiTyping = true;
-                  _isLoading = false;
-                  return _buildMessageList(streaming: state);
-                }
-                if (state is GroupChatTyping && state.groupId == _groupId) {
-                  _aiTyping = true;
-                  _streamingText = '';
-                  _isLoading = false;
-                  return _buildMessageList(
-                      typingCharacter: state.characterName);
-                }
-                if (state is GroupChatMessagesLoaded &&
-                    state.groupId == _groupId) {
-                  _messages = state.messages;
-                  _aiTyping = false;
-                  _isLoading = false;
-                  return _buildMessageList();
-                }
-                if (state is GroupChatLoading && _isLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (state is GroupChatError) {
-                  return Center(child: Text('加载失败: ${state.message}'));
-                }
-                return const Center(child: CircularProgressIndicator());
-              },
+                    // 流式输出中：AI 回复实时显示
+                    if (state is GroupChatStreaming &&
+                        state.groupId == _groupId) {
+                      _streamingCharacter = state.characterName;
+                      _streamingText = state.streamingText;
+                      _aiTyping = true;
+                      _isLoading = false;
+                      return _buildMessageList(streaming: state);
+                    }
+                    if (state is GroupChatTyping &&
+                        state.groupId == _groupId) {
+                      _aiTyping = true;
+                      _streamingText = '';
+                      _isLoading = false;
+                      return _buildMessageList(
+                          typingCharacter: state.characterName);
+                    }
+                    if (state is GroupChatMessagesLoaded &&
+                        state.groupId == _groupId) {
+                      _messages = state.messages;
+                      _aiTyping = false;
+                      _isLoading = false;
+                      return _buildMessageList();
+                    }
+                    if (state is GroupChatLoading && _isLoading) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (state is GroupChatError) {
+                      return Center(child: Text('加载失败: ${state.message}'));
+                    }
+                    return const Center(child: CircularProgressIndicator());
+                  },
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: GroupTopBar(
+                    chatName: _chatName,
+                    autoModeEnabled: _session.autoModeEnabled ?? false,
+                    onChatTap: _showBranchManager,
+                    onAutoModeChanged: (v) {
+                      _dispatchConfig(autoModeEnabled: v);
+                    },
+                  ),
+                ),
+              ],
             ),
+          ),
+          MemberActivationBar(
+            members: _members,
+            disabledIds: _session.disabledMemberIds.toSet(),
+            forcedSpeakerIds: _forcedSpeakerIds,
+            onSpeakersChanged: _setForcedSpeakers,
           ),
           _buildInputBar(),
         ],
@@ -232,19 +346,73 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           return _TypingIndicator(name: typingCharacter);
         }
         final msg = displayMessages[index];
-        final isUser = msg.isUser;
         final showAvatar = index == 0 ||
             _messages.isEmpty ||
             (index < _messages.length &&
                 _messages[index - 1].senderId != msg.senderId) ||
             index >= _messages.length;
-        return _MessageBubble(
+        return GroupMessageBubble(
           message: msg,
-          isUser: isUser,
           showAvatar: showAvatar,
           screenWidth: MediaQuery.of(context).size.width,
+          speakerColor: msg.senderId.startsWith('ai_')
+              ? _memberColors[msg.senderId.substring(3)]
+              : null,
         );
       },
+    );
+  }
+
+  void _setForcedSpeakers(List<String> ids) {
+    setState(() => _forcedSpeakerIds = List<String>.from(ids));
+    context
+        .read<GroupChatBloc>()
+        .add(GroupChatSetSpeakers(groupId: _groupId, speakerIds: ids));
+  }
+
+  Widget _memberStackAvatar() {
+    final cs = Theme.of(context).colorScheme;
+    final shown = _members.take(3).toList();
+    if (shown.isEmpty) {
+      return CircleAvatar(
+        radius: 12,
+        backgroundColor: cs.tertiaryContainer,
+        child: Icon(Icons.group, size: 14, color: cs.tertiary),
+      );
+    }
+    return SizedBox(
+      width: 40,
+      height: 30,
+      child: Stack(
+        children: [
+          for (var i = 0; i < shown.length; i++)
+            Positioned(
+              left: i * 12,
+              top: i * 3,
+              child: Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _memberColors[shown[i].id] ?? cs.tertiaryContainer,
+                  border: Border.all(color: cs.surface, width: 1.5),
+                ),
+                child: Center(
+                  child: Text(
+                    shown[i].name.isNotEmpty
+                        ? shown[i].name.substring(0, 1)
+                        : '?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -1150,188 +1318,3 @@ class _TypingIndicator extends StatelessWidget {
   }
 }
 
-/// 单条消息气泡
-class _MessageBubble extends StatelessWidget {
-  final GroupChatMessage message;
-  final bool isUser;
-  final bool showAvatar;
-  final double screenWidth;
-
-  const _MessageBubble({
-    required this.message,
-    required this.isUser,
-    required this.showAvatar,
-    required this.screenWidth,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isMe = isUser;
-
-    // 系统消息：居中灰条
-    if (message.isSystem) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerHighest.withOpacity(0.6),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              message.content,
-              style: TextStyle(
-                fontSize: 11,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!isMe) ...[
-            if (showAvatar)
-              _messageAvatar(message.senderName, colorScheme)
-            else
-              const SizedBox(width: 32),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (showAvatar) ...[
-                    Text(
-                      message.senderName,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colorScheme.primary.withOpacity(0.7),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                  ],
-                  _buildContentBubble(message, colorScheme, false),
-                ],
-              ),
-            ),
-          ] else ...[
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  _buildContentBubble(message, colorScheme, true),
-                  const SizedBox(height: 2),
-                  Text(
-                    _formatTime(message.timestamp),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: colorScheme.onSurface.withOpacity(0.35),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            _messageAvatar('我', colorScheme),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildContentBubble(
-      GroupChatMessage msg, ColorScheme cs, bool isMe) {
-    // 图片消息
-    if (msg.type == GroupChatMessageType.image) {
-      final paths = (msg.metadata?['imagePaths'] as List?)?.cast<String>() ??
-          (msg.content.isNotEmpty ? [msg.content] : <String>[]);
-      final first = paths.isNotEmpty ? paths.first : null;
-      return Container(
-        constraints: BoxConstraints(maxWidth: screenWidth * 0.6),
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: isMe ? cs.primary : cs.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16).copyWith(
-            bottomRight: isMe ? const Radius.circular(4) : null,
-            bottomLeft: isMe ? null : const Radius.circular(4),
-          ),
-        ),
-        child: first != null && File(first).existsSync()
-            ? ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.file(
-                  File(first),
-                  width: 160,
-                  height: 160,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox(
-                    width: 160,
-                    height: 160,
-                    child: Icon(Icons.broken_image),
-                  ),
-                ),
-              )
-            : const Padding(
-                padding: EdgeInsets.all(12),
-                child: Icon(Icons.broken_image),
-              ),
-      );
-    }
-
-    return Container(
-      constraints: BoxConstraints(
-        maxWidth: screenWidth * 0.7,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: isMe ? cs.primary : cs.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16).copyWith(
-          bottomRight: isMe ? const Radius.circular(4) : null,
-          bottomLeft: isMe ? const Radius.circular(4) : null,
-        ),
-      ),
-      child: Text(
-        msg.content,
-        style: TextStyle(
-          fontSize: 15,
-          color: isMe ? cs.onPrimary : cs.onSurface,
-        ),
-      ),
-    );
-  }
-
-  Widget _messageAvatar(String name, ColorScheme cs) {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: cs.primaryContainer,
-      ),
-      child: ClipOval(
-        child: Center(
-          child: Text(
-            name.isNotEmpty ? name.substring(0, 1) : '?',
-            style: TextStyle(
-              color: cs.primary,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _formatTime(DateTime time) {
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-  }
-}
