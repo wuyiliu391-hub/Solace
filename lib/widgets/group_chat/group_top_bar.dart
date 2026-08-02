@@ -60,7 +60,7 @@ class GroupTopBar extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                autoModeEnabled ? '自动接话中' : 'Auto-Reply',
+                autoModeEnabled ? '自动接话中' : '自动回复',
                 style: TextStyle(
                   fontSize: 11,
                   color: autoModeEnabled ? cs.primary : cs.onSurfaceVariant,
