@@ -1406,11 +1406,51 @@ class LocalStorageRepository {
     return rows.map((r) => r['name'] as String).toSet();
   }
 
+  /// 兜底表侧 `NOT NULL` 且无默认值的列：模型 toMap() 可能不含它们
+  /// （如历史 `participantIds`），单靠列过滤无法兜住，导致
+  /// `NOT NULL constraint failed` 崩溃。改写前填入类型安全默认值予以规避。
+  static Future<void> _fillNotNullDefaults(
+    DatabaseExecutor db,
+    String table,
+    Map<String, dynamic> map,
+  ) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    for (final r in rows) {
+      if (r['notnull'] != 1) continue;
+      final name = r['name'] as String;
+      if (r['dflt_value'] != null) continue; // 已有默认值，无需填充
+      if (map.containsKey(name)) continue; // 模型已提供
+      // 语义等价回填：历史 participantIds ≈ 现代 memberIds
+      if (name == 'participantIds' && map.containsKey('memberIds')) {
+        map[name] = map['memberIds'];
+        continue;
+      }
+      final type = (r['type'] as String? ?? '').toUpperCase();
+      if (type.contains('INT')) {
+        map[name] = 0;
+      } else if (type.contains('REAL')) {
+        map[name] = 0.0;
+      } else {
+        map[name] = '';
+      }
+    }
+  }
+
   /// 仅供测试：在给定数据库上运行 shop_items schema 自愈逻辑。
   /// 用于在「缺列的旧库」上验证幂等修复，见 test/shop_schema_recovery_test.dart。
   @visibleForTesting
   static Future<void> ensureShopItemsSchemaForTest(Database db) =>
       _ensureShopItemsSchema(db, force: true);
+
+  /// 仅供测试：补填表侧 NOT NULL 无默认值列缺省值（防御遗留脏表插入崩溃）。
+  /// 见 test/group_chat_session_safe_write_test.dart。
+  @visibleForTesting
+  static Future<void> fillNotNullDefaultsForTest(
+    Database db,
+    String table,
+    Map<String, dynamic> map,
+  ) =>
+      _fillNotNullDefaults(db, table, map);
 
   Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
@@ -6844,6 +6884,9 @@ class LocalStorageRepository {
     if (!safe.containsKey('id')) {
       throw StateError('group_chat_sessions insert missing id, cols=$cols');
     }
+    // 兜底：补填表侧 NOT NULL 无默认值的列（如历史 participantIds），
+    // 模型 toMap() 不含它，单靠列过滤无法兜住 → 'NOT NULL constraint failed'。
+    await _fillNotNullDefaults(db, 'group_chat_sessions', safe);
     await db.insert('group_chat_sessions', safe,
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
