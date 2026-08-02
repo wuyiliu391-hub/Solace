@@ -16,6 +16,7 @@ import '../../repositories/local_storage_repository.dart';
 import '../../utils/avatar_resolver.dart';
 import '../../utils/character_color.dart';
 import '../../utils/vision_image_encoder.dart';
+import '../../widgets/avatar_picker.dart';
 import '../../widgets/group_chat/group_top_bar.dart';
 import '../../widgets/group_chat/member_activation_bar.dart';
 import '../../widgets/group_chat/group_message_bubble.dart';
@@ -39,6 +40,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   late GroupChatSession _session;
   List<GroupChatMessage> _messages = [];
   bool _isLoading = true;
+
+  /// 设置弹窗内临时头像（选图后立即显示，持久化走 GroupChatUpdateSession）
+  String? _dialogAvatar;
 
   /// 群内 AI 成员（激活条/侧滑面板/角色色）
   List<AICharacter> _members = [];
@@ -672,6 +676,27 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
+                // 群头像：点选后立即显示并持久化（存 docs/avatars，实时同步列表/详情）
+                StatefulBuilder(builder: (ctxAvatar, setAvatar) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Center(
+                      child: AvatarPicker(
+                        currentAvatar: _dialogAvatar ?? _session.avatarUrl,
+                        onAvatarSelected: (path) {
+                          setAvatar(() => _dialogAvatar = path);
+                          context.read<GroupChatBloc>().add(
+                                GroupChatUpdateSession(
+                                  groupId: _groupId,
+                                  avatarUrl: path,
+                                ),
+                              );
+                        },
+                        size: 72,
+                      ),
+                    ),
+                  );
+                }),
                 ListTile(
                   leading: const Icon(Icons.drive_file_rename_outline),
                   title: const Text('重命名群聊'),
