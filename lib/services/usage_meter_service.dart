@@ -5,6 +5,79 @@ import 'package:http/http.dart' as http;
 import '../models/usage_record.dart';
 import '../utils/prefs_helper.dart';
 
+/// 持久化的累计总量，不受明细记录裁剪影响。
+class _UsageTotals {
+  int requestCount;
+  int inputTokens;
+  int outputTokens;
+  int cacheHitTokens;
+  int systemTokens;
+  int historyTokens;
+  int userMessageTokens;
+  int otherInputTokens;
+  double totalCost;
+
+  _UsageTotals({
+    this.requestCount = 0,
+    this.inputTokens = 0,
+    this.outputTokens = 0,
+    this.cacheHitTokens = 0,
+    this.systemTokens = 0,
+    this.historyTokens = 0,
+    this.userMessageTokens = 0,
+    this.otherInputTokens = 0,
+    this.totalCost = 0,
+  });
+
+  void add(UsageRecord r) {
+    requestCount++;
+    inputTokens += r.inputTokens;
+    outputTokens += r.outputTokens;
+    cacheHitTokens += r.cacheHitTokens;
+    systemTokens += r.systemTokens;
+    historyTokens += r.historyTokens;
+    userMessageTokens += r.userMessageTokens;
+    otherInputTokens += r.otherInputTokens;
+    totalCost += r.totalCost;
+  }
+
+  UsageSummary toSummary() => UsageSummary(
+        inputTokens: inputTokens,
+        outputTokens: outputTokens,
+        cacheHitTokens: cacheHitTokens,
+        systemTokens: systemTokens,
+        historyTokens: historyTokens,
+        userMessageTokens: userMessageTokens,
+        otherInputTokens: otherInputTokens,
+        totalCost: totalCost,
+        requestCount: requestCount,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'requestCount': requestCount,
+        'inputTokens': inputTokens,
+        'outputTokens': outputTokens,
+        'cacheHitTokens': cacheHitTokens,
+        'systemTokens': systemTokens,
+        'historyTokens': historyTokens,
+        'userMessageTokens': userMessageTokens,
+        'otherInputTokens': otherInputTokens,
+        'totalCost': totalCost,
+      };
+
+  factory _UsageTotals.fromJson(Map<String, dynamic> json) => _UsageTotals(
+        requestCount: (json['requestCount'] as num?)?.toInt() ?? 0,
+        inputTokens: (json['inputTokens'] as num?)?.toInt() ?? 0,
+        outputTokens: (json['outputTokens'] as num?)?.toInt() ?? 0,
+        cacheHitTokens: (json['cacheHitTokens'] as num?)?.toInt() ?? 0,
+        systemTokens: (json['systemTokens'] as num?)?.toInt() ?? 0,
+        historyTokens: (json['historyTokens'] as num?)?.toInt() ?? 0,
+        userMessageTokens: (json['userMessageTokens'] as num?)?.toInt() ?? 0,
+        otherInputTokens: (json['otherInputTokens'] as num?)?.toInt() ?? 0,
+        totalCost: (json['totalCost'] as num?)?.toDouble() ?? 0,
+      );
+}
+
 class UsageMeterService {
   UsageMeterService._();
 
@@ -13,11 +86,13 @@ class UsageMeterService {
   static const _recordsKey = 'usage_meter_records_v1';
   static const _inputPriceKey = 'usage_meter_input_price';
   static const _outputPriceKey = 'usage_meter_output_price';
-  static const _maxRecords = 2000;
+  static const _totalsKey = 'usage_meter_totals_v1';
+  static const _maxRecords = 10000;
 
   // ── 内存缓存 ──
   UsagePricing? _cachedPricing;
   List<UsageRecord>? _cachedRecords;
+  _UsageTotals? _cachedTotals;
   final List<UsageRecord> _pendingBuffer = [];
   Timer? _flushTimer;
   bool _dirty = false;
@@ -30,6 +105,7 @@ class UsageMeterService {
   Future<void> warmUp() async {
     await getPricing();
     await _loadRecords();
+    await _loadTotals();
   }
 
   // ── 单价 ──
@@ -79,9 +155,41 @@ class UsageMeterService {
     return records;
   }
 
+  Future<_UsageTotals> _loadTotals() async {
+    if (_cachedTotals != null) return _cachedTotals!;
+    final prefs = await PrefsHelper.instance;
+    final raw = prefs.getString(_totalsKey);
+    if (raw != null) {
+      try {
+        _cachedTotals = _UsageTotals.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        return _cachedTotals!;
+      } catch (_) {}
+    }
+    // 老数据迁移：从已有明细记录重建总量
+    final records = await getRecords();
+    final totals = _UsageTotals();
+    for (final r in records) {
+      totals.add(r);
+    }
+    _cachedTotals = totals;
+    return totals;
+  }
+
+  Future<_UsageTotals> _saveTotals() async {
+    final totals = await _loadTotals();
+    final prefs = await PrefsHelper.instance;
+    await prefs.setString(_totalsKey, jsonEncode(totals.toJson()));
+    return totals;
+  }
+
   // ── 汇总统计（从内存计算）──
 
   Future<UsageSummary> getSummary(UsageRange range) async {
+    // 「总计」直接用持久化累计总量，不受明细裁剪影响
+    if (range == UsageRange.all) {
+      final totals = await _loadTotals();
+      return totals.toSummary();
+    }
     final records = await getRecords();
     var input = 0, output = 0, cache = 0, count = 0;
     var system = 0, history = 0, userMessage = 0, other = 0;
@@ -220,13 +328,17 @@ class UsageMeterService {
     }
   }
 
-  // ── 缓冲写入 + 防抖刷盘 ──
+  // ── 缓冲写入 + 串行化防抖刷盘 ──
+
+  Future<void> _flushChain = Future.value();
 
   void _appendBuffered(UsageRecord record) {
     // 写入内存
     _pendingBuffer.add(record);
     _cachedRecords ??= [];
     _cachedRecords!.add(record);
+    _cachedTotals ??= _UsageTotals();
+    _cachedTotals!.add(record);
     _dirty = true;
 
     // 超过上限时裁剪内存
@@ -244,7 +356,13 @@ class UsageMeterService {
     }
   }
 
-  Future<void> _flushNow() async {
+  /// 串行化 flush：并发调用排队依次执行，避免交错读写 prefs 丢数据。
+  Future<void> _flushNow() {
+    _flushChain = _flushChain.then((_) => _flushBatch());
+    return _flushChain;
+  }
+
+  Future<void> _flushBatch() async {
     _flushTimer?.cancel();
     if (!_dirty || _pendingBuffer.isEmpty) return;
 
@@ -263,6 +381,7 @@ class UsageMeterService {
         raw.removeRange(0, raw.length - _maxRecords);
       }
       await prefs.setStringList(_recordsKey, raw);
+      await _saveTotals();
       _changes.add(null);
     } catch (e) {
       debugPrint('UsageMeterService flush error: $e');
@@ -484,7 +603,25 @@ class UsageMeterService {
   int _int(Object? value) =>
       value is num ? value.toInt() : int.tryParse('$value') ?? 0;
   int _max(int a, int b) => a > b ? a : b;
-}
+
+  // ── 测试辅助 ──
+
+  @visibleForTesting
+  static void resetForTest() {
+    final m = instance;
+    m._cachedPricing = null;
+    m._cachedRecords = null;
+    m._cachedTotals = null;
+    m._pendingBuffer.clear();
+    m._dirty = false;
+    m._flushTimer?.cancel();
+    m._flushTimer = null;
+  }
+
+  @visibleForTesting
+  static Future<void> flushForTest() async {
+    await instance._flushNow();
+  }}
 
 class _TokenData {
   final int inputTokens;
