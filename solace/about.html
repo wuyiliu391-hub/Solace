@@ -3,18 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>关于 — Solace</title>
-<meta name="description" content="关于 Solace 的故事——一个 18 岁独立开发者的产品理想。">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%233b82f6'/%3E%3Cpath d='M50 28c-12 0-22 8-22 20 0 8 4 14 10 18 1 4 2 8 2 10 0 2 2 3 4 2l6-4c2 0 4 0 6 0 12 0 22-8 22-20s-10-20-22-20z' fill='white'/%3E%3C/svg%3E">
+<title>关于 — Solace · Bauhaus Minimalism</title>
+<meta name="description" content="Solace AI Companion - About page with Bauhaus minimalist design">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23ffffff'/%3E%3Crect x='10' y='10' width='80' height='80' stroke='%23001E8F' stroke-width='2' fill='none'/%3E%3Ctext x='50' y='60' font-family='Inter,sans-serif' font-size='20' font-weight='700' text-anchor='middle' fill='%23000000' letter-spacing='-0.02'%3EAbt%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<div class="bg-glows">
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+  <div class="glow glow-3"></div>
+</div>
 
 <canvas id="particle-canvas"></canvas>
 
 <nav class="nav" id="nav">
   <a href="index.html" class="nav-brand">
-    <span class="nav-brand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+    <span class="nav-brand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg></span>
     Solace
   </a>
   <div class="nav-links">
@@ -34,120 +40,194 @@
   <a href="download.html" onclick="closeMenu()">下载</a>
   <a href="about.html" onclick="closeMenu()">关于</a>
   <a href="help.html" onclick="closeMenu()">帮助</a>
-  <a href="download.html" class="action" onclick="closeMenu()">下载 App</a>
+  <a href="download.html" class="action">下载 App</a>
 </div>
 
-<div class="page-header">
+<div class="page-header reveal">
   <h1>关于 Solace</h1>
-  <p>一个人的产品理想</p>
+  <p>一个人的坚持 | Form follows function</p>
 </div>
 
 <div class="page-body">
-  <div class="reveal">
+  <!-- Story -->
+  <section class="reveal">
     <h2>故事</h2>
     <p>Solace 诞生于一个简单的问题：如果 AI 不只是工具，而是能真正陪伴你的人，会是什么样子？</p>
-    <p>没有团队，没有投资，只有一个人对着屏幕写代码。从第一行 Dart 到现在的 43 个构建版本，每一步都是为了做出一个自己真正想用的产品。</p>
+    <p>没有团队，没有投资，只有一个人对着屏幕写代码。从第一行 Dart 到现在的 17.5.0，每一步都是为了做出一个自己真正想用的产品。</p>
     <p>不想做大厂 CRUD，不想被 KPI 绑架。只想做一个有温度的产品——一个你深夜打开时，会有人问你"今天过得怎么样"的地方。</p>
-  </div>
+  </section>
 
-  <div class="timeline reveal">
-    <div class="timeline-item">
-      <div class="timeline-dot"></div>
-      <time>2025.03</time>
-      <p>第一行代码。决定用 Flutter 做一个 AI 陪伴应用。</p>
+  <!-- Timeline -->
+  <section class="reveal">
+    <h2>开发历程</h2>
+    <div class="timeline">
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <time>2025.03</time>
+        <p>第一行代码。决定用 Flutter 做一个 AI 陪伴应用。</p>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <time>2025.06</time>
+        <p>v1.0 发布。基础聊天 + 多角色系统。</p>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <time>2025.09</time>
+        <p>加入亲密度系统、时间感知、主动消息。</p>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <time>2025.12</time>
+        <p>图片识别、朋友圈、心情日记上线。</p>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <time>2026.07</time>
+        <p>v17.5.0 Bauhaus 重构。极简主义设计语言全面落地。</p>
+      </div>
     </div>
-    <div class="timeline-item">
-      <div class="timeline-dot"></div>
-      <time>2025.06</time>
-      <p>v1.0 发布。基础聊天 + 多角色系统。</p>
-    </div>
-    <div class="timeline-item">
-      <div class="timeline-dot"></div>
-      <time>2025.09</time>
-      <p>加入亲密度系统、时间感知、主动消息。</p>
-    </div>
-    <div class="timeline-item">
-      <div class="timeline-dot"></div>
-      <time>2025.12</time>
-      <p>图片识别、朋友圈、心情日记上线。</p>
-    </div>
-    <div class="timeline-item">
-      <div class="timeline-dot"></div>
-      <time>2026.07</time>
-      <p>v17.4.1 持续迭代中。43 个构建版本，从未停止。</p>
-    </div>
-  </div>
+  </section>
 
-  <div id="tech" class="reveal">
+  <!-- Tech Stack -->
+  <section class="reveal">
     <h2>技术架构</h2>
-    <p>零后端架构 — 没有服务器要维护，没有 Firebase 账单。所有费用只花在你的 API 调用上。</p>
-    <ul>
-      <li>Flutter 3.x + Dart — 跨平台开发</li>
-      <li>SQLite — 本地数据存储</li>
+    <p>零后端架构 — 没有服务器要维护，没有账单。所有费用只花在你的 API 调用上。</p>
+    <ul style="padding-left:var(--g-space-l);margin:var(--g-space-m) 0;">
+      <li>Flutter 3.x + Dart — 跨平台移动/Web开发</li>
+      <li>SQLite — 本地数据存储 (sqflite)</li>
       <li>SharedPreferences — 轻量配置</li>
+      <li>Hive — 对象存储</li>
       <li>OpenAI 兼容 API — 任意模型接入</li>
-      <li>Cloudflare Pages — 官网 + 版本分发</li>
+      <li>Cloudflare Workers — 静态网站托管与分发</li>
     </ul>
-  </div>
+  </section>
 </div>
 
 <footer class="footer">
   <div class="footer-grid">
-    <div class="footer-brand"><div class="logo">Solace</div><p>让每一次交流都有温度。</p></div>
-    <div class="footer-col"><h4>产品</h4><a href="features.html">功能介绍</a><a href="download.html">下载中心</a><a href="help.html">帮助中心</a></div>
-    <div class="footer-col"><h4>关于</h4><a href="about.html">关于作者</a></div>
-    <div class="footer-col"><h4>法律</h4><a href="privacy.html">隐私政策</a><a href="terms.html">用户协议</a></div>
+    <div class="footer-brand">
+      <div class="logo">Solace</div>
+      <p>让每一次交流都有温度。一款零后端、纯本地的 AI 陪伴应用。</p>
+    </div>
+    <div class="footer-col">
+      <h4>产品</h4>
+      <a href="features.html">功能介绍</a>
+      <a href="download.html">下载中心</a>
+      <a href="help.html">帮助中心</a>
+    </div>
+    <div class="footer-col">
+      <h4>关于</h4>
+      <a href="about.html">关于作者</a>
+    </div>
+    <div class="footer-col">
+      <h4>法律</h4>
+      <a href="privacy.html">隐私政策</a>
+      <a href="terms.html">用户协议</a>
+    </div>
   </div>
   <div class="footer-bottom">
     <p>&copy; 2026 Solace. All rights reserved.</p>
-    <div style="display:flex;gap:20px;"><a href="privacy.html">隐私</a><a href="terms.html">条款</a></div>
+    <div style="display:flex;gap:16px;"><a href="privacy.html">隐私</a><a href="terms.html">条款</a></div>
   </div>
 </footer>
 
 <script>
+// Particle System
 (function() {
   const canvas = document.getElementById('particle-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  let particles = []; let mouse = { x: null, y: null };
+  let particles = [];
+  let mouse = { x: null, y: null };
+  
   function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
   resize(); window.addEventListener('resize', resize);
+  
   class Particle {
     constructor() {
-      this.x = Math.random() * canvas.width; this.y = Math.random() * canvas.height;
-      this.size = Math.random() * 2 + 1;
-      this.speedX = (Math.random() - 0.5) * 0.4; this.speedY = (Math.random() - 0.5) * 0.4;
-      this.opacity = Math.random() * 0.25 + 0.05;
+      this.x = Math.random() * canvas.width;
+      this.y = Math.random() * canvas.height;
+      this.size = Math.random() * 1 + 0.5;
+      this.speedX = (Math.random() - 0.5) * 0.2;
+      this.speedY = (Math.random() - 0.5) * 0.2;
+      this.opacity = Math.random() * 0.15 + 0.02;
     }
     update() {
-      this.x += this.speedX; this.y += this.speedY;
-      if (this.x < 0) this.x = canvas.width; if (this.x > canvas.width) this.x = 0;
-      if (this.y < 0) this.y = canvas.height; if (this.y > canvas.height) this.y = 0;
-      if (mouse.x != null) { const dx = mouse.x - this.x, dy = mouse.y - this.y, dist = Math.sqrt(dx*dx + dy*dy); if (dist < 120) { const f = (120 - dist) / 120; this.x -= dx * f * 0.015; this.y -= dy * f * 0.015; } }
+      this.x += this.speedX;
+      this.y += this.speedY;
+      if (this.x < 0) this.x = canvas.width;
+      if (this.x > canvas.width) this.x = 0;
+      if (this.y < 0) this.y = canvas.height;
+      if (this.y > canvas.height) this.y = 0;
+      if (mouse.x != null) {
+        const dx = mouse.x - this.x;
+        const dy = mouse.y - this.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 150) {
+          const f = (150 - dist) / 150;
+          this.x -= dx * f * 0.008;
+          this.y -= dy * f * 0.008;
+        }
+      }
     }
-    draw() { ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fillStyle = 'rgba(59,130,246,' + this.opacity + ')'; ctx.fill(); }
+    draw() {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0, 30, 143,' + this.opacity + ')';
+      ctx.fill();
+    }
   }
-  function init() { particles = []; const count = Math.min(Math.floor(window.innerWidth / 12), 80); for (let i = 0; i < count; i++) particles.push(new Particle()); }
+  
+  function init() {
+    particles = [];
+    const count = Math.min(Math.floor(window.innerWidth / 20), 40);
+    for (let i = 0; i < count; i++) particles.push(new Particle());
+  }
   init();
+  
   function animate() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     for (let i = 0; i < particles.length; i++) {
       for (let j = i + 1; j < particles.length; j++) {
-        const dx = particles[i].x - particles[j].x, dy = particles[i].y - particles[j].y, dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < 100) { ctx.beginPath(); ctx.strokeStyle = 'rgba(59,130,246,' + (0.06 * (1 - dist/100)) + ')'; ctx.lineWidth = 0.5; ctx.moveTo(particles[i].x, particles[i].y); ctx.lineTo(particles[j].x, particles[j].y); ctx.stroke(); }
+        const dx = particles[i].x - particles[j].x;
+        const dy = particles[i].y - particles[j].y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 120) {
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(0, 30, 143,' + (0.04 * (1 - dist/120)) + ')';
+          ctx.lineWidth = 0.3;
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.stroke();
+        }
       }
+      particles[i].update(); particles[i].draw();
     }
-    particles.forEach(p => { p.update(); p.draw(); });
     requestAnimationFrame(animate);
   }
   animate();
+  
   window.addEventListener('mousemove', e => { mouse.x = e.x; mouse.y = e.y; });
   window.addEventListener('mouseleave', () => { mouse.x = null; mouse.y = null; });
 })();
+
+// Navigation
 function toggleMenu() { document.getElementById('mobileMenu').classList.toggle('open'); }
 function closeMenu() { document.getElementById('mobileMenu').classList.remove('open'); }
-window.addEventListener('scroll', () => { document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 30); });
-const io = new IntersectionObserver((entries) => { entries.forEach(e => { if(e.isIntersecting){ e.target.classList.add('visible'); io.unobserve(e.target); } }); }, { threshold: 0.08, rootMargin: '0px 0px -30px 0px' });
+window.addEventListener('scroll', () => {
+  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 30);
+});
+
+// Scroll reveal
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      io.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
 document.querySelectorAll('.reveal').forEach(el => io.observe(el));
 </script>
 
