@@ -6,10 +6,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../models/ai_character.dart';
+import '../../models/group_chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/memory_engine.dart';
 import '../../services/permission_service.dart';
 import '../chat/chat_detail_screen.dart';
+import '../group_chat/group_chat_detail_screen.dart';
 import '../../blocs/chat/chat_bloc.dart';
 import '../../services/ai_service.dart';
 import '../../services/bridge/ai_service_adapter.dart';
@@ -24,6 +26,7 @@ class ContactsScreen extends StatefulWidget {
 
 class _ContactsScreenState extends State<ContactsScreen> {
   List<AICharacter> _characters = [];
+  List<GroupChatSession> _groupChats = [];
   bool _isLoading = true;
   StreamSubscription? _chatSub;
 
@@ -42,8 +45,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Future<void> _loadCharacters() async {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
     final characters = await storage.getAllAICharacters();
+    final groupChats = await storage.getGroupChatSessions('local_user');
+    if (!mounted) return;
     setState(() {
       _characters = characters;
+      _groupChats = groupChats;
       _isLoading = false;
     });
   }
@@ -60,9 +66,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _characters.isEmpty
+          : _characters.isEmpty && _groupChats.isEmpty
               ? _buildEmptyState(context)
-              : _buildCharacterList(context),
+              : _buildContactList(context),
     );
   }
 
@@ -99,14 +105,29 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  Widget _buildCharacterList(BuildContext context) {
+  Widget _buildContactList(BuildContext context) {
     return ListView.builder(
-      itemCount: _characters.length + 1,
+      itemCount:
+          (_groupChats.isNotEmpty ? _groupChats.length + 1 : 0) +
+              _characters.length +
+              1,
       itemBuilder: (context, index) {
-        if (index == 0) {
+        // 群聊分组（在好友之前）
+        if (_groupChats.isNotEmpty && index < _groupChats.length + 1) {
+          if (index == 0) {
+            return _buildHeader(context, '群聊 (${_groupChats.length})');
+          }
+          final group = _groupChats[index - 1];
+          return _GroupContactTile(
+            session: group,
+            onTap: () => _openGroupChat(group),
+          );
+        }
+        final charIndex = index - (_groupChats.isNotEmpty ? _groupChats.length + 1 : 0);
+        if (charIndex == 0) {
           return _buildHeader(context, '我的好友 (${_characters.length})');
         }
-        final character = _characters[index - 1];
+        final character = _characters[charIndex - 1];
         return _CharacterTile(
           character: character,
           onTap: () => _startChat(character),
@@ -114,6 +135,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
         );
       },
     );
+  }
+
+  void _openGroupChat(GroupChatSession group) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+          builder: (_) => GroupChatDetailScreen(session: group)),
+    ).then((_) {
+      if (mounted) _loadCharacters();
+    });
   }
 
   Widget _buildHeader(BuildContext context, String title) {
@@ -490,6 +521,36 @@ class _CharacterTile extends StatelessWidget {
           fontWeight: FontWeight.bold,
         ),
       ),
+    );
+  }
+}
+/// 群聊联系人项
+class _GroupContactTile extends StatelessWidget {
+  final GroupChatSession session;
+  final VoidCallback onTap;
+
+  const _GroupContactTile({required this.session, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: colorScheme.secondaryContainer,
+        child: Icon(Icons.groups, color: colorScheme.secondary, size: 24),
+      ),
+      title: Text(
+        session.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        '${session.memberIds.length} 人 · ${session.lastMessage ?? "暂无消息"}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(Icons.chevron_right, size: 20),
+      onTap: onTap,
     );
   }
 }

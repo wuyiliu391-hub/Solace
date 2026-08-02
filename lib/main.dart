@@ -1085,7 +1085,6 @@ class _DiscoverPageState extends State<_DiscoverPage>
           cs, tt),
       _tile(context, Icons.thermostat, '关系温度', '查看关系仪表盘', '/relationship', cs,
           tt),
-      _tile(context, Icons.groups, '群聊', 'AI 角色群聊互动', '/group_chat', cs, tt),
     ]);
   }
 

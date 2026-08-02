@@ -5,14 +5,19 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/chat/chat_bloc.dart';
+import '../../blocs/group_chat/group_chat_bloc.dart';
 import '../../models/ai_character.dart';
 import '../../models/chat_session.dart';
+import '../../models/group_chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/diary_helper.dart';
 import '../../utils/avatar_resolver.dart';
 import '../character/create_character_screen.dart';
 import '../character/discover_characters_screen.dart';
+import '../group_chat/group_chat_create_screen.dart';
+import '../group_chat/group_chat_detail_screen.dart';
+import '../group_chat/group_chat_list_screen.dart';
 import 'chat_detail_screen.dart';
 
 class ChatListScreen extends StatelessWidget {
@@ -65,17 +70,34 @@ class ChatListScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (chatSessions.isEmpty) {
-            return _buildEmptyState(context);
-          }
-
           return Column(
             children: [
               _buildSearchBar(context),
               if (chatSessions.isNotEmpty)
                 _buildOnlineFriendsRow(context, chatSessions),
               Expanded(
-                child: _buildChatList(context, chatSessions),
+                child: BlocBuilder<GroupChatBloc, GroupChatState>(
+                  builder: (context, groupState) {
+                    // 首次进入确保群聊已加载（否则群聊不显示）
+                    if (groupState is GroupChatInitial) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (context.mounted) {
+                          context.read<GroupChatBloc>().add(
+                              const GroupChatLoadSessions('local_user'));
+                        }
+                      });
+                    }
+                    final groupSessions =
+                        groupState is GroupChatSessionsLoaded
+                            ? groupState.sessions
+                            : <GroupChatSession>[];
+                    // 单聊和群聊都为空才显示空态
+                    if (chatSessions.isEmpty && groupSessions.isEmpty) {
+                      return _buildEmptyState(context);
+                    }
+                    return _buildChatList(context, chatSessions, groupSessions);
+                  },
+                ),
               ),
             ],
           );
@@ -533,20 +555,30 @@ class ChatListScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildChatList(BuildContext context, List<ChatSession> chatSessions) {
-    final sessions = [...chatSessions];
-    sessions.sort((a, b) {
-      // 置顶的排前面
+  Widget _buildChatList(
+    BuildContext context,
+    List<ChatSession> chatSessions,
+    List<GroupChatSession> groupSessions,
+  ) {
+    // 统一条目模型：单聊会话 + 群聊会话
+    final entries = <_ConversationEntry>[
+      for (final s in chatSessions) _ConversationEntry.chat(s),
+      for (final g in groupSessions) _ConversationEntry.group(g),
+    ];
+    entries.sort((a, b) {
       if (a.isPinned && !b.isPinned) return -1;
       if (!a.isPinned && b.isPinned) return 1;
-      // 同组内按时间排序
       final aTime = a.lastMessageTime ?? DateTime(0);
       final bTime = b.lastMessageTime ?? DateTime(0);
       return bTime.compareTo(aTime);
     });
 
+    if (entries.isEmpty) {
+      return _buildEmptyState(context);
+    }
+
     return ListView.separated(
-      itemCount: sessions.length,
+      itemCount: entries.length,
       separatorBuilder: (context, index) => Divider(
         height: 0.5,
         thickness: 0.5,
@@ -554,7 +586,27 @@ class ChatListScreen extends StatelessWidget {
         color: Theme.of(context).colorScheme.outline.withOpacity(0.15),
       ),
       itemBuilder: (context, index) {
-        final session = sessions[index];
+        final entry = entries[index];
+        if (entry.isGroup) {
+          final g = entry.groupSession!;
+          return _GroupChatListTile(
+            session: g,
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => GroupChatDetailScreen(session: g)),
+              );
+              if (context.mounted) {
+                context.read<GroupChatBloc>().add(GroupChatMarkRead(g.id));
+                context
+                    .read<GroupChatBloc>()
+                    .add(const GroupChatLoadSessions('local_user'));
+              }
+            },
+          );
+        }
+        final session = entry.chatSession!;
         return _ChatListTile(
           session: session,
           onLongPress: () => _showSessionOptions(context, session),
@@ -725,6 +777,33 @@ class ChatListScreen extends StatelessWidget {
                   onTap: () {
                     Navigator.pop(context);
                     _navigateToDiscoverCharacters(context);
+                  },
+                ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.groups,
+                        color: Theme.of(context).colorScheme.secondary),
+                  ),
+                  title: const Text('创建群聊'),
+                  subtitle: const Text('拉多个 AI 角色进群互动', style: TextStyle(fontSize: 12)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const GroupChatCreateScreen()),
+                    ).then((_) {
+                      if (context.mounted) {
+                        context
+                            .read<GroupChatBloc>()
+                            .add(const GroupChatLoadSessions('local_user'));
+                      }
+                    });
                   },
                 ),
                 const SizedBox(height: 8),
@@ -1002,6 +1081,145 @@ class _ChatListTileState extends State<_ChatListTile> {
   }
 
   String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final messageDate = DateTime(time.year, time.month, time.day);
+
+    if (messageDate == today) {
+      return DateFormat('HH:mm').format(time);
+    } else if (messageDate == today.subtract(const Duration(days: 1))) {
+      return '昨天';
+    } else if (now.difference(time).inDays < 7) {
+      return DateFormat('E', 'zh_CN').format(time);
+    } else {
+      return DateFormat('MM/dd').format(time);
+    }
+  }
+}
+
+/// 统一会话条目：单聊会话或群聊会话
+class _ConversationEntry {
+  final ChatSession? chatSession;
+  final GroupChatSession? groupSession;
+
+  _ConversationEntry.chat(ChatSession s) : chatSession = s, groupSession = null;
+  _ConversationEntry.group(GroupChatSession s) : chatSession = null, groupSession = s;
+
+  bool get isGroup => groupSession != null;
+  bool get isPinned => isGroup ? groupSession!.isPinned : chatSession!.isPinned;
+  DateTime? get lastMessageTime =>
+      isGroup ? groupSession!.lastMessageTime : chatSession!.lastMessageTime;
+}
+
+/// 群聊列表项（混入主页聊天列表用）
+class _GroupChatListTile extends StatelessWidget {
+  final GroupChatSession session;
+  final VoidCallback onTap;
+
+  const _GroupChatListTile({required this.session, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final timeText = session.lastMessageTime != null
+        ? _formatGroupTime(session.lastMessageTime!)
+        : '';
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            // 群头像
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: colorScheme.secondaryContainer,
+              ),
+              child: Center(
+                child: Icon(Icons.groups,
+                    color: colorScheme.secondary, size: 24),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          session.name,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.onSurface,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (timeText.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          timeText,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colorScheme.onSurface.withOpacity(0.4),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    session.lastMessage ?? '暂无消息',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: session.lastMessage != null
+                          ? colorScheme.onSurface.withOpacity(0.55)
+                          : colorScheme.onSurface.withOpacity(0.3),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            // 未读角标
+            if (session.unreadCount > 0)
+              Container(
+                constraints:
+                    const BoxConstraints(minWidth: 18, minHeight: 18),
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: colorScheme.surface, width: 2),
+                ),
+                child: Text(
+                  session.unreadCount > 99
+                      ? '99+'
+                      : session.unreadCount.toString(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatGroupTime(DateTime time) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final messageDate = DateTime(time.year, time.month, time.day);
