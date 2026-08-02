@@ -245,6 +245,9 @@ class AICharacter extends Equatable {
   final double deviationRadius;
   /// 健谈度 0~1（群聊 NATURAL 激活策略用，默认 0.5，对标 SillyTavern talkativeness）
   final double talkativeness;
+
+  /// 角色主题色（#RRGGBB，群聊角色色用；null 走哈希兜底）
+  final String? colorHex;
   final bool evolutionEnabled;
   final bool qualitativeEvolutionEnabled;
   final String? currentAnchor;
@@ -297,6 +300,7 @@ class AICharacter extends Equatable {
     this.immutableAnchor,
     this.deviationRadius = 0.4,
     this.talkativeness = 0.5,
+    this.colorHex,
     this.evolutionEnabled = true,
     this.qualitativeEvolutionEnabled = false,
     this.currentAnchor,
@@ -337,6 +341,8 @@ class AICharacter extends Equatable {
     String? immutableAnchor,
     double? deviationRadius,
     double? talkativeness,
+    String? colorHex,
+    bool clearColorHex = false,
     bool? evolutionEnabled,
     bool? qualitativeEvolutionEnabled,
     String? currentAnchor,
@@ -389,6 +395,7 @@ class AICharacter extends Equatable {
       immutableAnchor: immutableAnchor ?? this.immutableAnchor,
       deviationRadius: deviationRadius ?? this.deviationRadius,
       talkativeness: talkativeness ?? this.talkativeness,
+      colorHex: clearColorHex ? null : (colorHex ?? this.colorHex),
       evolutionEnabled: evolutionEnabled ?? this.evolutionEnabled,
       qualitativeEvolutionEnabled:
           qualitativeEvolutionEnabled ?? this.qualitativeEvolutionEnabled,
@@ -437,6 +444,7 @@ class AICharacter extends Equatable {
       'immutableAnchor': immutableAnchor,
       'deviationRadius': deviationRadius,
       'talkativeness': talkativeness,
+      'colorHex': colorHex,
       'evolutionEnabled': evolutionEnabled ? 1 : 0,
       'qualitativeEvolutionEnabled': qualitativeEvolutionEnabled ? 1 : 0,
       'currentAnchor': currentAnchor,
@@ -506,6 +514,7 @@ class AICharacter extends Equatable {
       immutableAnchor: map['immutableAnchor'] as String?,
       deviationRadius: (map['deviationRadius'] as num?)?.toDouble() ?? 0.4,
       talkativeness: (map['talkativeness'] as num?)?.toDouble() ?? 0.5,
+      colorHex: map['colorHex'] as String?,
       evolutionEnabled: map.containsKey('evolutionEnabled')
           ? (map['evolutionEnabled'] == 1 || map['evolutionEnabled'] == true)
           : true,
@@ -562,6 +571,7 @@ class AICharacter extends Equatable {
         immutableAnchor,
         deviationRadius,
         talkativeness,
+        colorHex,
         evolutionEnabled,
         qualitativeEvolutionEnabled,
         currentAnchor,
