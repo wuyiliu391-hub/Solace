@@ -435,6 +435,14 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     );
   }
 
+  /// 发送箭头：先横向、右端向上直角弯折 90°、顶端箭头尖朝上
+  Widget _sendArrowIcon() {
+    return CustomPaint(
+      size: const Size(20, 20),
+      painter: const _SendArrowPainter(),
+    );
+  }
+
   Widget _buildInputBar() {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
@@ -527,7 +535,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 radius: 18,
                 backgroundColor: colorScheme.primary,
                 child: IconButton(
-                  icon: const Icon(Icons.send, color: Colors.white, size: 18),
+                  icon: _sendArrowIcon(),
                   onPressed: _sendCurrentMessage,
                 ),
               ),
@@ -1335,5 +1343,39 @@ class _TypingIndicator extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 先横向、再向上直角弯折 90° 的箭头（箭头尖朝上）
+class _SendArrowPainter extends CustomPainter {
+  const _SendArrowPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+
+    final w = size.width;
+    final h = size.height;
+    final path = Path();
+    // 横向线段
+    path.moveTo(2, h - 4);
+    path.lineTo(w - 4, h - 4);
+    // 右端向上直角弯折 90°
+    path.lineTo(w - 4, 6);
+    // 箭头尖朝上（左右两条斜线）
+    path.moveTo(w - 4, 6);
+    path.lineTo(w - 9.5, 2);
+    path.moveTo(w - 4, 6);
+    path.lineTo(w + 1.5, 2);
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
