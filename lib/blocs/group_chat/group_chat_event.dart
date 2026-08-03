@@ -55,14 +55,72 @@ class GroupChatSendMessage extends GroupChatEvent {
   final String userId;
   final String content;
   final List<String>? imagePaths;
+
+  /// 消息元数据（引用 replyTo / 动作标记等）
+  final Map<String, dynamic>? metadata;
   const GroupChatSendMessage({
     required this.groupId,
     required this.userId,
     required this.content,
     this.imagePaths,
+    this.metadata,
   });
   @override
-  List<Object?> get props => [groupId, userId, content, imagePaths];
+  List<Object?> get props => [groupId, userId, content, imagePaths, metadata];
+}
+
+/// 删除单条群聊消息
+class GroupChatDeleteMessage extends GroupChatEvent {
+  final String groupId;
+  final String messageId;
+  const GroupChatDeleteMessage({required this.groupId, required this.messageId});
+  @override
+  List<Object?> get props => [groupId, messageId];
+}
+
+/// 收藏 / 取消收藏群聊消息
+class GroupChatToggleBookmark extends GroupChatEvent {
+  final String groupId;
+  final String messageId;
+  const GroupChatToggleBookmark(
+      {required this.groupId, required this.messageId});
+  @override
+  List<Object?> get props => [groupId, messageId];
+}
+
+/// 编辑 AI 回复内容（仅 AI 消息）
+class GroupChatEditAIReply extends GroupChatEvent {
+  final String groupId;
+  final String messageId;
+  final String newContent;
+  const GroupChatEditAIReply({
+    required this.groupId,
+    required this.messageId,
+    required this.newContent,
+  });
+  @override
+  List<Object?> get props => [groupId, messageId, newContent];
+}
+
+/// 重新生成 AI 回复（删旧消息 + 该角色重新回复）
+class GroupChatRegenerateMessage extends GroupChatEvent {
+  final String groupId;
+  final String messageId;
+  const GroupChatRegenerateMessage({
+    required this.groupId,
+    required this.messageId,
+  });
+  @override
+  List<Object?> get props => [groupId, messageId];
+}
+
+/// 撤回用户消息（2 分钟内，改为「已撤回」占位）
+class GroupChatRecallMessage extends GroupChatEvent {
+  final String groupId;
+  final String messageId;
+  const GroupChatRecallMessage({required this.groupId, required this.messageId});
+  @override
+  List<Object?> get props => [groupId, messageId];
 }
 
 /// 更新群聊信息

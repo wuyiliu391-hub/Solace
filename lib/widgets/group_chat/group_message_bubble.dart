@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../models/group_chat_message.dart';
+import '../../utils/avatar_resolver.dart';
 
 /// ST 风格群聊消息气泡：
 /// AI = 左侧角色色（头像/名字/淡色气泡），用户 = 右对齐主色气泡（Solace 原样式）
@@ -10,17 +11,26 @@ class GroupMessageBubble extends StatelessWidget {
   final double screenWidth;
   final Color? speakerColor;
 
+  /// 发送者头像 URL（AI 角色用真实头像，null 回退首字圆）
+  final String? avatarUrl;
+
+  /// 长按回调（消息操作菜单）
+  final VoidCallback? onLongPress;
+
   const GroupMessageBubble({
     super.key,
     required this.message,
     required this.showAvatar,
     required this.screenWidth,
     this.speakerColor,
+    this.avatarUrl,
+    this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // 系统消息：居中灰条（沿用现有）
     if (message.isSystem) {
@@ -54,7 +64,7 @@ class GroupMessageBubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  _contentBubble(cs, isMe: true),
+                  _contentBubble(cs, isMe: true, isDark: isDark),
                   const SizedBox(height: 2),
                   Text(
                     _formatTime(message.timestamp),
@@ -67,7 +77,8 @@ class GroupMessageBubble extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            _avatar('我', cs.primaryContainer, cs.primary),
+            _avatar('我', cs.primaryContainer, cs.primary,
+                avatarUrl: avatarUrl),
           ],
         ),
       );
@@ -84,7 +95,8 @@ class GroupMessageBubble extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (showAvatar)
-            _avatar(message.senderName, color, Colors.white)
+            _avatar(message.senderName, color, Colors.white,
+                avatarUrl: avatarUrl)
           else
             const SizedBox(width: 32),
           const SizedBox(width: 8),
@@ -101,7 +113,8 @@ class GroupMessageBubble extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                _contentBubble(cs, isMe: false, aiColor: color, bg: bubbleBg),
+                _contentBubble(cs,
+                    isMe: false, aiColor: color, bg: bubbleBg, isDark: isDark),
               ],
             ),
           ),
@@ -115,6 +128,52 @@ class GroupMessageBubble extends StatelessWidget {
     required bool isMe,
     Color? aiColor,
     Color? bg,
+    required bool isDark,
+  }) {
+    // 引用预览条：消息上方显示被引用消息的来源与摘要
+    final replyTo = message.replyTo;
+    // 已撤回：灰字占位，不显示原内容
+    final recalled = message.isRecalled;
+    final edited = message.metadata?['editedAt'] != null;
+
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment:
+            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          if (replyTo != null)
+            _replyPreview(cs, isMe: isMe, replyTo: replyTo, isDark: isDark),
+          _bubbleBody(cs, isMe: isMe, bg: bg, recalled: recalled),
+          if (message.isBookmarked || edited)
+            Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.isBookmarked)
+                    Icon(Icons.star, size: 13, color: Colors.amber.shade600),
+                  if (edited)
+                    Icon(Icons.edit_outlined,
+                        size: 12,
+                        color: isMe
+                            ? cs.onPrimary.withValues(alpha: 0.8)
+                            : cs.onSurfaceVariant),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 气泡主体（图片 / 文本）
+  Widget _bubbleBody(
+    ColorScheme cs, {
+    required bool isMe,
+    Color? bg,
+    required bool recalled,
   }) {
     // 图片消息
     if (message.type == GroupChatMessageType.image) {
@@ -164,17 +223,106 @@ class GroupMessageBubble extends StatelessWidget {
           bottomLeft: isMe ? null : const Radius.circular(4),
         ),
       ),
-      child: Text(
-        message.content,
-        style: TextStyle(
-          fontSize: 15,
-          color: isMe ? cs.onPrimary : cs.onSurface,
+      child: recalled
+          ? Text(
+              '已撤回',
+              style: TextStyle(
+                fontSize: 14,
+                fontStyle: FontStyle.italic,
+                color: isMe
+                    ? cs.onPrimary.withValues(alpha: 0.7)
+                    : cs.onSurfaceVariant,
+              ),
+            )
+          : Text(
+              message.content,
+              style: TextStyle(
+                fontSize: 15,
+                color: isMe ? cs.onPrimary : cs.onSurface,
+              ),
+            ),
+    );
+  }
+
+  /// 引用预览条（对齐单聊 _buildReplyPreview）
+  Widget _replyPreview(
+    ColorScheme cs, {
+    required bool isMe,
+    required Map<String, dynamic> replyTo,
+    required bool isDark,
+  }) {
+    final senderName = replyTo['senderName'] as String? ?? '';
+    final contentPreview = replyTo['contentPreview'] as String? ?? '';
+    final previewBg = isMe
+        ? Colors.white.withValues(alpha: 0.15)
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.08)
+            : Colors.black.withValues(alpha: 0.05));
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      decoration: BoxDecoration(
+        color: previewBg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border(
+          left: BorderSide(
+            color: isMe ? Colors.white.withValues(alpha: 0.5) : cs.primary.withValues(alpha: 0.5),
+            width: 3,
+          ),
         ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            senderName,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: isMe ? cs.onPrimary.withValues(alpha: 0.85) : cs.primary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            contentPreview,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: isMe
+                  ? cs.onPrimary.withValues(alpha: 0.7)
+                  : cs.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _avatar(String name, Color bg, Color fg) {
+  Widget _avatar(String name, Color bg, Color fg, {String? avatarUrl}) {
+    // 真实头像图片优先（本地文件/asset/网络），失败回退首字圆
+    final image = AvatarResolver.imageWidget(
+      avatarUrl,
+      width: 32,
+      height: 32,
+      fit: BoxFit.cover,
+      onError: () => _avatarFallback(name, bg, fg),
+    );
+    if (image != null) {
+      return ClipOval(
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: bg),
+          child: image,
+        ),
+      );
+    }
+    return _avatarFallback(name, bg, fg);
+  }
+
+  Widget _avatarFallback(String name, Color bg, Color fg) {
     return Container(
       width: 32,
       height: 32,

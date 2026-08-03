@@ -59,6 +59,21 @@ class GroupChatMessage {
   /// 消息状态
   final GroupChatMessageStatus status;
 
+  /// 是否已撤回（对齐单聊 recalled 语义）
+  bool get isRecalled =>
+      metadata?['recalled'] == true || content == '已撤回';
+
+  /// 是否已收藏
+  bool get isBookmarked => metadata?['bookmarked'] == true;
+
+  /// 引用的消息信息（发送时写入 metadata['replyTo']）
+  Map<String, dynamic>? get replyTo {
+    final raw = metadata?['replyTo'];
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    return null;
+  }
+
   GroupChatMessage({
     required this.id,
     this.groupId = '',

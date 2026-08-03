@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -59,6 +60,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   /// 待发图片
   final List<String> _pendingImagePaths = [];
 
+  /// 引用的消息（发送时写入 metadata['replyTo']）
+  GroupChatMessage? _replyToMessage;
+
   @override
   void initState() {
     super.initState();
@@ -86,22 +90,45 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     final all = await repo.getAllAICharacters();
     final byId = {for (final c in all) c.id: c};
     if (!mounted) return;
+    final members = _session.aiCharacterIds
+        .map((id) => byId[id])
+        .whereType<AICharacter>()
+        .toList();
+    final cs = Theme.of(context).colorScheme;
+    // 色相去重：多角色群聊防撞色（哈希色相可能相近导致身份混淆）
+    final colors = groupMemberColors(
+      memberIds: members.map((c) => c.id).toList(),
+      resolve: (id) => characterColor(
+        colorHex: byId[id]?.colorHex,
+        name: byId[id]?.name ?? id,
+        cs: cs,
+      ),
+      minHueGap: 30,
+    );
     setState(() {
-      _members = _session.aiCharacterIds
-          .map((id) => byId[id])
-          .whereType<AICharacter>()
-          .toList();
+      _members = members;
       _memberColors
         ..clear()
-        ..addEntries(_members.map((c) => MapEntry(
-              c.id,
-              characterColor(
-                colorHex: c.colorHex,
-                name: c.name,
-                cs: Theme.of(context).colorScheme,
-              ),
-            )));
+        ..addAll(colors);
     });
+  }
+
+  /// 按角色 id 找成员（头像等）
+  AICharacter? _memberById(String? characterId) {
+    if (characterId == null || characterId.isEmpty) return null;
+    for (final c in _members) {
+      if (c.id == characterId) return c;
+    }
+    return null;
+  }
+
+  /// 按角色名反查成员 id（流式消息只有名字）
+  String? _memberIdByName(String? name) {
+    if (name == null || name.isEmpty) return null;
+    for (final c in _members) {
+      if (c.name == name) return c.id;
+    }
+    return null;
   }
 
   /// 根据会话变更事件刷新本地副本（静音/置顶/改名/公告）
@@ -109,7 +136,12 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     if (state is GroupChatSessionsLoaded) {
       for (final s in state.sessions) {
         if (s.id == _groupId) {
+          final prevIds = _session.aiCharacterIds.join(',');
           _session = s;
+          // 成员变更（邀请/移除）→ 重新加载成员与角色色，防头像/身份混淆
+          if (prevIds != s.aiCharacterIds.join(',')) {
+            _loadMembers();
+          }
           break;
         }
       }
@@ -322,12 +354,17 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
 
     if (streaming != null) {
       // 流式中的 AI 消息：插入列表头部（DESC 序 index 0 = 视觉底部最新）
+      // 思考阶段 streamingText 为空、reasoning 非空 → 显示「思考中…」反馈，
+      // 避免用户误以为 AI 无响应（背后其实在思考/准备回复）
+      final streamingContent = streaming.streamingText.isNotEmpty
+          ? streaming.streamingText
+          : (streaming.reasoning.isNotEmpty ? '思考中…' : '');
       displayMessages.insert(0, GroupChatMessage(
         id: '_streaming_',
         groupId: _groupId,
         senderId: '_streaming_',
         senderName: streaming.characterName,
-        content: streaming.streamingText,
+        content: streamingContent,
         isUser: false,
         type: GroupChatMessageType.text,
         timestamp: DateTime.now(),
@@ -361,20 +398,38 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       itemCount: displayMessages.length + (typingCharacter != null ? 1 : 0),
       itemBuilder: (context, index) {
         if (typingCharacter != null && index == 0) {
-          return _TypingIndicator(name: typingCharacter);
+          return _TypingIndicator(
+            name: typingCharacter,
+            avatarUrl: _memberById(_memberIdByName(typingCharacter))
+                ?.avatarUrl,
+          );
         }
         // 有打字指示器时消息整体后移一格
         final msgIndex = typingCharacter != null ? index - 1 : index;
         final msg = displayMessages[msgIndex];
         final prev = msgIndex > 0 ? displayMessages[msgIndex - 1] : null;
         final showAvatar = prev == null || prev.senderId != msg.senderId;
+        // 发送者角色 id：流式消息按名字反查（senderId 为占位符）
+        final isStreamingMsg = msg.id == '_streaming_';
+        final senderId = isStreamingMsg
+            ? _memberIdByName(streaming?.characterName)
+            : (msg.senderId.startsWith('ai_')
+                ? msg.senderId.substring(3)
+                : null);
+        final sender = _memberById(senderId);
+        // 用户头像：AuthUser 自定义头像（与单聊一致）
+        final authState = context.read<AuthBloc>().state;
+        final userAvatarUrl =
+            authState is AuthAuthenticated ? authState.user.avatarUrl : null;
         return GroupMessageBubble(
           message: msg,
           showAvatar: showAvatar,
           screenWidth: MediaQuery.of(context).size.width,
-          speakerColor: msg.senderId.startsWith('ai_')
-              ? _memberColors[msg.senderId.substring(3)]
+          speakerColor: senderId != null
+              ? _memberColors[senderId]
               : null,
+          avatarUrl: msg.isUser ? userAvatarUrl : sender?.avatarUrl,
+          onLongPress: isStreamingMsg ? null : () => _showMessageOptions(msg),
         );
       },
     );
@@ -432,21 +487,36 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                   color: _memberColors[shown[i].id] ?? cs.tertiaryContainer,
                   border: Border.all(color: cs.surface, width: 1.5),
                 ),
-                child: Center(
-                  child: Text(
-                    shown[i].name.isNotEmpty
-                        ? shown[i].name.substring(0, 1)
-                        : '?',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
+                clipBehavior: Clip.antiAlias,
+                child: _memberAvatarSmall(shown[i], cs),
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  /// 24px 圆形成员头像（真实头像优先，回退首字）
+  Widget _memberAvatarSmall(AICharacter c, ColorScheme cs) {
+    final image = AvatarResolver.imageWidget(
+      c.avatarUrl,
+      width: 24,
+      height: 24,
+      fit: BoxFit.cover,
+      onError: () => _memberInitial(c),
+    );
+    return image ?? _memberInitial(c);
+  }
+
+  Widget _memberInitial(AICharacter c) {
+    return Center(
+      child: Text(
+        c.name.isNotEmpty ? c.name.substring(0, 1) : '?',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -471,6 +541,53 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 引用预览条（可关闭）
+          if (_replyToMessage != null)
+            Container(
+              margin: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(10),
+                border: Border(
+                  left: BorderSide(
+                      color: colorScheme.primary, width: 3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _replyToMessage!.senderName,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                        Text(
+                          _replyPreview(_replyToMessage!),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    onPressed: () => setState(() => _replyToMessage = null),
+                    tooltip: '取消引用',
+                  ),
+                ],
+              ),
+            ),
           // 待发图片预览
           if (_pendingImagePaths.isNotEmpty)
             SizedBox(
@@ -622,11 +739,22 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     final text = content.trim();
     final hasImages = _pendingImagePaths.isNotEmpty;
     if (text.isEmpty && !hasImages) return;
-
     final authState = context.read<AuthBloc>().state;
     String userId = 'local_user';
     if (authState is AuthAuthenticated) {
       userId = authState.user.id;
+    }
+
+    Map<String, dynamic>? metadata;
+    if (_replyToMessage != null) {
+      metadata = {
+        'replyTo': {
+          'messageId': _replyToMessage!.id,
+          'senderName': _replyToMessage!.senderName,
+          'contentPreview': _replyPreview(_replyToMessage!),
+        },
+      };
+      setState(() => _replyToMessage = null);
     }
 
     context.read<GroupChatBloc>().add(GroupChatSendMessage(
@@ -634,6 +762,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           userId: userId,
           content: text,
           imagePaths: hasImages ? List<String>.from(_pendingImagePaths) : null,
+          metadata: metadata,
         ));
     _messageController.clear();
     if (hasImages) setState(() => _pendingImagePaths.clear());
@@ -668,6 +797,223 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
         _confirmDelete();
         break;
     }
+  }
+
+  // ─── 消息操作（对齐单聊 7 项：引用/复制/编辑/重生成/收藏/删除/撤回）───
+
+  /// 引用摘要文本（对齐单聊 _replyPreview）
+  String _replyPreview(GroupChatMessage msg) {
+    final content = msg.content.trim();
+    if (content.isEmpty) return msg.type == GroupChatMessageType.image ? '[图片]' : '';
+    if (content.length <= 60) return content;
+    return '${content.substring(0, 60)}…';
+  }
+
+  void _setReplyTo(GroupChatMessage message) {
+    setState(() => _replyToMessage = message);
+  }
+
+  void _showMessageOptions(GroupChatMessage message) {
+    final isAIMessage = !message.isUser && !message.isSystem;
+    final canRecall = message.isUser &&
+        DateTime.now().difference(message.timestamp).inMinutes <= 2 &&
+        !message.isRecalled;
+    final canEditAI =
+        isAIMessage && !message.isRecalled && message.type == GroupChatMessageType.text;
+    final canRegenerate = isAIMessage && !message.isRecalled;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.reply, color: Colors.blue),
+              title: const Text('回复'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _setReplyTo(message);
+              },
+            ),
+            if (!message.isRecalled && message.type == GroupChatMessageType.text)
+              ListTile(
+                leading: const Icon(Icons.copy, color: Colors.teal),
+                title: const Text('复制'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Clipboard.setData(ClipboardData(text: message.content));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('已复制到剪贴板'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                },
+              ),
+            if (canEditAI)
+              ListTile(
+                leading: const Icon(Icons.edit, color: Colors.green),
+                title: const Text('编辑'),
+                subtitle: const Text('修改AI的回复内容'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showEditAIReplyDialog(message);
+                },
+              ),
+            if (canRegenerate)
+              ListTile(
+                leading: const Icon(Icons.refresh, color: Colors.purple),
+                title: const Text('重新生成'),
+                subtitle: const Text('让AI重新回复，覆盖当前内容'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showRegenerateConfirm(message);
+                },
+              ),
+            if (canRecall)
+              ListTile(
+                leading: const Icon(Icons.undo, color: Colors.orange),
+                title: const Text('撤回'),
+                subtitle: const Text('2分钟内可撤回'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  context.read<GroupChatBloc>().add(GroupChatRecallMessage(
+                        groupId: _groupId,
+                        messageId: message.id,
+                      ));
+                },
+              ),
+            ListTile(
+              leading: Icon(Icons.bookmark_border, color: Colors.amber.shade700),
+              title: Text(message.isBookmarked ? '取消收藏' : '收藏'),
+              subtitle: Text(message.isBookmarked ? '从收藏夹移除' : '收藏此消息'),
+              onTap: () {
+                Navigator.pop(ctx);
+                context.read<GroupChatBloc>().add(GroupChatToggleBookmark(
+                      groupId: _groupId,
+                      messageId: message.id,
+                    ));
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.delete_outline, color: Colors.red[400]),
+              title: const Text('删除'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showDeleteConfirm(message);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditAIReplyDialog(GroupChatMessage message) {
+    final controller = TextEditingController(text: message.content);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('编辑AI回复'),
+        content: TextField(
+          controller: controller,
+          maxLines: null,
+          minLines: 3,
+          autofocus: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            hintText: '输入新的回复内容',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              final newContent = controller.text.trim();
+              if (newContent.isEmpty) return;
+              Navigator.pop(ctx);
+              context.read<GroupChatBloc>().add(GroupChatEditAIReply(
+                    groupId: _groupId,
+                    messageId: message.id,
+                    newContent: newContent,
+                  ));
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRegenerateConfirm(GroupChatMessage message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重新生成'),
+        content: const Text('AI将重新回复，当前回复会被覆盖。确定吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.read<GroupChatBloc>().add(GroupChatRegenerateMessage(
+                    groupId: _groupId,
+                    messageId: message.id,
+                  ));
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteConfirm(GroupChatMessage message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除消息'),
+        content: const Text('确定要删除这条消息吗？此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.read<GroupChatBloc>().add(GroupChatDeleteMessage(
+                    groupId: _groupId,
+                    messageId: message.id,
+                  ));
+            },
+            style:
+                TextButton.styleFrom(foregroundColor: const Color(0xFFE53935)),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showGroupSettings() {
@@ -1192,19 +1538,34 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
             itemBuilder: (ctx, index) {
               final memberId = _session.memberIds[index];
               final isAi = _session.aiCharacterIds.contains(memberId);
+              final member = _memberById(memberId);
+              final avatar = AvatarResolver.imageWidget(
+                member?.avatarUrl,
+                width: 32,
+                height: 32,
+                fit: BoxFit.cover,
+                onError: () => Icon(
+                  isAi ? Icons.smart_toy : Icons.person,
+                  size: 18,
+                  color: isAi
+                      ? Theme.of(ctx).colorScheme.tertiary
+                      : Theme.of(ctx).colorScheme.primary,
+                ),
+              );
               return ListTile(
                 dense: true,
                 leading: CircleAvatar(
                   backgroundColor: isAi
                       ? Theme.of(ctx).colorScheme.tertiaryContainer
                       : Theme.of(ctx).colorScheme.primaryContainer,
-                  child: Icon(
-                    isAi ? Icons.smart_toy : Icons.person,
-                    size: 18,
-                    color: isAi
-                        ? Theme.of(ctx).colorScheme.tertiary
-                        : Theme.of(ctx).colorScheme.primary,
-                  ),
+                  child: avatar ??
+                      Icon(
+                        isAi ? Icons.smart_toy : Icons.person,
+                        size: 18,
+                        color: isAi
+                            ? Theme.of(ctx).colorScheme.tertiary
+                            : Theme.of(ctx).colorScheme.primary,
+                      ),
                 ),
                 title: Text(
                     isAi ? 'AI 角色' : (memberId == 'local_user' ? '我' : memberId)),
@@ -1324,11 +1685,19 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
 /// 群聊 AI 输入中指示
 class _TypingIndicator extends StatelessWidget {
   final String name;
-  const _TypingIndicator({required this.name});
+  final String? avatarUrl;
+  const _TypingIndicator({required this.name, this.avatarUrl});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final avatar = AvatarResolver.imageWidget(
+      avatarUrl,
+      width: 32,
+      height: 32,
+      fit: BoxFit.cover,
+      onError: () => _initial(cs),
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -1340,16 +1709,8 @@ class _TypingIndicator extends StatelessWidget {
               shape: BoxShape.circle,
               color: cs.tertiaryContainer,
             ),
-            child: Center(
-              child: Text(
-                name.isNotEmpty ? name.substring(0, 1) : '?',
-                style: TextStyle(
-                  color: cs.tertiary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+            clipBehavior: Clip.antiAlias,
+            child: avatar ?? _initial(cs),
           ),
           const SizedBox(width: 8),
           Container(
@@ -1372,6 +1733,19 @@ class _TypingIndicator extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _initial(ColorScheme cs) {
+    return Center(
+      child: Text(
+        name.isNotEmpty ? name.substring(0, 1) : '?',
+        style: TextStyle(
+          color: cs.tertiary,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

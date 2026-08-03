@@ -7,6 +7,7 @@ import '../../repositories/local_storage_repository.dart';
 import '../../models/ai_character.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../utils/character_color.dart';
+import '../../utils/avatar_resolver.dart';
 import '../../widgets/avatar_picker.dart';
 
 class GroupChatCreateScreen extends StatefulWidget {
@@ -123,13 +124,7 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
           final color = characterColor(
               colorHex: c.colorHex, name: c.name, cs: colorScheme);
           return Chip(
-            avatar: CircleAvatar(
-              backgroundColor: color.withValues(alpha: 0.15),
-              child: Text(
-                c.name.isNotEmpty ? c.name.substring(0, 1) : '?',
-                style: TextStyle(color: color, fontSize: 11),
-              ),
-            ),
+            avatar: _avatarWidget(c, colorScheme),
             label: Text(c.name, style: const TextStyle(fontSize: 12)),
             onDeleted: () =>
                 setState(() => _selectedAiCharacterIds.remove(c.id)),
@@ -179,28 +174,7 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
           key: ValueKey(character.id),
           leading: CircleAvatar(
             backgroundColor: colorScheme.primaryContainer,
-            child: character.avatarUrl != null &&
-                    character.avatarUrl!.isNotEmpty
-                ? ClipOval(
-                    child: Image.network(
-                      character.avatarUrl!,
-                      fit: BoxFit.cover,
-                      width: 32,
-                      height: 32,
-                      errorBuilder: (_, __, ___) => Text(
-                        character.name.isNotEmpty
-                            ? character.name.substring(0, 1)
-                            : '?',
-                        style: TextStyle(color: colorScheme.primary),
-                      ),
-                    ),
-                  )
-                : Text(
-                    character.name.isNotEmpty
-                        ? character.name.substring(0, 1)
-                        : '?',
-                    style: TextStyle(color: colorScheme.primary),
-                  ),
+            child: _avatarWidget(character, colorScheme),
           ),
           title: Text(
             character.userAlias ?? character.name,
@@ -224,6 +198,25 @@ class _GroupChatCreateScreenState extends State<GroupChatCreateScreen> {
         );
       },
     );
+  }
+
+  /// 角色头像（AvatarResolver 正确分派本地文件/asset/网络，失败回退首字圆）
+  Widget _avatarWidget(AICharacter c, ColorScheme cs) {
+    final image = AvatarResolver.imageWidget(
+      c.avatarUrl,
+      width: 32,
+      height: 32,
+      fit: BoxFit.cover,
+      onError: () => Text(
+        c.name.isNotEmpty ? c.name.substring(0, 1) : '?',
+        style: TextStyle(color: cs.primary),
+      ),
+    );
+    return image ??
+        Text(
+          c.name.isNotEmpty ? c.name.substring(0, 1) : '?',
+          style: TextStyle(color: cs.primary),
+        );
   }
 
   Future<void> _createGroup() async {

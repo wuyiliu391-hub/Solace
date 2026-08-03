@@ -83,14 +83,20 @@ class GroupChatStreaming extends GroupChatState {
   final String characterName;
   final String streamingText;
   final List<GroupChatMessage> messages;
+
+  /// 实时思考内容（思考型模型 reasoning_content 或 content 内嵌 <think>，
+  /// 思考阶段 streamingText 为空、reasoning 非空 —— 供 UI 显示「思考中…」）
+  final String reasoning;
   const GroupChatStreaming(
     this.groupId,
     this.characterName,
     this.streamingText, {
     this.messages = const [],
+    this.reasoning = '',
   });
   @override
-  List<Object?> get props => [groupId, characterName, streamingText, messages];
+  List<Object?> get props =>
+      [groupId, characterName, streamingText, messages, reasoning];
 }
 
 /// 群聊聊天记录（分支）列表已加载
