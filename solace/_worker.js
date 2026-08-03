@@ -15,7 +15,7 @@ const VERSION_DATA = {
   buildNumber: 288,
   minSdk: 23,
   releaseDate: '2026-07-27',
-  downloadUrl: '',
+  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=17.5.0',
   changelog: [
     '移除单聊输入框上方的话题建议（灯泡 + 预设固定句子）',
     '单聊支持批量删除 / 批量收藏聊天记录（长按消息 → 多选）',

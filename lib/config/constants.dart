@@ -46,6 +46,8 @@ class ApiDefaults {
   // ─── API URLs ───
   static const String chatCompletionsPath = '/chat/completions';
 
+  static const String adminStatsUrl = '/api/v1/admin/stats';
+  static const String downloadApiUrl = '/api/v1/download';
   static const String versionCheckUrl = '/api/v1/version';
   static const String announcementsUrl = '/api/v1/announcements';
 
