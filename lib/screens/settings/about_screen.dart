@@ -1,7 +1,5 @@
 ﻿import 'package:flutter/material.dart';
 import '../../config/constants.dart';
-import 'package:url_launcher/url_launcher.dart';
-import '../../config/app_config.dart';
 import '../../services/update_service.dart';
 import '../../widgets/update_dialog.dart';
 
@@ -63,14 +61,6 @@ class _AboutScreenState extends State<AboutScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2))
                   : Icon(Icons.system_update_outlined, size: 18),
               label: Text(_checking ? '检查中...' : '检查更新'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Center(
-            child: TextButton.icon(
-              onPressed: _openAdminStats,
-              icon: const Icon(Icons.bar_chart_rounded, size: 18),
-              label: const Text('后台统计'),
             ),
           ),
           const SizedBox(height: 20),
@@ -143,20 +133,6 @@ class _AboutScreenState extends State<AboutScreen> {
             fontSize: 16,
             fontWeight: FontWeight.w600,
             color: colorScheme.primary));
-  }
-
-  Future<void> _openAdminStats() async {
-    // 开源版本：移除硬编码 Token，管理员需自行配置
-    final uri = Uri.parse(AppConfig.adminStatsUrl);
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('无法打开浏览器')),
-        );
-      }
-    }
   }
 
   Future<void> _checkUpdate() async {

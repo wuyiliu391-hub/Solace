@@ -5,9 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
-import '../config/app_config.dart';
-import '../config/constants.dart';
-import '../utils/response_decoder.dart';
 
 class UpdateInfo {
   final bool hasUpdate;
@@ -52,27 +49,12 @@ class UpdateService {
   UpdateInfo? _cachedInfo;
   UpdateInfo? get cachedInfo => _cachedInfo;
 
-  String get _versionUrl => '${AppConfig.appWorkerBaseUrl}/api/v1/version';
-
+  /// 更新服务域名已注销（Cloudflare 账号/Worker 已删），检测暂禁用：
+  /// 直接返回「无更新」，待新域名配置好后恢复网络检测。
   Future<UpdateInfo> checkForUpdate({
     required String currentVersion,
     required int currentBuild,
   }) async {
-    try {
-      final uri = Uri.parse('$_versionUrl?current=$currentVersion&build=$currentBuild');
-      final response = await http.get(uri).timeout(AppDurations.updateCheck);
-
-      if (response.statusCode == 200) {
-        final decoded = await ResponseDecoder.decode(response.headers['content-type'], response.bodyBytes);
-        final json = jsonDecode(decoded) as Map<String, dynamic>;
-        final info = UpdateInfo.fromJson(json);
-        _cachedInfo = info;
-        return info;
-      }
-    } catch (e) {
-      debugPrint('Update check failed: $e');
-    }
-
     return UpdateInfo(
       hasUpdate: false,
       latestVersion: currentVersion,
