@@ -40,6 +40,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
   final Map<String, bool> _autoModeByGroup = {};
   final Map<String, int> _groupDelays = {};
 
+  /// 各群上次自动接话触发时间（共享最短间隔定时器下按各自 delay 限频）
+  final Map<String, DateTime> _lastAutoRunAt = {};
+
   /// 手动锁定发言人（内存态，群聊 UI 激活条写入）
   final Map<String, List<String>> _forcedSpeakers = {};
 
@@ -230,14 +233,16 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         _replyingGroups[event.groupId] = false;
         return;
       }
-      // 35% 概率另一角色接话
+      // 35% 概率另一角色接话（非用户输入：模型从历史续写，AI 内容仅作选角文本）
       final roll = _random.nextDouble();
       if (roll < 0.35) {
         await _generateAIReplies(
           groupId: event.groupId,
           userId: '',
           session: session,
-          userMessage: event.content,
+          userMessage: '',
+          activationText: event.content,
+          isUserInput: false,
           imagePaths: null,
           isFollowUp: true,
           excludeCharacterId: event.characterId,
@@ -272,6 +277,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       userId: userId,
       session: session,
       userMessage: userMessage,
+      activationText: userMessage,
+      isUserInput: true,
       imagePaths: imagePaths,
       isFollowUp: false,
       excludeCharacterId: null,
@@ -279,11 +286,17 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
   }
 
   /// ST generateGroupWrapper 的激活列表 → 逐个生成
+  ///
+  /// [userMessage] 给模型的用户输入（自动接话/接话路径传空，模型从历史续写）；
+  /// [activationText] 选角用文本（ST activationText = 用户输入或最后一条消息内容）；
+  /// [isUserInput] 是否用户输入触发（ST isUserInput，直接决定 NATURAL 禁言/POOLED 轮换语义）。
   Future<void> _generateAIReplies({
     required String groupId,
     required String userId,
     required GroupChatSession session,
     required String userMessage,
+    required String activationText,
+    required bool isUserInput,
     required List<String>? imagePaths,
     required bool isFollowUp,
     required String? excludeCharacterId,
@@ -310,15 +323,28 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       return;
     }
 
+    // ST lastMessage = chat 最后一条；用户消息/系统消息 → 无“最后发言者”
+    final lastMsg = history.isEmpty ? null : history.last;
+    final lastSpeakerId =
+        lastMsg != null &&
+            !lastMsg.isUser &&
+            !lastMsg.isSystem &&
+            lastMsg.senderId.startsWith('ai_')
+        ? lastMsg.senderId.substring(3)
+        : null;
+
     final ctx = SpeakerContext(
       memberIds: session.aiCharacterIds,
       disabledMemberIds: session.disabledMemberIds,
-      historySpeakerIds: _extractHistorySpeakers(history),
-      lastMessageSpeakerId: _lastAISpeaker(history),
+      // POOLED 轮换池：用户输入触发时无人“已发言”（ST isUserInput 立即 break）
+      historySpeakerIds: isUserInput
+          ? const <String>[]
+          : speakersSinceLastUser(history),
+      lastMessageSpeakerId: lastSpeakerId,
       talkativeness: {for (final m in members) m.id: m.talkativeness},
       allowSelfResponses: session.allowSelfResponses,
-      userInput: userMessage,
-      isUserInput: userMessage.isNotEmpty,
+      userInput: activationText,
+      isUserInput: isUserInput,
       forceCharacterId: null,
       memberNames: {for (final m in members) m.id: m.name},
       random: _random,
@@ -477,9 +503,12 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     required bool isFollowUp,
     required String? excludeCharacterId,
   }) async {
-    var enabledIds = session.aiCharacterIds
-        .where((id) => !session.disabledMemberIds.contains(id))
-        .toList();
+    // ST 语义（group-chats.js:553）：APPEND=排除禁言成员；APPEND_DISABLED=包括禁言成员
+    var enabledIds = session.generationMode == GroupGenerationMode.append
+        ? session.aiCharacterIds
+            .where((id) => !session.disabledMemberIds.contains(id))
+            .toList()
+        : List<String>.from(session.aiCharacterIds);
     enabledIds = enabledIds.where((id) => id != excludeCharacterId).toList();
     if (enabledIds.isEmpty) {
       _replyingGroups[groupId] = false;
@@ -566,7 +595,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       id: _uuid.v4(),
       groupId: groupId,
       chatId: session.chatId,
-      senderId: 'ai_${members.first.id}',
+      // 群身份归属（非首个成员）：避免污染 NATURAL/POOLED 的“最后发言者”检测
+      senderId: 'ai_${session.id}',
       senderName: combo.name,
       content: cleanText,
       isUser: false,
@@ -587,27 +617,6 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       characterId: members.first.id,
       content: cleanText,
     ));
-  }
-
-  /// 历史 → 发言人序列（最新在前，遇到用户消息停止；ST spokenSinceUser）
-  List<String> _extractHistorySpeakers(List<GroupChatMessage> history) {
-    final result = <String>[];
-    for (final m in history) {
-      if (m.isUser || m.isSystem) break;
-      if (m.senderId.startsWith('ai_')) {
-        result.add(m.senderId.substring(3));
-      }
-    }
-    return result;
-  }
-
-  /// 最后一条 AI 发言者角色 id
-  String? _lastAISpeaker(List<GroupChatMessage> history) {
-    for (final m in history) {
-      if (m.isUser || m.isSystem) continue;
-      if (m.senderId.startsWith('ai_')) return m.senderId.substring(3);
-    }
-    return null;
   }
 
   /// 批量加载角色（保持传入顺序）
@@ -795,6 +804,12 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         updatedAt: DateTime.now(),
       );
       await _storage.saveGroupChatSession(updated);
+      // 自动接话开启中改间隔：同步内存计时并重启轮询（否则新间隔不生效）
+      if (event.autoModeDelay != null &&
+          _autoModeByGroup[event.groupId] == true) {
+        _groupDelays[event.groupId] = event.autoModeDelay!;
+        await _restartAutoModeTimer();
+      }
       // 自动接话开关联动轮询
       if (event.autoModeEnabled != null) {
         await configureAutoMode(
@@ -899,10 +914,13 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       final delay = session?.autoModeDelay ?? 5;
       _groupDelays[groupId] = delay;
       _autoModeByGroup[groupId] = true;
+      // 从当前时刻起算，首轮触发也遵守 delay（对标 ST setInterval）
+      _lastAutoRunAt[groupId] = DateTime.now();
       await _restartAutoModeTimer();
     } else {
       _autoModeByGroup.remove(groupId);
       _groupDelays.remove(groupId);
+      _lastAutoRunAt.remove(groupId);
       if (_autoModeByGroup.isEmpty) {
         _autoModeTimer?.cancel();
         _autoModeTimer = null;
@@ -924,8 +942,10 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     );
   }
 
-  /// 轮询 tick：检查启用自动接话的群，最后消息不是用户/系统则触发 AI 回复
+  /// 轮询 tick（ST groupChatAutoModeWorker）：群未在生成中就触发，不挑最后消息类型。
+  /// 每群按各自 delay 限频（共享最短间隔定时器下用 lastRun 兜住长 delay 的群）。
   Future<void> _autoModeTick() async {
+    final now = DateTime.now();
     for (final groupId in _autoModeByGroup.keys.toList()) {
       if (_replyingGroups[groupId] == true) continue;
       final session = await _storage.getGroupChatSession(groupId);
@@ -933,21 +953,29 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       if (!session.autoModeEnabled) {
         _autoModeByGroup.remove(groupId);
         _groupDelays.remove(groupId);
+        _lastAutoRunAt.remove(groupId);
+        continue;
+      }
+      final delay = _groupDelays[groupId] ?? session.autoModeDelay ?? 5;
+      final lastRun = _lastAutoRunAt[groupId];
+      if (lastRun != null && now.difference(lastRun).inSeconds < delay) {
         continue;
       }
       final history = await _storage.getGroupChatMessages(groupId,
           limit: 1, chatId: session.chatId);
       if (history.isEmpty) continue;
       final last = history.last;
-      // 最后一条不是用户发的 → AI 自己接力（自答）
-      if (!last.isUser && !last.isSystem) continue;
+      _lastAutoRunAt[groupId] = now;
       _replyingGroups[groupId] = true;
       _followUpCount = 0;
+      // ST activationText = 最后一条非系统消息内容；isUserInput 恒为 false
       await _generateAIReplies(
         groupId: groupId,
         userId: '',
         session: session,
         userMessage: '',
+        activationText: last.isSystem ? '' : last.content,
+        isUserInput: false,
         imagePaths: null,
         isFollowUp: false,
         excludeCharacterId: null,

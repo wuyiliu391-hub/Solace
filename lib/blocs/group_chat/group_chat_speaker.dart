@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:solace/models/group_chat_message.dart';
 import 'package:solace/models/group_chat_session.dart';
 
 /// 群聊发言人选择上下文（对标 ST group-chats.js 各 activate 函数入参）
@@ -168,4 +169,21 @@ List<String> resolveForcedSpeakers({
       .where((id) => !disabledMemberIds.contains(id))
       .where((id) => memberIds.contains(id))
       .toList();
+}
+
+/// 自用户最后一条消息以来发言的 AI 角色 id 序列（ST activatePooledOrder 的 spokenSinceUser）。
+///
+/// 对标 ST group-chats.js:1197：从历史**末尾向前**回溯，遇到用户消息停止，
+/// 系统消息跳过，其余 AI 消息记下其角色 id（旧版实现从前往后扫，方向反了）。
+/// 用户输入触发时（isUserInput）该序列应为空 —— 由调用方处理。
+List<String> speakersSinceLastUser(List<GroupChatMessage> history) {
+  final result = <String>[];
+  for (final m in history.reversed) {
+    if (m.isUser) break;
+    if (m.isSystem) continue;
+    if (m.senderId.startsWith('ai_')) {
+      result.add(m.senderId.substring(3));
+    }
+  }
+  return result;
 }

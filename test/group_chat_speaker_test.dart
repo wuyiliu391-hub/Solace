@@ -1,7 +1,31 @@
 import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:solace/blocs/group_chat/group_chat_speaker.dart';
+import 'package:solace/models/group_chat_message.dart';
 import 'package:solace/models/group_chat_session.dart';
+
+GroupChatMessage _ai(String id, String characterId, {bool system = false}) {
+  return GroupChatMessage(
+    id: id,
+    groupId: 'g1',
+    senderId: 'ai_$characterId',
+    senderName: characterId,
+    content: 'hi',
+    isUser: false,
+    isSystem: system,
+  );
+}
+
+GroupChatMessage _user(String id) {
+  return GroupChatMessage(
+    id: id,
+    groupId: 'g1',
+    senderId: 'local_user',
+    senderName: '我',
+    content: 'hello',
+    isUser: true,
+  );
+}
 
 void main() {
   final members = ['c1', 'c2', 'c3'];
@@ -162,5 +186,36 @@ void main() {
       ),
     );
     expect(result, ['c2']);
+  });
+
+  test('speakersSinceLastUser 从末尾回溯，遇到用户消息停止（ST spokenSinceUser）', () {
+    final history = [
+      _ai('m1', 'c1'),
+      _ai('m2', 'c2'),
+      _user('m3'),
+      _ai('m4', 'c3'),
+      _ai('m5', 'c2'),
+    ];
+    // 旧实现从前往后扫会返回 [c1, c2]；ST 语义应为用户消息之后的 [c2, c3]
+    expect(speakersSinceLastUser(history), ['c2', 'c3']);
+  });
+
+  test('speakersSinceLastUser 全部都是 AI 时返回全部', () {
+    final history = [
+      _user('m1'),
+      _ai('m2', 'c1'),
+      _ai('m3', 'c2'),
+    ];
+    expect(speakersSinceLastUser(history), ['c2', 'c1']);
+  });
+
+  test('speakersSinceLastUser 跳过系统消息并跨过它继续回溯', () {
+    final history = [
+      _user('m1'),
+      _ai('m2', 'c1'),
+      _ai('m3', 'c2', system: true),
+      _ai('m4', 'c3'),
+    ];
+    expect(speakersSinceLastUser(history), ['c3', 'c1']);
   });
 }
