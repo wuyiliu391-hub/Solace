@@ -67,6 +67,31 @@
   </div>
 </section>
 
+<!-- Hero Mockup: 纯 CSS 手机模型展示群聊界面 -->
+<div class="hero-mockup-wrap reveal reveal-d2">
+  <div class="hero-mockup">
+    <div class="mockup-screen">
+      <div class="mockup-bar">
+        <span class="m-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#001E8F" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          相模梧一群人
+        </span>
+        <span class="m-dots"><span></span><span></span><span></span></span>
+      </div>
+      <div class="mockup-body">
+        <div class="m-msg sys">小A 加入了群聊</div>
+        <div class="m-msg sys">小B 加入了群聊</div>
+        <div class="m-msg ai"><span class="m-name">小A</span>夫人怎么想起来拉群了？</div>
+        <div class="m-msg ai"><span class="m-name">小B</span>这是哪里？大家互相认识一下～</div>
+        <div class="m-msg me">我建的一个小群，有什么烦恼都可以发群里</div>
+        <div class="m-msg ai"><span class="m-name">小A</span>好呀，那以后常聊。@小B 你是新来的吧？</div>
+        <div class="m-msg ai"><span class="m-name">小B</span>请各位多指教！</div>
+      </div>
+      <div class="mockup-input"><div class="m-field"></div><div class="m-send"></div></div>
+    </div>
+  </div>
+</div>
+
 <!-- Stats Bar -->
 <section class="stats-bar">
   <div class="stats-grid reveal reveal-d1">
@@ -300,7 +325,8 @@
           ctx.stroke();
         }
       }
-      particles[p].update(); particles[p].draw();
+      particles[i].update();
+      particles[i].draw();
     }
     requestAnimationFrame(animate);
   }
