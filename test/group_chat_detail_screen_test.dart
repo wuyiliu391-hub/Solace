@@ -6,9 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:solace/blocs/group_chat/group_chat_bloc.dart';
 import 'package:solace/models/ai_character.dart';
+import 'package:solace/models/ai_stream_chunk.dart';
+import 'package:solace/models/chat_message.dart';
 import 'package:solace/models/group_chat_branch.dart';
 import 'package:solace/models/group_chat_message.dart';
 import 'package:solace/models/group_chat_session.dart';
+import 'package:solace/models/memory.dart';
 import 'package:solace/repositories/local_storage_repository.dart';
 import 'package:solace/screens/group_chat/group_chat_detail_screen.dart';
 import 'package:solace/services/ai_service.dart';
@@ -28,6 +31,48 @@ void main() {
   late _MockStorage storage;
   late _MockAiService aiService;
   late GroupChatSession session;
+
+  setUpAll(() {
+    // mocktail 对非空复杂类型 any() 匹配需要 fallback 值
+    registerFallbackValue(AICharacter(
+      id: 'fallback',
+      name: 'fb',
+      personality: 'p',
+      coreDesire: 'd',
+      moralBoundary: 'm',
+      createdAt: DateTime(2026, 8, 3),
+    ));
+    registerFallbackValue(ChatMessage(
+      id: 'fb',
+      chatId: 'g',
+      senderId: 's',
+      content: '',
+      isUser: false,
+    ));
+    registerFallbackValue(GroupChatMessage(
+      id: 'fb',
+      groupId: 'g',
+      senderId: 's',
+      content: '',
+      isUser: false,
+    ));
+    registerFallbackValue(GroupChatSession(
+      id: 'fb',
+      name: 'fb',
+      memberIds: ['local_user'],
+      aiCharacterIds: ['c1'],
+      creatorId: 'local_user',
+      createdAt: DateTime(2026, 8, 3),
+    ));
+    registerFallbackValue(Memory(
+      id: 'fb',
+      characterId: 'c',
+      userId: 'u',
+      type: MemoryType.conversation,
+      content: '',
+      createdAt: DateTime(2026, 8, 3),
+    ));
+  });
 
   setUp(() {
     storage = _MockStorage();
@@ -104,5 +149,74 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('暂无消息'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('发送后同帧 Typing 吞掉 MessagesLoaded：用户消息不消失（回归）', (tester) async {
+    final bloc = GroupChatBloc(storage, aiService);
+    await pumpDetail(tester, bloc);
+    await tester.pumpAndSettle();
+    // 初始空态（setUp 默认桩返回 []）
+    expect(find.text('暂无消息'), findsOneWidget);
+
+    // 发送阶段：覆盖桩，模拟本地 SQLite 链同帧完成
+    final userMsg = GroupChatMessage(
+      id: 'm_user',
+      groupId: 'g1',
+      senderId: 'u1',
+      senderName: '我',
+      content: '大家好',
+      isUser: true,
+    );
+    final char = AICharacter(
+      id: 'c1',
+      name: '小美',
+      personality: 'p',
+      coreDesire: 'd',
+      moralBoundary: 'm',
+      createdAt: DateTime(2026, 8, 3),
+    );
+
+    // LIST 策略：确定性激活全部成员，走到 _generateOneReply 的 Typing emit
+    when(() => storage.isFaModeEnabled()).thenReturn(false);
+    when(() => storage.saveGroupChatMessage(any())).thenAnswer((_) async {});
+    when(() => storage.saveGroupChatSession(any())).thenAnswer((_) async {});
+    when(() => storage.getGroupChatSession('g1')).thenAnswer((_) async =>
+        session.copyWith(activationStrategy: GroupActivationStrategy.list));
+    when(() => storage.getGroupChatMessages(any(), chatId: any(named: 'chatId')))
+        .thenAnswer((_) async => [userMsg]);
+    when(() => storage.getGroupChatMessages(any(),
+            limit: any(named: 'limit'), chatId: any(named: 'chatId')))
+        .thenAnswer((_) async => [userMsg]);
+    when(() => storage.getAICharacter(any())).thenAnswer((_) async => char);
+    when(() => storage.getMemories(
+            characterId: any(named: 'characterId'),
+            userId: any(named: 'userId'),
+            limit: any(named: 'limit')))
+        .thenAnswer((_) async => <Memory>[]);
+    when(() => aiService.sendMessageStream(
+      character: any(named: 'character'),
+      userId: any(named: 'userId'),
+      userMessage: any(named: 'userMessage'),
+      chatHistory: any(named: 'chatHistory'),
+      memories: any(named: 'memories'),
+      intimacyLevel: any(named: 'intimacyLevel'),
+      sentiment: any(named: 'sentiment'),
+      imagePaths: any(named: 'imagePaths'),
+      internalSystemContext: any(named: 'internalSystemContext'),
+    )).thenAnswer((_) => Stream<AIStreamChunk>.empty());
+
+    bloc.add(GroupChatSendMessage(
+      groupId: 'g1',
+      userId: 'u1',
+      content: '大家好',
+      imagePaths: null,
+    ));
+    // 发送链完成 → 状态停在 GroupChatTyping（空流提前返回，无后续 MessagesLoaded）。
+    // 这正是「AI 回复期间」：用户消息必须已经可见，不能等到 AI 回复后才出现。
+    await tester.pumpAndSettle();
+
+    expect(bloc.state, isA<GroupChatTyping>());
+    expect(find.text('大家好'), findsOneWidget);
+    expect(find.text('暂无消息'), findsNothing);
   });
 }

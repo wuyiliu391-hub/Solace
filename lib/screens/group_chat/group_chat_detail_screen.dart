@@ -212,11 +212,19 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     if (state is GroupChatStreaming &&
                         state.groupId == _groupId) {
                       _isLoading = false;
+                      // 发送后 MessagesLoaded 可能与本状态同帧被合并吞掉，
+                      // 这里消费 state.messages 兜底（否则用户刚发的消息会消失到 AI 回复才出现）
+                      if (state.messages.isNotEmpty) {
+                        _messages = state.messages;
+                      }
                       return _buildMessageList(streaming: state);
                     }
                     if (state is GroupChatTyping &&
                         state.groupId == _groupId) {
                       _isLoading = false;
+                      if (state.messages.isNotEmpty) {
+                        _messages = state.messages;
+                      }
                       return _buildMessageList(
                           typingCharacter: state.characterName);
                     }
@@ -355,8 +363,10 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
         if (typingCharacter != null && index == 0) {
           return _TypingIndicator(name: typingCharacter);
         }
-        final msg = displayMessages[index];
-        final prev = index > 0 ? displayMessages[index - 1] : null;
+        // 有打字指示器时消息整体后移一格
+        final msgIndex = typingCharacter != null ? index - 1 : index;
+        final msg = displayMessages[msgIndex];
+        final prev = msgIndex > 0 ? displayMessages[msgIndex - 1] : null;
         final showAvatar = prev == null || prev.senderId != msg.senderId;
         return GroupMessageBubble(
           message: msg,
@@ -893,9 +903,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       case GroupGenerationMode.swap:
         return '逐角色切换';
       case GroupGenerationMode.append:
-        return '合并角色卡';
+        return '合并角色卡(排除禁言)';
       case GroupGenerationMode.appendDisabled:
-        return '合并卡(排除禁言)';
+        return '合并角色卡(包括禁言)';
     }
   }
 
