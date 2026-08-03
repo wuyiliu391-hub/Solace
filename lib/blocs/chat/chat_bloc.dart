@@ -1751,8 +1751,24 @@ $tail
       _loadedOffsets[event.chatId] = messages.length;
       final hasMore = messages.length >= 50;
       emit(ChatMessagesLoaded(messages, hasMore: hasMore));
+      // 懒触发艾宾浩斯每日维护（20h 节流，unawaited，复活单聊衰减调度）
+      unawaited(_runMemoryMaintenanceQuietly(event.chatId));
     } catch (e) {
       emit(ChatError(e.toString()));
+    }
+  }
+
+  /// 艾宾浩斯每日维护（20h 节流，静默执行，失败不打扰聊天）
+  Future<void> _runMemoryMaintenanceQuietly(String chatId) async {
+    try {
+      final session = await _storage.getChatSession(chatId);
+      if (session == null || session.aiCharacterId.isEmpty) return;
+      await _memoryEngine.runDailyMaintenance(
+        characterId: session.aiCharacterId,
+        userId: session.userId,
+      );
+    } catch (e) {
+      LogService.instance.w('Bloc', '每日记忆维护失败: $e', chatId: chatId);
     }
   }
 

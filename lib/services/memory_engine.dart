@@ -7,7 +7,9 @@ import 'package:uuid/uuid.dart';
 import '../models/bt_agent_action.dart';
 import '../models/memory.dart';
 import '../models/chat_message.dart';
+import '../models/group_chat_message.dart';
 import '../models/ai_character.dart';
+import '../models/ai_config.dart';
 import '../repositories/local_storage_repository.dart';
 import '../repositories/database_service.dart';
 import '../config/constants.dart';
@@ -92,10 +94,45 @@ class RebuildCheckpointData {
   });
 }
 
+/// 社交记忆条目（带 interactionType，区分群聊回忆与角色互动）
+class _SocialMemoryEntry {
+  final String id;
+  final String targetCharacterId;
+  final String interactionType;
+  final String content;
+  final List<String> keywords;
+  final DateTime createdAt;
+  final double weight;
+  final bool pinned;
+  final DateTime? lastRecalledAt;
+
+  const _SocialMemoryEntry({
+    required this.id,
+    required this.targetCharacterId,
+    required this.interactionType,
+    required this.content,
+    required this.keywords,
+    required this.createdAt,
+    required this.weight,
+    required this.pinned,
+    this.lastRecalledAt,
+  });
+
+  /// 艾宾浩斯热度分：weight×0.7 + 时效×0.3（对齐单聊 _scoreMemories）
+  double heat(DateTime now) {
+    final weightScore = (weight / 2.0) * 10;
+    final hoursAgo = now.difference(createdAt).inHours;
+    final recencyScore = 1.0 / (1.0 + log(hoursAgo + 1)) * 10;
+    return weightScore * 0.7 + recencyScore * 0.3;
+  }
+}
+
 class MemoryEngine {
   final LocalStorageRepository _storage;
+  final http.Client? _httpClient; // 测试注入用（默认走顶层 http.post）
 
-  MemoryEngine(this._storage);
+  MemoryEngine(this._storage, {http.Client? httpClient})
+      : _httpClient = httpClient;
 
   /// 统一保存入口：先存记忆，再异步生成摘要
   Future<void> _saveWithSummary(Memory memory) async {
@@ -282,13 +319,56 @@ class MemoryEngine {
     }
 
     // ④ 社交记忆 — 仅在显式请求时注入
+    // v2 艾宾浩斯：热度排序 → 冷记忆（weight<0.5 且未命中话题）跳过 → 注入后标记已回忆
     if (includeSocial) {
       try {
-        final socialMemories = await loadSocialMemories(character.id);
+        final socialMemories = await _loadSocialMemoriesDetailed(character.id);
         if (socialMemories.isNotEmpty) {
-          buffer.writeln('\n【社交记忆】');
-          for (final m in socialMemories.take(20)) {
-            buffer.writeln('- ${m.content}');
+          final topicKeywords = _extractKeywords(currentMessage, maxKeywords: 24);
+          final groupLines = <String>[];
+          final chatLines = <String>[];
+          final recalledIds = <String>[];
+          int usedTokens = 0;
+          const budget = 200;
+          const maxLines = 10;
+
+          for (final m in socialMemories) {
+            if (groupLines.length + chatLines.length >= maxLines) break;
+            // 冷记忆默认跳过；命中当前话题关键词时必须允许唤醒（对齐单聊 ③ 段）
+            if (m.weight < 0.5 &&
+                !m.pinned &&
+                !_socialMatchesTopic(m, topicKeywords)) {
+              continue;
+            }
+            final estTokens = m.content.length ~/ 2; // 粗估中文 token
+            if (usedTokens + estTokens > budget && groupLines.isNotEmpty) break;
+            final isGroup = m.interactionType == 'group_chat';
+            (isGroup ? groupLines : chatLines).add('- ${m.content}');
+            usedTokens += estTokens;
+            recalledIds.add(m.id);
+          }
+
+          if (groupLines.isNotEmpty) {
+            buffer.writeln('\n【你在群聊中的回忆】');
+            for (final line in groupLines) {
+              buffer.writeln(line);
+            }
+            buffer.writeln();
+          }
+          if (chatLines.isNotEmpty) {
+            buffer.writeln('\n【你与其他角色的互动】');
+            for (final line in chatLines) {
+              buffer.writeln(line);
+            }
+            buffer.writeln();
+          }
+
+          // 异步标记被回忆的社交记忆（不阻塞 prompt 构建）
+          if (recalledIds.isNotEmpty) {
+            markSocialRecalled(
+              characterId: character.id,
+              recalledMemoryIds: recalledIds,
+            );
           }
         }
       } catch (e) {
@@ -320,36 +400,278 @@ class MemoryEngine {
 
   /// Load social (AI-to-AI) memories for [characterId].
   /// These are interaction records between this character and other AI characters.
+  ///
+  /// v2 艾宾浩斯：热度排序（weight×0.7 + 时效×0.3），高热在前、冷记忆沉底
   Future<List<Memory>> loadSocialMemories(String characterId) async {
+    try {
+      final entries = await _querySocialMemories(characterId: characterId);
+      return entries.map((e) => Memory(
+            id: e.id,
+            characterId: characterId,
+            userId: e.targetCharacterId, // reuse userId field for target
+            type: MemoryType.conversation,
+            content: e.content,
+            keywords: e.keywords,
+            createdAt: e.createdAt,
+            weight: e.weight,
+            pinned: e.pinned,
+            lastRecalledAt: e.lastRecalledAt,
+          )).toList();
+    } catch (e) {
+      debugPrint('MemoryEngine: loadSocialMemories failed — $e');
+      return [];
+    }
+  }
+
+  /// 查询社交记忆（按角色或群组维度），按艾宾浩斯热度排序
+  Future<List<_SocialMemoryEntry>> _querySocialMemories({
+    String? characterId,
+    String? targetCharacterId,
+    int limit = 200,
+  }) async {
     try {
       final db = await DatabaseService.instance.database;
 
       // 确保表存在（兼容旧数据库）
       await _ensureSocialMemoriesTable(db);
 
+      final where = <String>[];
+      final args = <Object?>[];
+      if (characterId != null) {
+        where.add('characterId = ?');
+        args.add(characterId);
+      }
+      if (targetCharacterId != null) {
+        where.add('targetCharacterId = ?');
+        args.add(targetCharacterId);
+      }
+
       final rows = await db.query(
         'social_memories',
-        where: 'characterId = ?',
-        whereArgs: [characterId],
-        orderBy: 'timestamp DESC',
-        limit: 100,
+        where: where.isEmpty ? null : where.join(' AND '),
+        whereArgs: args.isEmpty ? null : args,
+        limit: limit,
       );
-      return rows.map((row) => Memory(
-        id: row['id'] as String,
-        characterId: row['characterId'] as String,
-        userId: row['targetCharacterId'] as String, // reuse userId field for target
-        type: MemoryType.conversation,
-        content: row['content'] as String? ?? '',
-        keywords: (row['keywords'] as String?)?.isNotEmpty == true
-            ? (row['keywords'] as String).split(',').where((k) => k.isNotEmpty).toList()
-            : [],
-        createdAt: DateTime.tryParse(row['timestamp'] as String? ?? '') ?? DateTime.now(),
-        weight: (row['weight'] as num?)?.toDouble() ?? 1.0,
-        pinned: (row['pinned'] as int?) == 1,
-      )).toList();
+      final now = DateTime.now();
+      return rows
+          .map((row) => _SocialMemoryEntry(
+                id: row['id'] as String,
+                targetCharacterId: row['targetCharacterId'] as String,
+                interactionType: row['interactionType'] as String? ?? 'chat',
+                content: row['content'] as String? ?? '',
+                keywords: _parseSocialKeywords(row['keywords'] as String?),
+                createdAt: DateTime.tryParse(row['timestamp'] as String? ?? '') ??
+                    now,
+                weight: (row['weight'] as num?)?.toDouble() ?? 1.0,
+                pinned: (row['pinned'] as int?) == 1,
+                lastRecalledAt:
+                    DateTime.tryParse(row['lastRecalledAt'] as String? ?? ''),
+              ))
+          .toList()
+        ..sort((a, b) => b.heat(now).compareTo(a.heat(now)));
     } catch (e) {
-      debugPrint('MemoryEngine: loadSocialMemories failed — $e');
+      debugPrint('MemoryEngine: query social memories failed — $e');
       return [];
+    }
+  }
+
+  /// 社交记忆明细（含 interactionType），供 prompt 注入分组
+  Future<List<_SocialMemoryEntry>> _loadSocialMemoriesDetailed(
+          String characterId) =>
+      _querySocialMemories(characterId: characterId);
+
+  /// 解析社交记忆 keywords（jsonDecode 优先，兼容旧逗号分隔）
+  List<String> _parseSocialKeywords(String? raw) {
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .map((k) => k.toString())
+            .where((k) => k.isNotEmpty)
+            .toList();
+      }
+    } catch (_) {}
+    return raw.split(',').where((k) => k.isNotEmpty).toList();
+  }
+
+  /// 社交记忆是否命中当前话题关键词（冷记忆唤醒判定）
+  bool _socialMatchesTopic(
+      _SocialMemoryEntry m, List<String> topicKeywords) {
+    if (topicKeywords.isEmpty) return false;
+    final content = m.content.toLowerCase();
+    for (final raw in topicKeywords) {
+      final k = raw.toLowerCase();
+      if (k.length < 2) continue;
+      if (content.contains(k)) return true;
+      if (m.keywords.any((mk) => mk.contains(k) || k.contains(mk))) return true;
+    }
+    return false;
+  }
+
+  /// 调用 OpenAI 兼容 /chat/completions（支持测试注入 client）
+  Future<http.Response> _postChatCompletions({
+    required AIConfig config,
+    required String systemScope,
+    required String prompt,
+  }) async {
+    final baseUrl = config.baseUrl.endsWith('/')
+        ? config.baseUrl.substring(0, config.baseUrl.length - 1)
+        : config.baseUrl;
+    final uri = Uri.parse('$baseUrl/chat/completions');
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ${config.apiKey}',
+    };
+    final body = jsonEncode({
+      'model': config.modelName,
+      'messages': [
+        {
+          'role': 'system',
+          'content': _storage.buildGlobalModePrompt(scope: systemScope)
+        },
+        {'role': 'user', 'content': prompt}
+      ],
+      'temperature': 0.3,
+      'max_tokens': 500,
+    });
+    final client = _httpClient;
+    if (client != null) {
+      return client
+          .post(uri, headers: headers, body: body)
+          .timeout(const Duration(seconds: 15));
+    }
+    return http
+        .post(uri, headers: headers, body: body)
+        .timeout(const Duration(seconds: 15));
+  }
+
+  /// 群聊事件提取（LLM）→ 写入社交记忆（characterId=发言角色，targetCharacterId=groupId）
+  ///
+  /// 与单聊 extractMemory 对齐：LLM 失败静默返回 0，不抛错。
+  /// - 只取最近 12 条消息
+  /// - 内置去重：与群内已有记忆相似则跳过
+  /// - speaker 为「用户」的重要条目（importance=2）分发到全员，普通用户发言跳过
+  /// 返回保存条数
+  Future<int> extractGroupMemories({
+    required List<GroupChatMessage> messages,
+    required String groupName,
+    required Map<String, String> speakerCharacterIds, // 角色名 → 角色 id
+    required String groupId,
+  }) async {
+    if (messages.length < 2) return 0;
+
+    final slice = messages.length > 12
+        ? messages.sublist(messages.length - 12)
+        : messages;
+
+    final config = await _storage.getActiveAIConfig();
+    if (config == null) return 0;
+
+    final context = slice
+        .map((m) =>
+            '${m.isUser ? '用户' : (m.senderName.isEmpty ? '成员' : m.senderName)}: ${m.content}')
+        .join('\n');
+
+    final prompt = '''你是记忆提取专家。从以下群聊「$groupName」的对话中，提取每个角色值得记住的事件，以 JSON 数组格式输出。
+
+提取规则：
+1. 只提取对角色关系/剧情有意义的信息（约定、承诺、重要消息、情绪冲突、喜好、计划）
+2. 忽略寒暄（你好、哈哈、在吗、嗯嗯）
+3. 用户说的话也可以提取（角色应该记住用户的事情，importance=2 时才会被所有角色记住）
+
+每条记忆格式：
+{"speaker": "角色名", "content": "记忆内容，50字以内", "emotion": "情绪标签", "importance": 1|2, "keywords": ["关键词1", "关键词2"]}
+
+规则：
+- speaker 必须与对话中实际发言者名字一致，用户发言时 speaker 为"用户"
+- 内容要具体，不要泛泛；以第一人称记录"我记得……"
+- 每条记忆一行JSON，不要用数组包裹
+- 如果没有值得提取的信息，输出空字符串
+
+最近对话：
+$context
+
+输出（每行一条JSON，没有则输出空）：''';
+
+    try {
+      final response = await _postChatCompletions(
+        config: config,
+        systemScope: '群聊记忆提取',
+        prompt: prompt,
+      );
+      if (response.statusCode != 200) return 0;
+
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      final text = ResponseDecoder.extractContent(data);
+      if (text.trim().isEmpty) return 0;
+
+      // 群内已有记忆（用于去重）
+      final existing =
+          await _querySocialMemories(targetCharacterId: groupId, limit: 100);
+      final existingContents = existing.map((e) => e.content).toSet();
+
+      int savedCount = 0;
+      for (final line in text.split('\n')) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty || !trimmed.startsWith('{')) continue;
+
+        try {
+          final map = jsonDecode(trimmed) as Map<String, dynamic>;
+          final speaker = map['speaker'] as String? ?? '';
+          final content = map['content'] as String? ?? '';
+          if (content.isEmpty) continue;
+
+          // 去重：与群内已有记忆相似则跳过
+          if (_isContentDuplicate(content, existingContents)) continue;
+          existingContents.add(content);
+
+          final importance =
+              (map['importance'] as int? ?? 1) >= 2 ? 'important' : 'normal';
+          final keywords = (map['keywords'] as List<dynamic>?)
+                  ?.map((k) => k.toString())
+                  .toList() ??
+              const <String>[];
+
+          final characterId = speakerCharacterIds[speaker];
+          if (characterId != null) {
+            // 角色发言：记入该角色的社交记忆
+            await saveSocialMemory(
+              characterId: characterId,
+              targetCharacterId: groupId,
+              interactionType: 'group_chat',
+              content: content,
+              emotionTag: map['emotion'] as String? ?? '',
+              importance: importance,
+              keywords: keywords.isEmpty ? const ['群聊'] : keywords,
+            );
+            savedCount++;
+          } else if (speaker == '用户' && importance == 'important') {
+            // 用户的重要发言：分发到全员（角色在单聊时也能想起）
+            for (final cid in speakerCharacterIds.values.toSet()) {
+              await saveSocialMemory(
+                characterId: cid,
+                targetCharacterId: groupId,
+                interactionType: 'group_chat',
+                content: content,
+                emotionTag: map['emotion'] as String? ?? '',
+                importance: importance,
+                keywords: keywords.isEmpty ? const ['群聊'] : keywords,
+              );
+              savedCount++;
+            }
+          }
+          // 其他未知 speaker（用户普通发言）：跳过
+        } catch (e) {
+          debugPrint('Error: $e');
+        }
+      }
+
+      debugPrint('MemoryEngine: 群聊记忆提取完成 — 保存 $savedCount 条');
+      return savedCount;
+    } catch (e) {
+      debugPrint('MemoryEngine: extractGroupMemories failed — $e');
+      return 0;
     }
   }
 
@@ -384,6 +706,136 @@ class MemoryEngine {
       });
     } catch (e) {
       debugPrint('MemoryEngine: saveSocialMemory failed — $e');
+    }
+  }
+
+  /// 标记社交记忆被回忆（艾宾浩斯用进废退，对齐 markRecalled）
+  ///
+  /// - 基础强化 weight +0.01
+  /// - 冷记忆（weight < 0.5）被话题唤醒 → 额外强化 +0.1，帮助脱离冷区
+  /// - pinned 锁定记忆跳过
+  Future<void> markSocialRecalled({
+    required String characterId,
+    required List<String> recalledMemoryIds,
+  }) async {
+    if (recalledMemoryIds.isEmpty) return;
+    try {
+      final db = await DatabaseService.instance.database;
+
+      // 确保表存在（兼容旧数据库）
+      await _ensureSocialMemoriesTable(db);
+
+      final placeholders = List.filled(recalledMemoryIds.length, '?').join(',');
+      final rows = await db.query(
+        'social_memories',
+        where: 'id IN ($placeholders) AND characterId = ?',
+        whereArgs: [...recalledMemoryIds, characterId],
+      );
+      final now = DateTime.now();
+      int reinforced = 0;
+      for (final row in rows) {
+        if ((row['pinned'] as int?) == 1) continue;
+        final weight = (row['weight'] as num?)?.toDouble() ?? 1.0;
+        final boost = weight < 0.5 ? 0.1 : 0.01; // 冷记忆唤醒额外强化
+        final newWeight = (weight + boost).clamp(0.0, 2.0);
+        await db.update(
+          'social_memories',
+          {'weight': newWeight, 'lastRecalledAt': now.toIso8601String()},
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+        reinforced++;
+      }
+      debugPrint('MemoryEngine: markSocialRecalled — $reinforced 条已强化');
+    } catch (e) {
+      debugPrint('MemoryEngine: markSocialRecalled failed — $e');
+    }
+  }
+
+  /// 社交记忆每日衰减（艾宾浩斯遗忘曲线，对齐 dailyDecay）
+  ///
+  /// - 24h 内被回忆：weight × 1.01（用进废退强化）
+  /// - 未被回忆：weight × 0.998（缓慢遗忘）
+  /// - pinned 锁定：不衰减
+  /// - weight 最低 0.1，最高 2.0
+  ///
+  /// [characterId] 为空时按群组维度全量衰减（覆盖已移除的成员）
+  Future<int> dailyDecaySocial({
+    String? characterId,
+    required String targetCharacterId,
+  }) async {
+    try {
+      final db = await DatabaseService.instance.database;
+
+      // 确保表存在（兼容旧数据库）
+      await _ensureSocialMemoriesTable(db);
+
+      final where = <String>['targetCharacterId = ?'];
+      final args = <Object?>[targetCharacterId];
+      if (characterId != null) {
+        where.add('characterId = ?');
+        args.add(characterId);
+      }
+
+      final rows = await db.query(
+        'social_memories',
+        where: where.join(' AND '),
+        whereArgs: args,
+        limit: Limit.memoryMaintenanceCap,
+      );
+      final now = DateTime.now();
+      int changed = 0;
+      for (final row in rows) {
+        if ((row['pinned'] as int?) == 1) continue;
+        final weight = (row['weight'] as num?)?.toDouble() ?? 1.0;
+        final lastRecalled =
+            DateTime.tryParse(row['lastRecalledAt'] as String? ?? '');
+        final recalledToday =
+            lastRecalled != null && now.difference(lastRecalled).inHours < 24;
+        final newWeight = recalledToday
+            ? (weight * 1.01).clamp(0.0, 2.0)
+            : (weight * 0.998).clamp(0.1, 2.0);
+        if (newWeight != weight) {
+          await db.update(
+            'social_memories',
+            {'weight': newWeight},
+            where: 'id = ?',
+            whereArgs: [row['id']],
+          );
+          changed++;
+        }
+      }
+      if (changed > 0) {
+        debugPrint('MemoryEngine: dailyDecaySocial — $changed 条已衰减');
+      }
+      return changed;
+    } catch (e) {
+      debugPrint('MemoryEngine: dailyDecaySocial failed — $e');
+      return 0;
+    }
+  }
+
+  /// 群聊社交记忆每日维护（20h 节流，懒触发）
+  ///
+  /// 对群组维度全量执行艾宾浩斯衰减（覆盖所有成员，含已移除者）。
+  Future<void> runSocialDailyMaintenance({
+    required String groupId,
+    required List<String> memberCharacterIds,
+  }) async {
+    try {
+      final now = DateTime.now();
+      final lastRunStr = _storage.getString('memory_last_decay_social_$groupId');
+      if (lastRunStr != null) {
+        final lastRun = DateTime.tryParse(lastRunStr);
+        if (lastRun != null && now.difference(lastRun).inHours < 20) {
+          return; // 20h 内已执行过
+        }
+      }
+      await dailyDecaySocial(targetCharacterId: groupId);
+      await _storage.setString(
+          'memory_last_decay_social_$groupId', now.toIso8601String());
+    } catch (e) {
+      debugPrint('MemoryEngine: runSocialDailyMaintenance failed — $e');
     }
   }
 
@@ -2311,6 +2763,105 @@ ${userMessages.join('\n')}
     buffer.writeln('');
     buffer.writeln(
         '再次强调：以上是真实互通数据。提到这些名字时，必须对齐上述关系与记忆，禁止另造一个同名的新人。');
+    return buffer.toString();
+  }
+
+  /// 构建群聊共享上下文 — 全员设定压缩 + 全员与用户记忆 + 群内社交记忆。
+  ///
+  /// SWAP 模式下每个角色发言时注入（见 group_chat_bloc），让成员互相知道
+  /// 彼此的设定与实时记忆库（全共享，用户已确认）。总预算约 600 tokens，
+  /// 5 人群安全。数据全部真实，禁止模型编造其他成员的档案。
+  Future<String> buildGroupSharedContext({
+    required AICharacter self,
+    required List<AICharacter> members, // 除自己外的群成员
+    required String userId,
+    required String groupId,
+    int maxMemPerMember = 3,
+    int maxSocialPerMember = 2,
+  }) async {
+    if (members.isEmpty) return '';
+    final buffer = StringBuffer();
+    buffer.writeln('\n【群成员共享信息 — 实时记忆库（禁止编造）】');
+    buffer.writeln('你是「${self.name}」，本段是群里所有成员的公开信息与记忆，全员可见。');
+    buffer.writeln('规则：');
+    buffer.writeln('1. 你只能以「${self.name}」的身份发言，不要变成其他成员本人。');
+    buffer.writeln('2. 下列信息全部真实，禁止另编姓名、关系、经历。');
+    buffer.writeln('3. 提到他人时对齐其设定与记忆，不要张冠李戴。');
+
+    for (final other in members) {
+      buffer.writeln('');
+      buffer.writeln('── 成员：${other.name} ──');
+
+      // 档案压缩摘要
+      final traits = <String>[];
+      if ((other.gender ?? '').trim().isNotEmpty) {
+        traits.add('性别：${other.gender}');
+      }
+      final p = other.personality.trim();
+      if (p.isNotEmpty) {
+        traits.add('性格：${p.length > 40 ? '${p.substring(0, 40)}…' : p}');
+      }
+      var bg = (other.backgroundStory ?? '').trim();
+      if (bg.isEmpty) bg = (other.worldSetting ?? '').trim();
+      if (bg.isNotEmpty) {
+        traits.add('背景：${bg.length > 40 ? '${bg.substring(0, 40)}…' : bg}');
+      }
+      if ((other.catchphrases ?? '').trim().isNotEmpty) {
+        traits.add('口头禅：${other.catchphrases}');
+      }
+      if ((other.userNickname ?? '').trim().isNotEmpty) {
+        traits.add('对用户称呼：${other.userNickname}');
+      }
+      if (traits.isNotEmpty) buffer.writeln('- ${traits.join('；')}');
+
+      // 成员与用户的私密记忆（全共享）
+      try {
+        final mems = await _storage.getMemories(
+          characterId: other.id,
+          userId: userId,
+          limit: maxMemPerMember + 4,
+        );
+        final picks = <String>[];
+        for (final m in mems) {
+          if (m.type == MemoryType.rollingSummary) continue;
+          final c = m.content.trim();
+          if (c.isEmpty || looksLikeBtAgentPayload(c)) continue;
+          picks.add(c.length > 70 ? '${c.substring(0, 70)}…' : c);
+          if (picks.length >= maxMemPerMember) break;
+        }
+        if (picks.isNotEmpty) {
+          buffer.writeln('- ${other.name}与用户相关记忆：');
+          for (final pick in picks) {
+            buffer.writeln('  · $pick');
+          }
+        }
+      } catch (e) {
+        debugPrint('MemoryEngine: group shared private mem failed: $e');
+      }
+
+      // 该成员在群里的发言沉淀（targetCharacterId 复用为群 id）
+      try {
+        final social = await loadSocialMemories(other.id);
+        final inGroup = social
+            .where((m) => m.userId == groupId)
+            .take(maxSocialPerMember)
+            .toList();
+        if (inGroup.isNotEmpty) {
+          buffer.writeln('- ${other.name}在群里说过：');
+          for (final m in inGroup) {
+            final c = m.content.trim();
+            if (c.isEmpty) continue;
+            buffer.writeln(
+                '  · ${c.length > 70 ? '${c.substring(0, 70)}…' : c}');
+          }
+        }
+      } catch (e) {
+        debugPrint('MemoryEngine: group shared social mem failed: $e');
+      }
+    }
+
+    buffer.writeln('');
+    buffer.writeln('再次强调：以上为全员共享的实时信息；回应他人时对齐上述事实。');
     return buffer.toString();
   }
 

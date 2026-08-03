@@ -9,9 +9,11 @@ import '../../models/group_chat_branch.dart';
 import '../../models/chat_message.dart';
 import '../../models/memory.dart';
 import '../../models/ai_character.dart';
+import '../../models/ai_stream_chunk.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/log_service.dart';
+import '../../services/memory_engine.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../utils/content_filter.dart';
 import 'group_chat_speaker.dart';
@@ -26,6 +28,7 @@ part 'group_chat_state.dart';
 class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
   final LocalStorageRepository _storage;
   final AIService _aiService;
+  final MemoryEngine _memoryEngine;
   final _uuid = const Uuid();
   final _random = Random();
 
@@ -34,6 +37,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
 
   /// 当前群聊的 AI 回复互斥（防止并发触发多个流）
   final Map<String, bool> _replyingGroups = {};
+
+  /// 用户消息等待回应标记：AI 生成中被抢占时排队，生成结束后补回应
+  final Map<String, bool> _pendingUserReply = {};
 
   /// 自动接话轮询
   Timer? _autoModeTimer;
@@ -46,7 +52,12 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
   /// 手动锁定发言人（内存态，群聊 UI 激活条写入）
   final Map<String, List<String>> _forcedSpeakers = {};
 
-  GroupChatBloc(this._storage, this._aiService) : super(GroupChatInitial()) {
+  /// 群聊记忆沉淀计数器：粗摘要降频（每5轮一条）+ LLM 事件提取每5轮一次
+  final Map<String, int> _groupMemoryCounter = {};
+
+  GroupChatBloc(this._storage, this._aiService, {MemoryEngine? memoryEngine})
+      : _memoryEngine = memoryEngine ?? MemoryEngine(_storage),
+        super(GroupChatInitial()) {
     on<GroupChatLoadSessions>(_onLoadSessions);
     on<GroupChatCreate>(_onCreate);
     on<GroupChatDelete>(_onDelete);
@@ -62,6 +73,11 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     on<GroupChatCreateBranch>(_onCreateBranch);
     on<GroupChatSwitchBranch>(_onSwitchBranch);
     on<GroupChatDeleteBranch>(_onDeleteBranch);
+    on<GroupChatDeleteMessage>(_onDeleteMessage);
+    on<GroupChatToggleBookmark>(_onToggleBookmark);
+    on<GroupChatEditAIReply>(_onEditAIReply);
+    on<GroupChatRegenerateMessage>(_onRegenerateMessage);
+    on<GroupChatRecallMessage>(_onRecallMessage);
   }
 
   Future<void> _onLoadSessions(
@@ -97,11 +113,38 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         updatedAt: now,
       );
       await _storage.saveGroupChatSession(session);
+
+      // 成员入场仪式：每个 AI 成员写入「xxx 加入了群聊」系统消息
+      // （只做 UI 展示，_toChatHistory/speakersSinceLastUser 均跳过系统消息）
+      for (final id in session.aiCharacterIds) {
+        final char = await _storage.getAICharacter(id);
+        await _writeSystemMessage(
+          session,
+          '${char?.name ?? id} 加入了群聊',
+        );
+      }
       emit(GroupChatCreated(session));
     } catch (e) {
       LogService.instance.e('GroupChat', '_onCreate failed: $e');
       emit(GroupChatError(e.toString()));
     }
+  }
+
+  /// 写入一条系统消息（成员入场/离场等；isSystem 消息不进 AI 上下文）
+  Future<void> _writeSystemMessage(
+    GroupChatSession session,
+    String content,
+  ) async {
+    await _storage.saveGroupChatMessage(GroupChatMessage(
+      id: _uuid.v4(),
+      groupId: session.id,
+      chatId: session.chatId,
+      senderId: 'system',
+      senderName: '系统',
+      content: content,
+      isSystem: true,
+      type: GroupChatMessageType.system,
+    ));
   }
 
   Future<void> _onDelete(
@@ -129,6 +172,11 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       final messages =
           await _storage.getGroupChatMessages(event.groupId, chatId: chatId);
       emit(GroupChatMessagesLoaded(event.groupId, messages));
+      // 懒触发群聊社交记忆每日维护（艾宾浩斯衰减，20h 节流，unawaited）
+      if (session != null && session.aiCharacterIds.isNotEmpty) {
+        unawaited(_runSocialMaintenanceQuietly(
+            event.groupId, session.aiCharacterIds));
+      }
       // 顺带加载分支列表，供 UI 聊天记录管理
       if (session != null) {
         final branches = await _storage.getGroupChatBranches(event.groupId);
@@ -175,9 +223,11 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
             : GroupChatMessageType.text,
         timestamp: now,
         status: GroupChatMessageStatus.sent,
-        metadata: (event.imagePaths?.isNotEmpty ?? false)
-            ? {'imagePaths': event.imagePaths}
-            : null,
+        metadata: {
+          ...?event.metadata,
+          if (event.imagePaths?.isNotEmpty ?? false)
+            'imagePaths': event.imagePaths,
+        },
       );
       await _storage.saveGroupChatMessage(msg);
 
@@ -212,6 +262,155 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     }
   }
 
+  /// 重新加载群聊消息并 emit（消息操作后的统一刷新入口）
+  Future<void> _reloadMessages(String groupId, Emitter<GroupChatState> emit) async {
+    final session = await _storage.getGroupChatSession(groupId);
+    emit(GroupChatMessagesLoaded(
+      groupId,
+      await _storage.getGroupChatMessages(groupId, chatId: session?.chatId),
+    ));
+  }
+
+  /// 删除单条消息
+  Future<void> _onDeleteMessage(
+    GroupChatDeleteMessage event,
+    Emitter<GroupChatState> emit,
+  ) async {
+    try {
+      await _storage.deleteGroupChatMessage(event.messageId);
+      await _reloadMessages(event.groupId, emit);
+    } catch (e) {
+      LogService.instance.e('GroupChat', '_onDeleteMessage failed: $e');
+      emit(GroupChatError(e.toString()));
+    }
+  }
+
+  /// 收藏 / 取消收藏（metadata['bookmarked'] 翻转，无需 DB 迁移）
+  Future<void> _onToggleBookmark(
+    GroupChatToggleBookmark event,
+    Emitter<GroupChatState> emit,
+  ) async {
+    try {
+      final messages = await _storage.getGroupChatMessages(event.groupId);
+      final msg = messages.cast<GroupChatMessage?>().firstWhere(
+            (m) => m!.id == event.messageId,
+            orElse: () => null,
+          );
+      if (msg == null) return;
+      final toggled = msg.copyWith(metadata: {
+        ...?msg.metadata,
+        'bookmarked': !msg.isBookmarked,
+      });
+      await _storage.saveGroupChatMessage(toggled);
+      await _reloadMessages(event.groupId, emit);
+    } catch (e) {
+      LogService.instance.e('GroupChat', '_onToggleBookmark failed: $e');
+      emit(GroupChatError(e.toString()));
+    }
+  }
+
+  /// 编辑 AI 回复内容（仅 AI 消息，对齐单聊 ChatEditAIReply）
+  Future<void> _onEditAIReply(
+    GroupChatEditAIReply event,
+    Emitter<GroupChatState> emit,
+  ) async {
+    try {
+      final messages = await _storage.getGroupChatMessages(event.groupId);
+      final msg = messages.cast<GroupChatMessage?>().firstWhere(
+            (m) => m!.id == event.messageId,
+            orElse: () => null,
+          );
+      if (msg == null || msg.isUser || msg.isSystem || msg.isRecalled) return;
+      final cleaned = MessageSanitizer.sanitizeFinal(event.newContent).trim();
+      if (cleaned.isEmpty) return;
+      await _storage.saveGroupChatMessage(msg.copyWith(
+        content: cleaned,
+        metadata: {
+          ...?msg.metadata,
+          'editedAt': DateTime.now().toIso8601String(),
+        },
+      ));
+      await _reloadMessages(event.groupId, emit);
+    } catch (e) {
+      LogService.instance.e('GroupChat', '_onEditAIReply failed: $e');
+      emit(GroupChatError(e.toString()));
+    }
+  }
+
+  /// 撤回用户消息（2 分钟内 → 「已撤回」占位，对齐单聊 _recallMessage）
+  Future<void> _onRecallMessage(
+    GroupChatRecallMessage event,
+    Emitter<GroupChatState> emit,
+  ) async {
+    try {
+      final messages = await _storage.getGroupChatMessages(event.groupId);
+      final msg = messages.cast<GroupChatMessage?>().firstWhere(
+            (m) => m!.id == event.messageId,
+            orElse: () => null,
+          );
+      if (msg == null || !msg.isUser || msg.isRecalled) return;
+      // 超过 2 分钟不可撤回
+      if (DateTime.now().difference(msg.timestamp).inMinutes > 2) return;
+      await _storage.saveGroupChatMessage(msg.copyWith(
+        content: '已撤回',
+        status: GroupChatMessageStatus.failed,
+        metadata: {
+          ...?msg.metadata,
+          'recalled': true,
+          'originalContent': msg.content,
+        },
+      ));
+      await _reloadMessages(event.groupId, emit);
+    } catch (e) {
+      LogService.instance.e('GroupChat', '_onRecallMessage failed: $e');
+      emit(GroupChatError(e.toString()));
+    }
+  }
+
+  /// 重新生成 AI 回复：删除旧消息 → 用该角色重新回复（复用 _generateOneReply）
+  Future<void> _onRegenerateMessage(
+    GroupChatRegenerateMessage event,
+    Emitter<GroupChatState> emit,
+  ) async {
+    try {
+      final session = await _storage.getGroupChatSession(event.groupId);
+      if (session == null) return;
+      if (_replyingGroups[event.groupId] == true) return; // 已有回复进行中
+
+      final messages = await _storage.getGroupChatMessages(
+          event.groupId, chatId: session.chatId);
+      final targetIndex = messages.indexWhere((m) => m.id == event.messageId);
+      if (targetIndex == -1) return;
+      final target = messages[targetIndex];
+      if (target.isUser || target.isSystem || target.isRecalled) return;
+      if (!target.senderId.startsWith('ai_')) return;
+
+      final characterId = target.senderId.substring(3);
+      // 激活文本：目标消息的前一条消息内容（无论谁发的），作为重新生成的输入
+      final triggerContent = targetIndex + 1 < messages.length
+          ? messages[targetIndex + 1].content
+          : target.content;
+
+      await _storage.deleteGroupChatMessage(event.messageId);
+      _replyingGroups[event.groupId] = true;
+      _followUpCount = 0;
+      await _generateOneReply(
+        groupId: event.groupId,
+        userId: session.userId.isNotEmpty ? session.userId : 'local_user',
+        session: session,
+        characterId: characterId,
+        userMessage: triggerContent,
+        imagePaths: null,
+        isFollowUp: false,
+      );
+      _replyingGroups[event.groupId] = false;
+    } catch (e) {
+      LogService.instance.e('GroupChat', '_onRegenerateMessage failed: $e');
+      _replyingGroups[event.groupId] = false;
+      emit(GroupChatError(e.toString()));
+    }
+  }
+
   /// AI 回复完成后（可能触发接话）
   Future<void> _onAIMessageSaved(
     GroupChatAIMessageSaved event,
@@ -226,11 +425,13 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       // autoModeEnabled：由定时轮询驱动接话，这里不再概率触发
       if (session.autoModeEnabled) {
         _replyingGroups[event.groupId] = false;
+        unawaited(_drainPendingUserReply(event.groupId));
         return;
       }
       // 单轮已回复 2 个 AI → 不再接话
       if (_followUpCount >= 2) {
         _replyingGroups[event.groupId] = false;
+        unawaited(_drainPendingUserReply(event.groupId));
         return;
       }
       // 35% 概率另一角色接话（非用户输入：模型从历史续写，AI 内容仅作选角文本）
@@ -249,6 +450,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         );
       } else {
         _replyingGroups[event.groupId] = false;
+        unawaited(_drainPendingUserReply(event.groupId));
       }
     } catch (e) {
       LogService.instance.e('GroupChat', '_onAIMessageSaved failed: $e');
@@ -268,7 +470,11 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     required GroupChatSession? session,
   }) async {
     if (session == null) return;
-    if (_replyingGroups[groupId] == true) return; // 已有回复进行中
+    if (_replyingGroups[groupId] == true) {
+      // AI 正在生成：用户消息排队，当前生成结束后补回应（不丢失）
+      _pendingUserReply[groupId] = true;
+      return;
+    }
     _replyingGroups[groupId] = true;
     _followUpCount = 0;
 
@@ -283,6 +489,38 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       isFollowUp: false,
       excludeCharacterId: null,
     );
+  }
+
+  /// 生成结束后消费排队中的用户消息：若最后一条仍是用户消息（未被回应），
+  /// 以用户消息为输入补一次 AI 回应（用户消息优先，不淹没不丢失）。
+  Future<void> _drainPendingUserReply(String groupId) async {
+    if (_pendingUserReply[groupId] != true) return;
+    _pendingUserReply[groupId] = false;
+    try {
+      final session = await _storage.getGroupChatSession(groupId);
+      if (session == null) return;
+      if (_replyingGroups[groupId] == true) return;
+      final history = await _storage.getGroupChatMessages(groupId,
+          limit: 1, chatId: session.chatId);
+      if (history.isEmpty || !history.last.isUser) return; // 已被回应或无需处理
+      _replyingGroups[groupId] = true;
+      _followUpCount = 0;
+      await _generateAIReplies(
+        groupId: groupId,
+        userId: session.userId.isNotEmpty ? session.userId : 'local_user',
+        session: session,
+        userMessage: history.last.content,
+        activationText: history.last.content,
+        isUserInput: true,
+        imagePaths: null,
+        isFollowUp: false,
+        excludeCharacterId: null,
+      );
+      _replyingGroups[groupId] = false;
+    } catch (e) {
+      LogService.instance.e('GroupChat', '_drainPendingUserReply failed: $e');
+      _replyingGroups[groupId] = false;
+    }
   }
 
   /// ST generateGroupWrapper 的激活列表 → 逐个生成
@@ -388,6 +626,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       );
     }
     _replyingGroups[groupId] = false;
+    // 生成结束：消费排队中的用户消息（若已被回应则 no-op）
+    unawaited(_drainPendingUserReply(groupId));
   }
 
   /// 单个角色生成（SWAP 子流程，含 nudge）
@@ -405,10 +645,12 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
 
     final history = await _storage.getGroupChatMessages(groupId,
         limit: 40, chatId: session.chatId);
-    final memories = await _storage.getMemories(
-      characterId: characterId,
+
+    // 全员记忆聚合（全共享）：每个成员取 3 条，让角色互相知道实时记忆库
+    final members = await _loadMembers(session.aiCharacterIds);
+    final memories = await _aggregateMemberMemories(
+      memberIds: session.aiCharacterIds,
       userId: userId.isNotEmpty ? userId : 'local_user',
-      limit: 8,
     );
 
     final memberNames = await _buildMemberNames(session);
@@ -417,8 +659,15 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       memberNames: memberNames,
       isNewChat: history.isEmpty,
     );
+    // 群共享上下文：其他成员设定压缩 + 与用户记忆 + 群内社交记忆
+    final shared = await _memoryEngine.buildGroupSharedContext(
+      self: character,
+      members: members.where((m) => m.id != character.id).toList(),
+      userId: userId.isNotEmpty ? userId : 'local_user',
+      groupId: groupId,
+    );
     final nudge = buildGroupNudge(character.name);
-    final internalContext = '$intro\n$nudge';
+    final internalContext = '$intro\n$shared\n$nudge';
 
     final chatHistory = _toChatHistory(history, character.id);
 
@@ -441,8 +690,13 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         internalSystemContext: internalContext,
       )) {
         fullText = chunk.content;
-        if (fullText.isNotEmpty) {
-          emit(GroupChatStreaming(groupId, character.name, fullText,
+        // 思考阶段 content 为空、reasoning 非空也必须 emit，
+        // 否则思考型模型表现为「无气泡但背后在准备回复」
+        final streamText = MessageSanitizer.sanitizeStream(chunk.content);
+        final streamReasoning = _mergeStreamReasoning(chunk);
+        if (streamText.isNotEmpty || streamReasoning.isNotEmpty) {
+          emit(GroupChatStreaming(groupId, character.name, streamText,
+              reasoning: streamReasoning,
               messages: await _storage
                   .getGroupChatMessages(groupId, chatId: session.chatId)));
         }
@@ -472,6 +726,30 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       status: GroupChatMessageStatus.sent,
     );
     await _storage.saveGroupChatMessage(aiMsg);
+
+    // 沉淀群聊社交记忆：角色记住自己在群里说过的话（群内/单聊互通数据源）
+    // 粗摘要降频（每5轮一条，避免噪音堆积）；每5轮触发一次 LLM 事件提取
+    _groupMemoryCounter[groupId] = (_groupMemoryCounter[groupId] ?? 0) + 1;
+    final round = _groupMemoryCounter[groupId]!;
+    if (round % 5 == 1) {
+      final summary = cleanText.length > 100
+          ? cleanText.substring(0, 100)
+          : cleanText;
+      await _memoryEngine.saveSocialMemory(
+        characterId: characterId,
+        targetCharacterId: groupId,
+        interactionType: 'group_chat',
+        content: '在群「${session.name}」中说过：$summary',
+        keywords: const ['群聊'],
+      );
+    }
+    if (round % 5 == 0) {
+      // LLM 提取本轮群聊事件（unawaited，不阻塞气泡）
+      unawaited(_extractGroupMemoriesAfterReply(
+        groupId: groupId,
+        session: session,
+      ));
+    }
 
     // 更新会话最后消息
     final latest = await _storage.getGroupChatSession(groupId);
@@ -541,10 +819,10 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
 
     final history = await _storage.getGroupChatMessages(groupId,
         limit: 40, chatId: session.chatId);
-    final memories = await _storage.getMemories(
-      characterId: members.first.id,
+    // 全员记忆聚合（全共享），修复原先只取 members.first 的遗漏
+    final memories = await _aggregateMemberMemories(
+      memberIds: enabledIds,
       userId: userId.isNotEmpty ? userId : 'local_user',
-      limit: 8,
     );
     final memberNames = members.map((m) => m.name).toList();
     final internalContext = buildGroupIntroPrompt(
@@ -574,8 +852,12 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         internalSystemContext: internalContext,
       )) {
         fullText = chunk.content;
-        if (fullText.isNotEmpty) {
-          emit(GroupChatStreaming(groupId, combo.name, fullText,
+        // 思考阶段也 emit（对齐 SWAP 分支），避免「无气泡但背后在准备回复」
+        final streamText = MessageSanitizer.sanitizeStream(chunk.content);
+        final streamReasoning = _mergeStreamReasoning(chunk);
+        if (streamText.isNotEmpty || streamReasoning.isNotEmpty) {
+          emit(GroupChatStreaming(groupId, combo.name, streamText,
+              reasoning: streamReasoning,
               messages: await _storage
                   .getGroupChatMessages(groupId, chatId: session.chatId)));
         }
@@ -619,6 +901,27 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     ));
   }
 
+  /// 聚合群成员记忆（全共享）：每成员 3 条，总上限 12
+  Future<List<Memory>> _aggregateMemberMemories({
+    required List<String> memberIds,
+    required String userId,
+  }) async {
+    final result = <Memory>[];
+    for (final id in memberIds) {
+      final mems = await _storage.getMemories(
+        characterId: id,
+        userId: userId,
+        limit: 3,
+      );
+      result.addAll(mems);
+      if (result.length >= 12) break;
+    }
+    if (result.length > 12) {
+      result.removeRange(12, result.length);
+    }
+    return result;
+  }
+
   /// 批量加载角色（保持传入顺序）
   Future<List<AICharacter>> _loadMembers(List<String> ids) async {
     final result = <AICharacter>[];
@@ -627,6 +930,46 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       if (c != null) result.add(c);
     }
     return result;
+  }
+
+  /// 群聊 AI 回复后：LLM 提取本轮群聊事件为社交记忆（降频，unawaited）
+  Future<void> _extractGroupMemoriesAfterReply({
+    required String groupId,
+    required GroupChatSession session,
+  }) async {
+    try {
+      final recent = await _storage.getGroupChatMessages(groupId,
+          limit: 12, chatId: session.chatId);
+      if (recent.length < 2) return;
+
+      // 角色名 → 角色 id 映射（反查 LLM 输出的 speaker）
+      final members = await _loadMembers(session.aiCharacterIds);
+      final speakerMap = <String, String>{
+        for (final m in members) m.name: m.id,
+      };
+
+      await _memoryEngine.extractGroupMemories(
+        messages: recent,
+        groupName: session.name,
+        speakerCharacterIds: speakerMap,
+        groupId: groupId,
+      );
+    } catch (e) {
+      LogService.instance.w('GroupChat', '群聊记忆提取失败: $e', chatId: groupId);
+    }
+  }
+
+  /// 群聊社交记忆每日维护（艾宾浩斯衰减，20h 节流，unawaited 静默执行）
+  Future<void> _runSocialMaintenanceQuietly(
+      String groupId, List<String> memberCharacterIds) async {
+    try {
+      await _memoryEngine.runSocialDailyMaintenance(
+        groupId: groupId,
+        memberCharacterIds: memberCharacterIds,
+      );
+    } catch (e) {
+      LogService.instance.w('GroupChat', '社交记忆维护失败: $e', chatId: groupId);
+    }
   }
 
   /// 群成员名称列表（AI 用真实名，用户显示"你"）
@@ -643,6 +986,24 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       }
     }
     return names;
+  }
+
+  /// 合并流式思考内容用于实时展示（对齐单聊 chat_bloc._mergeStreamReasoning）。
+  ///
+  /// 部分推理模型不使用独立的 reasoning_content 字段，而是把思考直接写在
+  /// 正文的 <think>…</think> 里。思考阶段标签未闭合、content 清洗后为空，
+  /// 若只按 content 判断会一直不 emit —— 表现为「无气泡但背后已在准备回复，
+  /// 思考完才一次性蹦出正文」。
+  String _mergeStreamReasoning(AIStreamChunk chunk) {
+    final fromField = MessageSanitizer.sanitizeStream(chunk.reasoning);
+    // cleanForStreamDisplay 返回 [正文, 从 content 提取出的思考]
+    final parts = AIService.cleanForStreamDisplay(chunk.content);
+    final fromContent = parts.length > 1
+        ? MessageSanitizer.sanitizeStream(parts[1])
+        : '';
+    return [fromField, fromContent]
+        .where((r) => r.isNotEmpty)
+        .join('\n');
   }
 
   /// 群消息 → 单聊格式（供 AIService 消费；ST 群聊格式：名字: 内容）
@@ -725,6 +1086,12 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
           updatedAt: DateTime.now(),
         );
         await _storage.saveGroupChatSession(updated);
+        // 入场系统消息（对齐微信「xxx 加入了群聊」）
+        final char = await _storage.getAICharacter(event.memberId);
+        final name = event.memberId == 'local_user'
+            ? '我'
+            : (char?.name ?? event.memberId);
+        await _writeSystemMessage(updated, '$name 加入了群聊');
         final sessions = await _storage.getGroupChatSessions('local_user');
         emit(GroupChatSessionsLoaded(sessions));
       }
@@ -751,6 +1118,12 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         updatedAt: DateTime.now(),
       );
       await _storage.saveGroupChatSession(updated);
+      // 离场系统消息（成员已移除，角色卡可能仍可读；取不到用 id）
+      final char = await _storage.getAICharacter(event.memberId);
+      final name = event.memberId == 'local_user'
+          ? '我'
+          : (char?.name ?? event.memberId);
+      await _writeSystemMessage(updated, '$name 离开了群聊');
       final sessions = await _storage.getGroupChatSessions('local_user');
       emit(GroupChatSessionsLoaded(sessions));
     } catch (e) {
@@ -965,6 +1338,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
           limit: 1, chatId: session.chatId);
       if (history.isEmpty) continue;
       final last = history.last;
+      // 用户消息后的回应由用户消息触发路径负责，auto mode 不抢：
+      // 否则 AI 互聊会淹没用户消息（用户插话必须被读到并回应）
+      if (last.isUser) continue;
       _lastAutoRunAt[groupId] = now;
       _replyingGroups[groupId] = true;
       _followUpCount = 0;
