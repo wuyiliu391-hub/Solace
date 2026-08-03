@@ -79,3 +79,5 @@ tools/
 .DS_Store
 Thumbs.db
 desktop.ini
+solace/app-release.apk.gz
+solace/app-release.apk.sha1

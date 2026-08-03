@@ -2,7 +2,7 @@ import 'constants.dart';
 
 class AppConfig {
   AppConfig._();
-  static const String appWorkerBaseUrl = 'https://solace-auth.pages.dev';
+  static const String appWorkerBaseUrl = 'https://solace-auth-v2.pages.dev';
 
   static const String websiteUrl = 'https://solace-app-eg5.pages.dev';
 

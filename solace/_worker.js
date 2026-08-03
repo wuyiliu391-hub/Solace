@@ -15,7 +15,7 @@ const VERSION_DATA = {
   buildNumber: 288,
   minSdk: 23,
   releaseDate: '2026-07-27',
-  downloadUrl: 'https://solace-auth.pages.dev/api/v1/download?v=17.5.0',
+  downloadUrl: 'https://solace-auth-v2.pages.dev/api/v1/download?v=17.5.0',
   changelog: [
     '移除单聊输入框上方的话题建议（灯泡 + 预设固定句子）',
     '单聊支持批量删除 / 批量收藏聊天记录（长按消息 → 多选）',
@@ -354,7 +354,12 @@ export default {
           request,
         );
         const gzRes = await env.ASSETS.fetch(gzReq);
-        if (!gzRes.ok || !gzRes.body) {
+        // Pages 对缺失文件会 SPA-fallback 回 index.html（200 + text/html），
+        // 必须识别出来，否则 DecompressionStream 解压 HTML 会静默产出空流。
+        const gzIsHtml = (gzRes.headers.get('content-type') ?? '')
+            .toLowerCase()
+            .includes('text/html');
+        if (!gzRes.ok || !gzRes.body || gzIsHtml) {
           return json(
             { error: 'APK asset missing', status: gzRes.status },
             502,

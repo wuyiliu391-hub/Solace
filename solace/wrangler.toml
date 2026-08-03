@@ -1,2 +1,2 @@
-name = "solace-auth"
+name = "solace-auth-v2"
 pages_build_output_dir = "."
