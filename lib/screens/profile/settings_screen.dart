@@ -107,10 +107,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               colorScheme: colorScheme,
             ),
           ], colorScheme),
-          
           const SizedBox(height: 12),
           _buildModeSettingsSection(colorScheme),
-
           const SizedBox(height: 12),
           _buildSectionTitle('语音', colorScheme),
           _buildCard([
@@ -246,104 +244,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildModeSettingsSection(ColorScheme colorScheme) {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    final novelOn = storage.isChatStyleNovelModeEnabled();
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _buildSectionTitle('模式与颜色', colorScheme),
-      _buildCard([
-        _buildSwitchTile(
-          icon: Icons.smart_toy_outlined,
-          iconBgColor: Colors.deepPurple.withOpacity(0.1),
-          title: '纯AI视角',
-          subtitle: 'AI 以底层模型本体身份回应，不进入角色',
-          value: storage.isPureAiModeEnabled(),
-          onChanged: (v) => _setModeSwitch(storage, () => storage.setPureAiMode(v), v, '纯AI视角'),
-          colorScheme: colorScheme,
-        ),
-        _buildDivider(colorScheme),
-        _buildSwitchTile(
-          icon: Icons.auto_stories_outlined,
-          iconBgColor: Colors.teal.withOpacity(0.1),
-          title: '小说模式',
-          subtitle: '全局生效：所有聊天与 AI 创作使用小说叙事风格',
-          value: novelOn,
-          onChanged: (v) => _setModeSwitch(storage, () => storage.setChatStyleMode(v), v, '小说模式'),
-          colorScheme: colorScheme,
-        ),
-        if (novelOn) _buildNovelColorRow(storage, colorScheme),
-        _buildDivider(colorScheme),
-        _buildSwitchTile(
-          icon: Icons.favorite_border,
-          iconBgColor: Colors.pink.withOpacity(0.1),
-          title: '恋人模式',
-          subtitle: '允许恋爱陪伴、亲密称呼与情感互动',
-          value: storage.isLoverModeEnabled(),
-          onChanged: _isAdult
-              ? (v) => _setModeSwitch(storage, () => storage.setLoverMode(v), v, '恋人模式')
-              : null,
-          locked: !_isAdult,
-          colorScheme: colorScheme,
-        ),
-        _buildDivider(colorScheme),
-        _buildSwitchTile(
-          icon: Icons.lock_open_outlined,
-          iconBgColor: Colors.purple.withOpacity(0.1),
-          title: '开放模式',
-          subtitle: '允许更开放、更大胆的表达主题',
-          value: storage.isOpenModeEnabled(),
-          onChanged: _isAdult
-              ? (v) => _setModeSwitch(storage, () => storage.setOpenMode(v), v, '开放模式')
-              : null,
-          locked: !_isAdult,
-          colorScheme: colorScheme,
-        ),
-        _buildDivider(colorScheme),
-        _buildSwitchTile(
-          icon: Icons.auto_awesome,
-          iconBgColor: Colors.deepOrange.withOpacity(0.1),
-          title: '法功能',
-          subtitle: '沉浸式创作：不拒答、保留括号动作（18+）',
-          value: storage.isFaModeEnabled(),
-          onChanged: _isAdult
-              ? (v) => _setModeSwitch(storage, () async {
-                    await storage.setFaMode(v);
-                    await storage.setFaVerified(v);
-                  }, v, '法功能')
-              : null,
-          locked: !_isAdult,
-          colorScheme: colorScheme,
-        ),
-        _buildDivider(colorScheme),
-        _buildSwitchTile(
-          icon: Icons.local_florist_outlined,
-          iconBgColor: Colors.blueGrey.withOpacity(0.1),
-          title: '刀模式',
-          subtitle: '叠加小说模式：悲剧、虐心、遗憾与宿命感',
-          value: storage.isDaoModeEnabled(),
-          onChanged: (v) => _setModeSwitch(storage, () => storage.setDaoMode(v), v, '刀模式'),
-          colorScheme: colorScheme,
-        ),
-        _buildDivider(colorScheme),
-        _buildSwitchTile(
-          icon: Icons.book_rounded,
-          iconBgColor: Colors.orange.withOpacity(0.1),
-          title: '自动写日记',
-          subtitle: '聊天结束后角色自动写一篇私人日记',
-          value: storage.isAutoDiaryEnabled(),
-          onChanged: (v) => _setModeSwitch(storage, () => storage.setAutoDiaryEnabled(v), v, '自动写日记'),
-          colorScheme: colorScheme,
-        ),
-      ], colorScheme),
-    ]);
+    return ValueListenableBuilder<int>(
+      valueListenable: storage.modeSettingsNotifier,
+      builder: (context, _, __) {
+        final novelOn = storage.isChatStyleNovelModeEnabled();
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _buildSectionTitle('模式与颜色', colorScheme),
+          _buildCard([
+            _buildSwitchTile(
+              icon: Icons.smart_toy_outlined,
+              iconBgColor: Colors.deepPurple.withOpacity(0.1),
+              title: '纯AI视角',
+              subtitle: 'AI 以底层模型本体身份回应，不进入角色',
+              value: storage.isPureAiModeEnabled(),
+              onChanged: (v) => _setModeSwitch(
+                  storage, () => storage.setPureAiMode(v), v, '纯AI视角'),
+              colorScheme: colorScheme,
+            ),
+            _buildDivider(colorScheme),
+            _buildSwitchTile(
+              icon: Icons.auto_stories_outlined,
+              iconBgColor: Colors.teal.withOpacity(0.1),
+              title: '小说模式',
+              subtitle: '全局生效：所有聊天与 AI 创作使用小说叙事风格',
+              value: novelOn,
+              onChanged: (v) => _setModeSwitch(
+                  storage, () => storage.setChatStyleMode(v), v, '小说模式'),
+              colorScheme: colorScheme,
+            ),
+            if (novelOn) _buildNovelColorRow(storage, colorScheme),
+            _buildDivider(colorScheme),
+            _buildSwitchTile(
+              icon: Icons.favorite_border,
+              iconBgColor: Colors.pink.withOpacity(0.1),
+              title: '恋人模式',
+              subtitle: '允许恋爱陪伴、亲密称呼与情感互动',
+              value: storage.isLoverModeEnabled(),
+              onChanged: _isAdult
+                  ? (v) => _setModeSwitch(
+                      storage, () => storage.setLoverMode(v), v, '恋人模式')
+                  : null,
+              locked: !_isAdult,
+              colorScheme: colorScheme,
+            ),
+            _buildDivider(colorScheme),
+            _buildSwitchTile(
+              icon: Icons.lock_open_outlined,
+              iconBgColor: Colors.purple.withOpacity(0.1),
+              title: '开放模式',
+              subtitle: '允许更开放、更大胆的表达主题',
+              value: storage.isOpenModeEnabled(),
+              onChanged: _isAdult
+                  ? (v) => _setModeSwitch(
+                      storage, () => storage.setOpenMode(v), v, '开放模式')
+                  : null,
+              locked: !_isAdult,
+              colorScheme: colorScheme,
+            ),
+            _buildDivider(colorScheme),
+            _buildSwitchTile(
+              icon: Icons.auto_awesome,
+              iconBgColor: Colors.deepOrange.withOpacity(0.1),
+              title: '法功能',
+              subtitle: '沉浸式创作：不拒答、保留括号动作（18+）',
+              value: storage.isFaModeEnabled(),
+              onChanged: _isAdult
+                  ? (v) => _setModeSwitch(storage, () async {
+                        await storage.setFaMode(v);
+                        await storage.setFaVerified(v);
+                      }, v, '法功能')
+                  : null,
+              locked: !_isAdult,
+              colorScheme: colorScheme,
+            ),
+            _buildDivider(colorScheme),
+            _buildSwitchTile(
+              icon: Icons.local_florist_outlined,
+              iconBgColor: Colors.blueGrey.withOpacity(0.1),
+              title: '刀模式',
+              subtitle: '叠加小说模式：悲剧、虐心、遗憾与宿命感',
+              value: storage.isDaoModeEnabled(),
+              onChanged: (v) => _setModeSwitch(
+                  storage, () => storage.setDaoMode(v), v, '刀模式'),
+              colorScheme: colorScheme,
+            ),
+            _buildDivider(colorScheme),
+            _buildSwitchTile(
+              icon: Icons.book_rounded,
+              iconBgColor: Colors.orange.withOpacity(0.1),
+              title: '自动写日记',
+              subtitle: '聊天结束后角色自动写一篇私人日记',
+              value: storage.isAutoDiaryEnabled(),
+              onChanged: (v) => _setModeSwitch(
+                  storage, () => storage.setAutoDiaryEnabled(v), v, '自动写日记'),
+              colorScheme: colorScheme,
+            ),
+          ], colorScheme),
+        ]);
+      },
+    );
   }
 
-  Widget _buildNovelColorRow(
-      LocalStorageRepository storage, ColorScheme cs) {
+  Widget _buildNovelColorRow(LocalStorageRepository storage, ColorScheme cs) {
     final current = storage.getNovelDialogueColor();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
       child: Row(
         children: [
-          Icon(Icons.palette_outlined, size: 16, color: cs.onSurface.withOpacity(0.45)),
+          Icon(Icons.palette_outlined,
+              size: 16, color: cs.onSurface.withOpacity(0.45)),
           const SizedBox(width: 8),
           Expanded(
             child: SingleChildScrollView(
@@ -385,7 +394,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _novelColorDot(LocalStorageRepository storage, ColorScheme cs,
       Color color, bool selected) {
     return Tooltip(
-      message: '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}',
+      message:
+          '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}',
       child: GestureDetector(
         onTap: () => storage.setNovelDialogueColor(color),
         child: Container(
@@ -499,7 +509,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 14),
               // 分割线
-              Divider(height: 1, color: colorScheme.outlineVariant.withOpacity(0.5)),
+              Divider(
+                  height: 1,
+                  color: colorScheme.outlineVariant.withOpacity(0.5)),
               const SizedBox(height: 14),
               // 视觉风格切换
               Row(
@@ -530,14 +542,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         _buildVisualStyleChip(
                           label: '经典',
-                          isSelected: themeState.visualStyle == VisualStyle.classic,
-                          onTap: () => context.read<ThemeBloc>().add(const VisualStyleChanged(VisualStyle.classic)),
+                          isSelected:
+                              themeState.visualStyle == VisualStyle.classic,
+                          onTap: () => context.read<ThemeBloc>().add(
+                              const VisualStyleChanged(VisualStyle.classic)),
                           colorScheme: colorScheme,
                         ),
                         _buildVisualStyleChip(
                           label: '现代',
-                          isSelected: themeState.visualStyle == VisualStyle.modernist,
-                          onTap: () => context.read<ThemeBloc>().add(const VisualStyleChanged(VisualStyle.modernist)),
+                          isSelected:
+                              themeState.visualStyle == VisualStyle.modernist,
+                          onTap: () => context.read<ThemeBloc>().add(
+                              const VisualStyleChanged(VisualStyle.modernist)),
                           colorScheme: colorScheme,
                         ),
                       ],
@@ -546,7 +562,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
               const SizedBox(height: 14),
-              Divider(height: 1, color: colorScheme.outlineVariant.withOpacity(0.5)),
+              Divider(
+                  height: 1,
+                  color: colorScheme.outlineVariant.withOpacity(0.5)),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 secondary: Container(
@@ -559,9 +577,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       size: 20, color: colorScheme.primary),
                 ),
                 title: const Text('虚拟手机桌面',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                subtitle: const Text(
-                    '默认关闭。开启后主界面切换为小手机系统，可随时关闭回经典底部导航',
+                    style:
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                subtitle: const Text('默认关闭。开启后主界面切换为小手机系统，可随时关闭回经典底部导航',
                     style: TextStyle(fontSize: 12)),
                 value: _phoneDesktopShell,
                 onChanged: (v) async {
@@ -593,9 +611,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       size: 20, color: colorScheme.tertiary),
                 ),
                 title: const Text('桌面图标预览',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                subtitle: const Text('查看玻璃软图标效果',
-                    style: TextStyle(fontSize: 12)),
+                    style:
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                subtitle:
+                    const Text('查看玻璃软图标效果', style: TextStyle(fontSize: 12)),
                 trailing: const Icon(Icons.chevron_right, size: 20),
                 onTap: () => Navigator.push(
                   context,
@@ -674,7 +693,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           style: TextStyle(
             fontSize: 13,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            color: isSelected ? colorScheme.onPrimary : colorScheme.onSurfaceVariant,
+            color: isSelected
+                ? colorScheme.onPrimary
+                : colorScheme.onSurfaceVariant,
           ),
         ),
       ),

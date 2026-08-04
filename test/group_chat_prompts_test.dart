@@ -28,7 +28,10 @@ void main() {
   });
 
   test('nudge prompt（对标 group_nudge_prompt）', () {
-    expect(buildGroupNudge('小美'), '[请只以「小美」的身份继续发言。]');
+    final nudge = buildGroupNudge('小美');
+    expect(nudge, contains('[请只以「小美」的身份继续发言。'));
+    expect(nudge, contains('不要重复'));
+    expect(nudge, contains('不要原样回显'));
   });
 
   test('消息格式化：自己发言不带前缀，他人带 名字: 内容', () {

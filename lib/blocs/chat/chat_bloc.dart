@@ -82,6 +82,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   final Map<String, List<String>> _pendingBlockMessages = {};
   final Map<String, DateTime> _lastObservationTrigger = {};
   final Map<String, int> _lastMemoryExtractionUserCount = {};
+
   /// 微记忆冷却时间戳，按 chatId 跟踪，避免同会话短时刷入多条
   final Map<String, DateTime> _lastMicroTime = {};
   late final BtAgentExecutionService _btAgentExecutionService;
@@ -144,8 +145,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     String? lastMessagePreview,
     bool skipWhenEmotionLocked = false,
   }) async {
-    if (skipWhenEmotionLocked &&
-        _emotionLockedSessions.contains(session.id)) {
+    if (skipWhenEmotionLocked && _emotionLockedSessions.contains(session.id)) {
       // 情感锁定时仍更新最后消息时间，但不加减亲密度
       final locked = await _storage.getChatSession(session.id) ?? session;
       await _storage.saveChatSession(locked.copyWith(
@@ -545,12 +545,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     final fromField = MessageSanitizer.sanitizeStream(chunk.reasoning);
     // cleanForStreamDisplay 返回 [正文, 从 content 提取出的思考]
     final parts = AIService.cleanForStreamDisplay(chunk.content);
-    final fromContent = parts.length > 1
-        ? MessageSanitizer.sanitizeStream(parts[1])
-        : '';
-    return [fromField, fromContent]
-        .where((r) => r.isNotEmpty)
-        .join('\n');
+    final fromContent =
+        parts.length > 1 ? MessageSanitizer.sanitizeStream(parts[1]) : '';
+    return [fromField, fromContent].where((r) => r.isNotEmpty).join('\n');
   }
 
   /// 流式发送（桥接：优先适配器）
@@ -739,8 +736,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   }
 
   /// 是否含语C动作/旁白括号（全角或半角，括号内有内容）
-  static final RegExp _actionBracketPattern =
-      RegExp(r'（[^（）]+）|\([^()]+\)');
+  static final RegExp _actionBracketPattern = RegExp(r'（[^（）]+）|\([^()]+\)');
 
   bool _containsActionBracket(String text) =>
       _actionBracketPattern.hasMatch(text);
@@ -765,9 +761,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     final actions = <String>[];
     final dialogue = text
         .replaceAllMapped(_actionBracketPattern, (m) {
-          final inner = (m.group(0) ?? '')
-              .replaceAll(RegExp(r'^[（(]|[）)]$'), '')
-              .trim();
+          final inner =
+              (m.group(0) ?? '').replaceAll(RegExp(r'^[（(]|[）)]$'), '').trim();
           if (inner.isNotEmpty) actions.add(inner);
           return ' ';
         })
@@ -816,8 +811,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         // 近一小时前台使用总时长（仅在已授权时可读）
         if (await _wellbeing.hasUsageAccess()) {
           final usage = await _wellbeing.queryUsage(windowMinutes: 60);
-          final totalMin =
-              usage.fold<int>(0, (s, u) => s + u.totalMs) ~/ 60000;
+          final totalMin = usage.fold<int>(0, (s, u) => s + u.totalMs) ~/ 60000;
           if (totalMin > 0) {
             buf.writeln('TA 最近一小时使用手机约 $totalMin 分钟。');
           }
@@ -826,10 +820,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         final bedH = (cfg.bedStartMin ~/ 60).toString().padLeft(2, '0');
         final bedM = (cfg.bedStartMin % 60).toString().padLeft(2, '0');
         buf.writeln('TA 设定的就寝时间是 $bedH:$bedM。');
-        buf.writeln(
-            '请像真正在意 TA 的人那样，自然地关心 TA 的作息，不要生硬说教。');
-        buf.writeln(
-            '如果此刻确实到了该休息的时候，你可以在回复的最后单独附上标记 [rest_suggest]，'
+        buf.writeln('请像真正在意 TA 的人那样，自然地关心 TA 的作息，不要生硬说教。');
+        buf.writeln('如果此刻确实到了该休息的时候，你可以在回复的最后单独附上标记 [rest_suggest]，'
             '表示你「想让 TA 放下手机休息」。这只是你的心意提议——'
             '是否真的帮 TA 锁屏，由 TA 本地设定的规则决定，你不必也无法强制。'
             '标记只在你真心觉得该休息时才用，且每次对话最多一个。');
@@ -1021,9 +1013,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
           : now.difference(lastStreamUiEmit!);
       final textChanged = streamText != lastEmittedStreamText;
       final reasoningChanged = streamReasoning != lastEmittedReasoning;
-      if (!force &&
-          !textChanged &&
-          !reasoningChanged) {
+      if (!force && !textChanged && !reasoningChanged) {
         return;
       }
       if (!force && elapsed < AppDurations.streamUiThrottle) {
@@ -1298,7 +1288,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
 
     // 9. 禁止短语过滤
     final forbiddenPhrases = _storage.getForbiddenPhrases();
-    cleanText = MessageSanitizer.filterForbiddenPhrases(cleanText, forbiddenPhrases);
+    cleanText =
+        MessageSanitizer.filterForbiddenPhrases(cleanText, forbiddenPhrases);
 
     return (
       cleanText: cleanText,
@@ -1909,9 +1900,8 @@ $tail
 
     // 括号动作/旁白：只做标记；说明走 system/internal，禁止塞进 user 台词
     // （旧实现把说明写成又一段「（请注意…）」会让模型把旁白当对白）
-    final bool hasActionBracket =
-        event.metadata?['hasActionBracket'] == true ||
-            _containsActionBracket(event.content);
+    final bool hasActionBracket = event.metadata?['hasActionBracket'] == true ||
+        _containsActionBracket(event.content);
     final imagePaths = <String>[
       ...?event.imagePaths,
       if (event.metadata?['imagePath'] is String &&
@@ -1963,7 +1953,8 @@ $tail
     );
 
     try {
-      debugPrint('[Bloc] _onSendMessage: saving user msg, content="${event.content.substring(0, event.content.length > 20 ? 20 : event.content.length)}"');
+      debugPrint(
+          '[Bloc] _onSendMessage: saving user msg, content="${event.content.substring(0, event.content.length > 20 ? 20 : event.content.length)}"');
       LogService.instance.i('Bloc',
           '_onSendMessage: saving user msg, isUser=${userMsg.isUser}, id=${userMsg.id.substring(0, 8)}',
           chatId: event.chatId);
@@ -2295,6 +2286,12 @@ $tail
           _mergeInternalSystemContext(sessionStateContext, ctxResults[3]);
       sessionStateContext =
           _mergeInternalSystemContext(sessionStateContext, ctxResults[4]);
+      final relatedGroupMemory = await _memoryEngine
+          .buildRelatedGroupMemoryContext(character.id, event.content);
+      sessionStateContext = _mergeInternalSystemContext(
+        sessionStateContext,
+        relatedGroupMemory,
+      );
 
       // 声明后续会用到的变量
       String aiVisibleText = '';
@@ -2315,38 +2312,39 @@ $tail
         try {
           final policy = DeviceActionPolicy.instance;
           if (!policy.allow(event.chatId)) {
-            debugPrint('[DeterministicRoute] 频控拒绝 ${deterministicRoute.toolName}');
+            debugPrint(
+                '[DeterministicRoute] 频控拒绝 ${deterministicRoute.toolName}');
             aiVisibleText = '操作过快，请稍后再试。';
             agentHadTool = true;
           } else {
-          _chatProcessingState = ChatProcessingState.executingTool;
-          emit(ChatAIProcessing(
-            chatMsgs,
-            '执行工具: ${deterministicRoute.toolName}...',
-            character.name,
-            processingState: _chatProcessingState,
-          ));
+            _chatProcessingState = ChatProcessingState.executingTool;
+            emit(ChatAIProcessing(
+              chatMsgs,
+              '执行工具: ${deterministicRoute.toolName}...',
+              character.name,
+              processingState: _chatProcessingState,
+            ));
 
-          final executor = ToolExecutor(_toolRegistry);
-          final record = await executor.execute(
-            deterministicRoute.toolName,
-            deterministicRoute.args,
-          );
-          toolExecutions = [record];
-          agentHadTool = true;
-          if (record.result.success) {
-            policy.markSuccess(event.chatId);
-            policy.pushFeedback(
-              sessionId: event.chatId,
-              toolName: deterministicRoute.toolName,
-              message: record.result.message,
-              success: true,
-              isRead: policy.isReadTool(deterministicRoute.toolName),
+            final executor = ToolExecutor(_toolRegistry);
+            final record = await executor.execute(
+              deterministicRoute.toolName,
+              deterministicRoute.args,
             );
-          }
-          aiVisibleText = record.result.message.isNotEmpty
-              ? record.result.message
-              : (record.result.success ? '操作已完成。' : '操作失败。');
+            toolExecutions = [record];
+            agentHadTool = true;
+            if (record.result.success) {
+              policy.markSuccess(event.chatId);
+              policy.pushFeedback(
+                sessionId: event.chatId,
+                toolName: deterministicRoute.toolName,
+                message: record.result.message,
+                success: true,
+                isRead: policy.isReadTool(deterministicRoute.toolName),
+              );
+            }
+            aiVisibleText = record.result.message.isNotEmpty
+                ? record.result.message
+                : (record.result.success ? '操作已完成。' : '操作失败。');
           }
 
           if (toolExecutions.isNotEmpty) {
@@ -2397,8 +2395,8 @@ $tail
 
       if (isToolRequest) {
         debugPrint('[ToolAware] 进入工具路径');
-        LogService.instance.i('ToolAware', '检测到工具请求，尝试工具感知',
-            chatId: event.chatId);
+        LogService.instance
+            .i('ToolAware', '检测到工具请求，尝试工具感知', chatId: event.chatId);
 
         try {
           // 创建 ToolAwareService（使用数据库中的 AI 配置）
@@ -2423,12 +2421,16 @@ $tail
             systemPrompt.writeln(toolDesc);
             systemPrompt.writeln('');
             systemPrompt.writeln('## 调用方式（二选一，必须调用）：');
-            systemPrompt.writeln('方式1 - Function Calling：如果模型支持，直接调用 function call');
-            systemPrompt.writeln('方式2 - XML 标签：<tool name="工具名"><param name="参数名">参数值</param></tool>');
+            systemPrompt
+                .writeln('方式1 - Function Calling：如果模型支持，直接调用 function call');
+            systemPrompt.writeln(
+                '方式2 - XML 标签：<tool name="工具名"><param name="参数名">参数值</param></tool>');
             systemPrompt.writeln('');
             systemPrompt.writeln('## 常用参考：');
-            systemPrompt.writeln('微信=com.tencent.mm, QQ=com.tencent.mobileqq, 设置=com.android.settings');
-            systemPrompt.writeln('相册/图库=com.android.gallery, 浏览器=com.android.browser');
+            systemPrompt.writeln(
+                '微信=com.tencent.mm, QQ=com.tencent.mobileqq, 设置=com.android.settings');
+            systemPrompt
+                .writeln('相册/图库=com.android.gallery, 浏览器=com.android.browser');
           }
 
           llmMessages.add({
@@ -2494,13 +2496,15 @@ $tail
 
           // 保存工具执行记录
           if (toolExecutions.isNotEmpty) {
-            final executionTrace = toolExecutions.map((e) => {
-              'tool': e.toolName,
-              'args': e.args.toString(),
-              'result': e.result.message,
-              'success': e.result.success,
-              'duration_ms': e.duration.inMilliseconds,
-            }).toList();
+            final executionTrace = toolExecutions
+                .map((e) => {
+                      'tool': e.toolName,
+                      'args': e.args.toString(),
+                      'result': e.result.message,
+                      'success': e.result.success,
+                      'duration_ms': e.duration.inMilliseconds,
+                    })
+                .toList();
 
             final traceMsg = ChatMessage(
               id: _uuid.v4(),
@@ -2519,17 +2523,15 @@ $tail
             );
             await _storage.saveChatMessage(traceMsg);
 
-            LogService.instance.i('ToolAware',
-                '工具执行完成: ${toolExecutions.length} 个工具',
+            LogService.instance.i(
+                'ToolAware', '工具执行完成: ${toolExecutions.length} 个工具',
                 chatId: event.chatId);
           }
 
           // 工具执行后如果没有文本回复，生成默认回复
           if (aiVisibleText.trim().isEmpty && agentHadTool) {
             final ok = toolExecutions.any((e) => e.result.success);
-            aiVisibleText = ok
-                ? '好的，已经帮你处理好了。'
-                : '抱歉，操作未能成功完成。';
+            aiVisibleText = ok ? '好的，已经帮你处理好了。' : '抱歉，操作未能成功完成。';
           }
 
           // 如果 LLM 没有调用任何工具，说明模型不配合，重试一次更强制提示
@@ -2573,11 +2575,9 @@ $tail
           LogService.instance.i('ToolAware',
               '工具路径完成: hadTools=$agentHadTool, 回复长度=${aiVisibleText.length}',
               chatId: event.chatId);
-
         } catch (e, stack) {
-          LogService.instance.e('ToolAware',
-              '工具路径异常: $e\n$stack',
-              chatId: event.chatId);
+          LogService.instance
+              .e('ToolAware', '工具路径异常: $e\n$stack', chatId: event.chatId);
           _chatProcessingState = ChatProcessingState.error;
 
           // 工具路径异常时回退到普通角色聊天
@@ -2602,9 +2602,8 @@ $tail
             aiVisibleText = fallbackResult.cleanText;
             reasoningText = fallbackResult.reasoning;
           } catch (fallbackError) {
-            LogService.instance.e('ToolAware',
-                '回退也失败: $fallbackError',
-                chatId: event.chatId);
+            LogService.instance
+                .e('ToolAware', '回退也失败: $fallbackError', chatId: event.chatId);
             aiVisibleText = '抱歉，处理你的请求时遇到了问题，请稍后再试。';
           }
         }
@@ -2659,8 +2658,7 @@ $tail
                   ));
                 }
               }
-              debugPrint(
-                  '[DeviceAgent] 处理 ${deviceResult.actions.length} 个动作');
+              debugPrint('[DeviceAgent] 处理 ${deviceResult.actions.length} 个动作');
             }
             // 意图 + 设备结果写入记忆（异步，不阻塞）
             unawaited(_desireEngine.writeEpisodeMemory(
@@ -2678,17 +2676,15 @@ $tail
             ));
           }
         } catch (e) {
-          LogService.instance.e('ToolAware',
-              '????????: ',
-              chatId: event.chatId);
+          LogService.instance
+              .e('ToolAware', '????????: ', chatId: event.chatId);
           aiVisibleText = '?????????????????';
         }
       }
 
       // ?? ??????????? ??
       if (aiVisibleText.trim().isEmpty) {
-        LogService.instance.w('ChatBloc',
-            '_onSendMessage: AI ?????????????',
+        LogService.instance.w('ChatBloc', '_onSendMessage: AI ?????????????',
             chatId: event.chatId);
         aiVisibleText = '???????????????????????';
       }
@@ -2720,12 +2716,11 @@ $tail
         await _markUserMessagesAsRead(event.chatId, event.userId);
         // 标记会话活跃 → 在线状态实时更新
         unawaited(AIStatusService(_storage).markSessionActive(event.chatId));
-        LogService.instance.i('Bloc',
-            '_onSendMessage: AI reply saved, hadTools=',
+        LogService.instance.i(
+            'Bloc', '_onSendMessage: AI reply saved, hadTools=',
             chatId: event.chatId);
       } catch (e) {
-        LogService.instance.e('Bloc',
-            '_onSendMessage: AI reply save failed: ',
+        LogService.instance.e('Bloc', '_onSendMessage: AI reply save failed: ',
             chatId: event.chatId);
       }
 
@@ -2758,20 +2753,17 @@ $tail
 
       // 文本单聊：AI 回复成功后结算亲密度（此前漏接导致永远不加）
       try {
-        final preview = displayContent.isNotEmpty
-            ? displayContent
-            : event.content;
+        final preview =
+            displayContent.isNotEmpty ? displayContent : event.content;
         await _applyIntimacyAfterReply(
           session: session,
-          messageContent: displayContent.isNotEmpty
-              ? displayContent
-              : event.content,
+          messageContent:
+              displayContent.isNotEmpty ? displayContent : event.content,
           sentiment: sentiment,
           source: 'text',
           emit: emit,
-          lastMessagePreview: preview.length > 80
-              ? preview.substring(0, 80)
-              : preview,
+          lastMessagePreview:
+              preview.length > 80 ? preview.substring(0, 80) : preview,
           skipWhenEmotionLocked: true,
         );
       } catch (e) {
@@ -2784,8 +2776,7 @@ $tail
 
       // 记忆库自动更新：微记忆 + 降频 LLM/正则提取（修复「极少数永远不更新」）
       try {
-        final recentForMemory =
-            await _storage.getChatMessages(event.chatId);
+        final recentForMemory = await _storage.getChatMessages(event.chatId);
         unawaited(_extractMemoriesAfterReply(
           chatId: event.chatId,
           character: character,
@@ -2807,23 +2798,25 @@ $tail
         final updatedMessages = await _storage.getChatMessages(event.chatId);
         emit(ChatMessagesLoaded(updatedMessages));
       } catch (e) {
-        LogService.instance.e('Bloc',
-            '_onSendMessage: final message load failed: ',
+        LogService.instance.e(
+            'Bloc', '_onSendMessage: final message load failed: ',
             chatId: event.chatId);
         // ?? emit ???????
         final currentMsgs = await _storage.getChatMessages(event.chatId);
         emit(ChatMessagesLoaded(currentMsgs));
       }
     } catch (e, stack) {
-      LogService.instance.e('Bloc',
-          '_onSendMessage: unhandled error: $e\n$stack',
+      LogService.instance.e(
+          'Bloc', '_onSendMessage: unhandled error: $e\n$stack',
           chatId: event.chatId);
       _chatProcessingState = ChatProcessingState.error;
       // Show actual error instead of generic message
       String errorDisplay = e.toString();
-      if (errorDisplay.contains('Timeout') || errorDisplay.contains('timeout')) {
+      if (errorDisplay.contains('Timeout') ||
+          errorDisplay.contains('timeout')) {
         errorDisplay = 'AI请求超时，请检查网络连接后重试';
-      } else if (errorDisplay.contains('Socket') || errorDisplay.contains('connection')) {
+      } else if (errorDisplay.contains('Socket') ||
+          errorDisplay.contains('connection')) {
         errorDisplay = '连接AI服务失败，请检查网络设置';
       }
       emit(ChatAIProcessing(
@@ -2933,8 +2926,7 @@ $tail
             ));
             // 文本夹带贴纸：剩余文本另存一条
             if (!_stickerFullLineRe.hasMatch(part)) {
-              final remainder =
-                  part.replaceAll(_stickerTagRe, '').trim();
+              final remainder = part.replaceAll(_stickerTagRe, '').trim();
               if (remainder.isNotEmpty) {
                 await _storage.saveChatMessage(ChatMessage(
                   id: _uuid.v4(),
@@ -2981,7 +2973,8 @@ $tail
       }
 
       // 重新读取最新 session，避免覆盖用户在此期间做的修改（如置顶）
-      final latestSession = await _storage.getChatSession(event.chatId) ?? session;
+      final latestSession =
+          await _storage.getChatSession(event.chatId) ?? session;
       await _storage.saveChatSession(latestSession.copyWith(
         lastMessage: parts.last,
         lastMessageTime: DateTime.now(),
@@ -3166,8 +3159,7 @@ $tail
       if (event.message != null && event.message!.trim().isNotEmpty) {
         giftContext.writeln('用户附言：${event.message!.trim()}');
       }
-      giftContext.writeln(
-          '请用角色身份真实自然地回应：可以感动、吐槽、开心或接住附言；'
+      giftContext.writeln('请用角色身份真实自然地回应：可以感动、吐槽、开心或接住附言；'
           '要体现你「看懂了」这件东西是什么，不要只说谢谢。');
 
       final aiResponse = await _bridgeSendMessage(
@@ -3624,8 +3616,7 @@ $tail
             await _storage.saveChatMessage(aiMessage);
             // 整行贴纸：不再存文本；文本夹带贴纸：剩余文本另存一条
             if (!_stickerFullLineRe.hasMatch(part)) {
-              final remainder =
-                  part.replaceAll(_stickerTagRe, '').trim();
+              final remainder = part.replaceAll(_stickerTagRe, '').trim();
               if (remainder.isNotEmpty) {
                 await _storage.saveChatMessage(ChatMessage(
                   id: _uuid.v4(),
@@ -3674,7 +3665,7 @@ $tail
       final readUpdated = await _storage.getChatMessages(event.chatId);
       emit(ChatMessagesLoaded(readUpdated));
 
-      _updateAIStatus(character);
+      _updateAIStatus(character, chatId: event.chatId);
       _errorSessions.remove(event.chatId);
 
       await _applyIntimacyAfterReply(
@@ -3750,12 +3741,20 @@ $tail
 
   List<String> _extractKeywords(String text) => extractKeywords(text);
 
-  void _updateAIStatus(AICharacter character) {
+  void _updateAIStatus(AICharacter character, {required String chatId}) {
     final statusText = _bridgeLastParsedStatus;
-    if (statusText == null) return;
 
     bool isOnline = true;
     String? status;
+    if (statusText == null || statusText.trim().isEmpty) {
+      // Providers may omit structured status tags. Still rotate a real
+      // activity label so the status bar does not remain permanently stale.
+      AIStatusService(_storage).refreshActivityStatus(
+        chatId: chatId,
+        characterId: character.id,
+      );
+      return;
+    }
     final lower = statusText.toLowerCase();
     if (lower.contains('离线') || lower.startsWith('offline')) {
       isOnline = false;
@@ -4002,9 +4001,9 @@ $tail
         senderId: 'ai_${character.id}',
         senderName: character.name,
         content: MessageSanitizer.filterForbiddenPhrases(
-        event.forgiveMessage!,
-        _storage.getForbiddenPhrases(),
-      ),
+          event.forgiveMessage!,
+          _storage.getForbiddenPhrases(),
+        ),
         type: MessageType.text,
         status: MessageStatus.sent,
         createdAt: DateTime.now(),
@@ -4875,7 +4874,8 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       if (character != null) {
         llmMessages.add({
           'role': 'system',
-          'content': '你正在扮演角色：${character.name}。${character.personality ?? ""}用角色的口吻回复用户，但要先正确执行工具操作。',
+          'content':
+              '你正在扮演角色：${character.name}。${character.personality ?? ""}用角色的口吻回复用户，但要先正确执行工具操作。',
         });
       }
 
@@ -4894,7 +4894,9 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       }
 
       // 最近聊天历史（最多20条）
-      final recent = chatMsgs.length > 20 ? chatMsgs.sublist(chatMsgs.length - 20) : chatMsgs;
+      final recent = chatMsgs.length > 20
+          ? chatMsgs.sublist(chatMsgs.length - 20)
+          : chatMsgs;
       for (final msg in recent) {
         llmMessages.add({
           'role': msg.isUser ? 'user' : 'assistant',
@@ -4926,7 +4928,8 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
         },
       );
 
-      final success = records.isNotEmpty && records.any((e) => e.result.success);
+      final success =
+          records.isNotEmpty && records.any((e) => e.result.success);
 
       // 保存 AI 总结消息
       if (hadTools || finalText.isNotEmpty) {
@@ -4936,12 +4939,14 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
                 ? '已完成任务: ${event.task}'
                 : '任务未完全成功';
 
-        final executionTrace = records.map((e) => {
-          'tool': e.toolName,
-          'args': e.args.toString(),
-          'result': e.result.message,
-          'success': e.result.success,
-        }).toList();
+        final executionTrace = records
+            .map((e) => {
+                  'tool': e.toolName,
+                  'args': e.args.toString(),
+                  'result': e.result.message,
+                  'success': e.result.success,
+                })
+            .toList();
 
         // 保存工具执行的 AI 总结
         final aiName = character?.name ?? 'AI';
@@ -4968,13 +4973,12 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
 
       // 标记最终状态
       statusMsg = statusMsg.copyWith(
-        content: hadTools
-            ? (success ? '任务完成' : '任务结束')
-            : '无需执行工具',
+        content: hadTools ? (success ? '任务完成' : '任务结束') : '无需执行工具',
         status: MessageStatus.sent,
         metadata: {
           'isAutoGlmStatus': true,
-          'autoGlmStatus': hadTools ? (success ? 'completed' : 'failed') : 'skipped',
+          'autoGlmStatus':
+              hadTools ? (success ? 'completed' : 'failed') : 'skipped',
           'step': currentStep,
           'maxSteps': 10,
         },
@@ -4990,7 +4994,8 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       ));
       emit(ChatMessagesLoaded(messages));
     } catch (e) {
-      LogService.instance.e('ChatBloc', 'ToolAware 执行失败: $e', chatId: event.chatId);
+      LogService.instance
+          .e('ChatBloc', 'ToolAware 执行失败: $e', chatId: event.chatId);
       statusMsg = statusMsg.copyWith(
         content: '工具执行失败: $e',
         status: MessageStatus.sent,
@@ -5013,7 +5018,8 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
     ChatCancelAutoGlm event,
     Emitter<ChatState> emit,
   ) {
-    LogService.instance.i('Bloc', 'Tool call cancel requested', chatId: event.chatId);
+    LogService.instance
+        .i('Bloc', 'Tool call cancel requested', chatId: event.chatId);
   }
 
   Future<LlmSettings> _loadLlmSettings() async {
@@ -5039,8 +5045,10 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
     if (msg.length > 150) return false;
 
     // 去掉常见礼貌前缀（长前缀优先，避免"能不能"吞噬"能不能帮我"）
-    final cleaned = msg.replaceFirst(
-      RegExp(r'^(能不能帮我|可以帮我|能不能|请你|麻烦你|你帮|让你|帮我|请|麻烦|可以|能)'), '').trim();
+    final cleaned = msg
+        .replaceFirst(
+            RegExp(r'^(能不能帮我|可以帮我|能不能|请你|麻烦你|你帮|让你|帮我|请|麻烦|可以|能)'), '')
+        .trim();
 
     // 工具请求动作模式
     final toolPatterns = [
@@ -5075,7 +5083,8 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       // 闹钟/提醒
       RegExp(r'(设置|设个|定个|提醒).*(闹钟|提醒|闹铃)', caseSensitive: false),
       // 执行命令/Shell/Shizuku
-      RegExp(r'(执行|运行|跑|跑一下|跑个).*(命令|shell|shizuku|指令|command|cmd|终端)', caseSensitive: false),
+      RegExp(r'(执行|运行|跑|跑一下|跑个).*(命令|shell|shizuku|指令|command|cmd|终端)',
+          caseSensitive: false),
       RegExp(r'shizuku', caseSensitive: false),
       RegExp(r'(命令|shell|终端|terminal|cmd).*(执行|运行|跑)', caseSensitive: false),
       // 发送/分享
@@ -5089,7 +5098,8 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       // 把字句/被字句（如"把微信打开"、"把音量调大"）
       RegExp(r'把\s*\S+\s*(打开|关掉|调大|调小|调高|调低|启动|关闭)', caseSensitive: false),
       // 帮我/帮忙 + 动作（如"帮我打开微信"、"帮忙截个图"）
-      RegExp(r'(帮我|帮忙|替我).*(打开|关闭|截图|截屏|锁屏|调|设置|启动|发送|拨打)', caseSensitive: false),
+      RegExp(r'(帮我|帮忙|替我).*(打开|关闭|截图|截屏|锁屏|调|设置|启动|发送|拨打)',
+          caseSensitive: false),
     ];
 
     return toolPatterns.any((p) {
@@ -5100,5 +5110,4 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       return matched;
     });
   }
-
 }

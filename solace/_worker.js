@@ -11,44 +11,52 @@ function versionCompare(v1, v2) {
 }
 
 const VERSION_DATA = {
-  latestVersion: '17.5.0',
-  buildNumber: 288,
+  latestVersion: '17.6.0',
+  buildNumber: 289,
   minSdk: 23,
-  releaseDate: '2026-07-27',
-  downloadUrl: 'https://solace-auth-v2.pages.dev/api/v1/download?v=17.5.0',
+  releaseDate: '2026-08-04',
+  downloadUrl: 'https://solace-auth-v2.pages.dev/api/v1/download?v=17.6.0',
   changelog: [
-    '移除单聊输入框上方的话题建议（灯泡 + 预设固定句子）',
-    '单聊支持批量删除 / 批量收藏聊天记录（长按消息 → 多选）',
-    '彻底根治商店数据库顽疾（升级表重建事务嵌套 + 进程 schema 缓存污染），改为幂等补列，新老用户不再 no such column 崩溃',
-    '修复 AI 反复讲同一件事：补 frequency/presence penalty 与不复读指令',
-    '修复小说模式只输出一句话：补足 max_tokens 并整段完整输出',
+    '群聊引擎全面对标 SillyTavern：修复部分成员不回复（NATURAL 激活算法，提及优先 + 健谈度投掷 + 兜底发言）',
+    '修复群聊 AI 复读：成员触发词不再使用上一条回复，杜绝回显重复',
+    '群聊界面焕新：角色主题色消息流、成员激活条、建群拖拽排序、自定义头像、消息 7 项操作',
+    '群聊多聊天记录（分支）+ 聊天记录管理',
+    '群聊记忆艾宾浩斯化，群聊经历回流单聊',
+    '新增全局模式设置：小说模式全站生效、NSFW 过滤、记忆库/日记/人格进化链路统一注入',
+    '修复图片/表情包发送链路 + 官网 Bauhaus 改版与更新域名迁移',
   ],
   forceUpdate: false,
 };
 
 const ANNOUNCEMENTS = [
   {
-    id: 'ann_1750',
-    title: 'Solace 17.5.0 更新公告',
-    content: `Solace 17.5.0+288 更新公告
+    id: 'ann_1760',
+    title: 'Solace 17.6.0 更新公告',
+    content: `Solace 17.6.0+289 更新公告
 
 ━━━━━━━━━ 本次更新 ━━━━━━━━━
 
-🗑️ 批量管理聊天记录
-单聊长按消息新增「多选」，支持批量删除、批量收藏，一次处理多条。
+💬 群聊引擎全面对标 SillyTavern
+修复部分成员从不回复：发言人选择升级为 ST 同款 NATURAL 激活算法——被提及的角色优先、按健谈度投掷激活、无人命中时随机兜底。健谈度可在角色卡片配置。
 
-🐛 商店数据库彻底根治
-定位到多次修复仍未解决的真正根因——升级时表重建的事务嵌套 + 进程内 schema 缓存污染。改为幂等补列方案：新老用户均不再触发 no such column 崩溃，并新增自愈回归测试。
+🔁 修复群聊 AI 复读
+此前下一位成员的触发词是上一位的回复，模型会原样回显导致聊天内容重复。现在每位成员都以用户原始消息为触发、以完整群聊历史为上下文，并明确禁止复述他人发言。
 
-🔁 修复 AI 反复讲同一件事
-补上 frequency / presence penalty 与「不复述已强调内容」指令，各档模型的复读都明显减少。
+🎨 群聊界面焕新
+角色主题色消息流、成员激活条、建群拖拽排序、自定义头像全链路（列表/详情/消息）、消息 7 项操作与聊天记录管理。
 
-📖 修复小说模式只输出一句话
-小说模式补足 max_tokens（不再退回服务端小默认）并整段完整输出，不再被截成一句或拆成多气泡。
+📚 群聊记忆
+群聊消息进入记忆引擎（艾宾浩斯遗忘曲线衰减），群聊经历作为背景记忆回流单聊。
 
-🧹 界面精简
-移除单聊输入框上方的话题建议（灯泡 + 预设固定句子）。`,
-    date: '2026-07-27',
+🌗 全局模式
+设置页新增「模式与颜色」：小说模式全站生效、NSFW 过滤、记忆库/日记/人格进化链路统一注入全局模式。
+
+🖼️ 聊天链路修复
+图片发送（纯图必回/HEIC 转 JPEG/防裂图/持久化）、表情包双向读取与发送修复。
+
+🌐 官网更新
+官网改版为 Bauhaus 主题，更新服务迁移至新域名。`,
+    date: '2026-08-04',
     type: 'update',
   },
   {
@@ -354,12 +362,7 @@ export default {
           request,
         );
         const gzRes = await env.ASSETS.fetch(gzReq);
-        // Pages 对缺失文件会 SPA-fallback 回 index.html（200 + text/html），
-        // 必须识别出来，否则 DecompressionStream 解压 HTML 会静默产出空流。
-        const gzIsHtml = (gzRes.headers.get('content-type') ?? '')
-            .toLowerCase()
-            .includes('text/html');
-        if (!gzRes.ok || !gzRes.body || gzIsHtml) {
+        if (!gzRes.ok || !gzRes.body) {
           return json(
             { error: 'APK asset missing', status: gzRes.status },
             502,

@@ -10,6 +10,7 @@ import '../../utils/avatar_resolver.dart';
 import '../../utils/character_color.dart';
 import 'group_chat_create_screen.dart';
 import 'group_chat_detail_screen.dart';
+
 class GroupChatListScreen extends StatefulWidget {
   const GroupChatListScreen({super.key});
 
@@ -27,7 +28,9 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
     // 修复：首次进入不加载 → 一直转圈，必须点加号返回才有数据
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<GroupChatBloc>().add(const GroupChatLoadSessions('local_user'));
+      context
+          .read<GroupChatBloc>()
+          .add(const GroupChatLoadSessions('local_user'));
       _loadMemberData();
     });
   }
@@ -85,8 +88,8 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
         foregroundColor: colorScheme.onSurface,
         actions: [
           IconButton(
-            icon: Icon(Icons.add_circle_outline, size: 24,
-                color: colorScheme.onSurface),
+            icon: Icon(Icons.add_circle_outline,
+                size: 24, color: colorScheme.onSurface),
             onPressed: () => _navigateToCreate(context),
           ),
         ],
@@ -97,7 +100,7 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
             return _buildErrorState(context, state.message);
           }
           final sessions = state is GroupChatSessionsLoaded
-              ? state.sessions
+              ? state.sessions.where((s) => !s.isHidden).toList()
               : <GroupChatSession>[];
 
           if (state is GroupChatLoading || state is GroupChatInitial) {
@@ -161,8 +164,8 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 48,
-                color: colorScheme.error.withOpacity(0.6)),
+            Icon(Icons.error_outline,
+                size: 48, color: colorScheme.error.withOpacity(0.6)),
             const SizedBox(height: 16),
             Text(
               '加载失败',
@@ -252,7 +255,9 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
       MaterialPageRoute(builder: (_) => const GroupChatCreateScreen()),
     );
     if (context.mounted) {
-      context.read<GroupChatBloc>().add(const GroupChatLoadSessions('local_user'));
+      context
+          .read<GroupChatBloc>()
+          .add(const GroupChatLoadSessions('local_user'));
     }
   }
 }
@@ -368,7 +373,9 @@ class _GroupChatTile extends StatelessWidget {
                   border: Border.all(color: colorScheme.surface, width: 2),
                 ),
                 child: Text(
-                  session.unreadCount > 99 ? '99+' : session.unreadCount.toString(),
+                  session.unreadCount > 99
+                      ? '99+'
+                      : session.unreadCount.toString(),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 10,
@@ -418,8 +425,8 @@ class _GroupChatTile extends StatelessWidget {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline,
-                    color: Color(0xFFE53935)),
+                leading:
+                    const Icon(Icons.delete_outline, color: Color(0xFFE53935)),
                 title: const Text('删除群聊',
                     style: TextStyle(color: Color(0xFFE53935))),
                 onTap: () {
@@ -473,7 +480,7 @@ class _GroupChatTile extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除群聊'),
-        content: Text('确定要删除群聊"${session.name}"吗？此操作不可撤销。'),
+        content: Text('确定要从消息页隐藏群聊"${session.name}"吗？群聊和历史内容会保留，可在联系人中继续查看。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -482,7 +489,10 @@ class _GroupChatTile extends StatelessWidget {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              context.read<GroupChatBloc>().add(GroupChatDelete(session.id));
+              context.read<GroupChatBloc>().add(GroupChatUpdateSession(
+                    groupId: session.id,
+                    isHidden: true,
+                  ));
             },
             style:
                 TextButton.styleFrom(foregroundColor: const Color(0xFFE53935)),
@@ -493,8 +503,8 @@ class _GroupChatTile extends StatelessWidget {
     );
   }
 
-  Widget _memberStack(String? avatarUrl, List<AICharacter> members,
-      ColorScheme cs) {
+  Widget _memberStack(
+      String? avatarUrl, List<AICharacter> members, ColorScheme cs) {
     // 自定义群头像优先；无则回退成员拼接
     if (avatarUrl != null && avatarUrl.isNotEmpty) {
       return Container(
@@ -503,12 +513,12 @@ class _GroupChatTile extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         decoration: const BoxDecoration(shape: BoxShape.circle),
         child: AvatarResolver.imageWidget(
-          avatarUrl,
-          width: 48,
-          height: 48,
-          fit: BoxFit.cover,
-          onError: () => _groupAvatarFallback(cs),
-        ) ??
+              avatarUrl,
+              width: 48,
+              height: 48,
+              fit: BoxFit.cover,
+              onError: () => _groupAvatarFallback(cs),
+            ) ??
             _groupAvatarFallback(cs),
       );
     }
@@ -588,8 +598,8 @@ class _GroupChatTile extends StatelessWidget {
     return Center(
       child: Text(
         c.name.isNotEmpty ? c.name.substring(0, 1) : '?',
-        style: TextStyle(
-            color: color, fontSize: 12, fontWeight: FontWeight.w600),
+        style:
+            TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
       ),
     );
   }

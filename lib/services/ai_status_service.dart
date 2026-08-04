@@ -49,9 +49,8 @@ class AIStatusService {
       if (userId.isEmpty) return;
 
       final sessions = await _storage.getChatSessions(userId);
-      final matchingSessions = sessions
-          .where((s) => s.aiCharacterId == characterId)
-          .toList();
+      final matchingSessions =
+          sessions.where((s) => s.aiCharacterId == characterId).toList();
 
       for (final session in matchingSessions) {
         final updated = session.copyWith(
@@ -80,5 +79,23 @@ class AIStatusService {
     } catch (e) {
       // 静默失败
     }
+  }
+
+  /// 更新为短暂的活动状态，避免没有结构化 status 标签时状态栏永久不变。
+  Future<void> refreshActivityStatus({
+    required String chatId,
+    required String characterId,
+  }) async {
+    const statuses = ['刚刚回复你', '正在想你', '在线陪伴中', '刚刚看过消息'];
+    final status = statuses[
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 % statuses.length];
+    final session = await _storage.getChatSession(chatId);
+    if (session == null || session.aiCharacterId != characterId) return;
+    await _storage.saveChatSession(session.copyWith(
+      aiIsOnline: true,
+      aiCurrentStatus: status,
+      lastOnlineAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    ));
   }
 }

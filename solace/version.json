@@ -1,17 +1,18 @@
 {
-  "version": "17.5.0",
-  "build": 288,
+  "version": "17.6.0",
+  "build": 289,
   "minSdk": 23,
   "forceUpdate": false,
-  "releaseDate": "2026-07-27",
-  "downloadUrl": "https://solace-auth-v2.pages.dev/api/v1/download?v=17.5.0",
+  "releaseDate": "2026-08-04",
+  "downloadUrl": "https://solace-auth-v2.pages.dev/api/v1/download?v=17.6.0",
   "changelog": [
-    "移除单聊输入框上方的话题建议（灯泡 + 预设固定句子）",
-    "单聊支持批量删除聊天记录（长按消息 → 多选）",
-    "单聊支持批量收藏聊天记录",
-    "彻底根治商店数据库顽疾（升级表重建事务嵌套 + 进程 schema 缓存污染），改为幂等补列，新老用户不再 no such column 崩溃",
-    "修复 AI 反复讲同一件事：补 frequency/presence penalty 与不复读指令",
-    "修复小说模式只输出一句话：补足 max_tokens 并整段完整输出"
+    "群聊引擎全面对标 SillyTavern：修复部分成员不回复（NATURAL 激活算法，提及优先 + 健谈度投掷 + 兜底发言）",
+    "修复群聊 AI 复读：成员触发词不再使用上一条回复，杜绝回显重复",
+    "群聊界面焕新：角色主题色消息流、成员激活条、建群拖拽排序、自定义头像、消息 7 项操作",
+    "群聊多聊天记录（分支）+ 聊天记录管理",
+    "群聊记忆艾宾浩斯化，群聊经历回流单聊",
+    "新增全局模式设置：小说模式全站生效、NSFW 过滤、记忆库/日记/人格进化链路统一注入",
+    "修复图片/表情包发送链路 + 官网 Bauhaus 改版与更新域名迁移"
   ],
-  "announcement": "Solace 17.5.0 — 批量管理聊天记录、彻底根治商店数据库、修复 AI 复读与小说模式只出一句"
+  "announcement": "Solace 17.6.0 — 群聊引擎全面对标 SillyTavern、修复成员不回复与 AI 复读、群聊记忆回流单聊"
 }

@@ -23,7 +23,9 @@ String buildGroupIntroPrompt({
   final memberList = memberNames.isEmpty ? selfName : memberNames.join('、');
   final base = '这是一个群聊。你是「$selfName」，群成员有：$memberList。'
       '你在群里发言要自然，像真人聊天一样，语气符合你的性格。'
-      '刚才大家聊的内容见历史消息。';
+      '你们在群聊里各自说话、互相接话，但不要代别人发言，也不要复述或引用别人的话。'
+      '不要重复别人刚说过的话，不要原样回显上一条消息。'
+      '刚才大家聊的内容见历史消息，直接说你要说的话。';
   if (isNewChat) {
     return '$base\n[开始一个新的群聊。群成员: $memberList]';
   }
@@ -31,7 +33,8 @@ String buildGroupIntroPrompt({
 }
 
 /// 群聊 nudge：告诉 LLM 只以指定角色发言（对标 ST group_nudge_prompt）
-String buildGroupNudge(String selfName) => '[请只以「$selfName」的身份继续发言。]';
+String buildGroupNudge(String selfName) =>
+    '[请只以「$selfName」的身份继续发言。接续上文继续聊，不要重复别人或自己说过的话，不要原样回显上一条消息，直接说新内容。]';
 
 /// 群聊历史消息格式化：自己消息不带前缀，他人消息加 `名字: 内容`
 /// （对标 ST openai.js:585 群聊角色名前缀）

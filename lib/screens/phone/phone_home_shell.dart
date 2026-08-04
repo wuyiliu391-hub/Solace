@@ -124,8 +124,9 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
   void _scheduleMinuteTick() {
     _minuteTimer?.cancel();
     final now = DateTime.now();
-    final nextMinute = DateTime(now.year, now.month, now.day, now.hour, now.minute)
-        .add(const Duration(minutes: 1));
+    final nextMinute =
+        DateTime(now.year, now.month, now.day, now.hour, now.minute)
+            .add(const Duration(minutes: 1));
     final delay = nextMinute.difference(now) + const Duration(milliseconds: 50);
     _minuteTimer = Timer(delay, () {
       if (!mounted) return;
@@ -149,7 +150,8 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
     final storage = context.read<LocalStorageRepository>();
     final chars = await storage.getAllAICharacters();
     final visible = chars.where((c) => !c.isHidden).toList();
-    final theme = PhoneWallpaperThemeX.fromId(storage.getPhoneWallpaperThemeId());
+    final theme =
+        PhoneWallpaperThemeX.fromId(storage.getPhoneWallpaperThemeId());
     if (!mounted) return;
     setState(() {
       _characters = visible;
@@ -173,7 +175,9 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
 
   int get _sessionBadge {
     // 轻量角标：有角色时给消息一个存在感（真实未读可后续接 ChatBloc）
-    return _characters.isEmpty ? 0 : (_characters.length > 9 ? 9 : _characters.length);
+    return _characters.isEmpty
+        ? 0
+        : (_characters.length > 9 ? 9 : _characters.length);
   }
 
   @override
@@ -191,9 +195,8 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
           AnimatedBuilder(
             animation: Listenable.merge([_breathCtrl, _parallaxCtrl]),
             builder: (context, child) {
-              final breath = _reduceMotion
-                  ? 1.0
-                  : (0.97 + _breathCtrl.value * 0.03);
+              final breath =
+                  _reduceMotion ? 1.0 : (0.97 + _breathCtrl.value * 0.03);
               final t = _parallaxCtrl.value * math.pi * 2;
               final px = _reduceMotion ? 0.0 : math.sin(t) * 6;
               final py = _reduceMotion ? 0.0 : math.cos(t) * 4;
@@ -409,8 +412,8 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                  '${PhoneAppIconCatalog.byId(id)?.label ?? id} 暂未接入'),
+              content:
+                  Text('${PhoneAppIconCatalog.byId(id)?.label ?? id} 暂未接入'),
               behavior: SnackBarBehavior.floating,
               duration: const Duration(seconds: 1),
             ),
@@ -431,7 +434,9 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
       widget.onNavigate('/create_character');
       return;
     }
-    Navigator.of(context).push(VirtualPhoneScreen.route(context, c));
+    Navigator.of(context).push(
+      VirtualPhoneScreen.route(context, c, wallpaperTheme: _wallpaper),
+    );
   }
 
   Future<void> _confirmExit() async {
@@ -453,7 +458,9 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
       ),
     );
     if (ok == true) {
-      await context.read<LocalStorageRepository>().setPhoneDesktopShellEnabled(false);
+      await context
+          .read<LocalStorageRepository>()
+          .setPhoneDesktopShellEnabled(false);
       widget.onExitToClassic?.call();
     }
   }
@@ -959,75 +966,75 @@ class _SwitchWorldBar extends StatelessWidget {
         return ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           child: Container(
-              padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(24)),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 36,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                    const Text(
-                      '选择角色世界',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: MediaQuery.sizeOf(ctx).height * 0.45,
-                    ),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: characters.length,
-                      itemBuilder: (_, i) {
-                        final c = characters[i];
-                        final selected = c.id == current?.id;
-                        final letter = c.name.isNotEmpty
-                            ? String.fromCharCode(c.name.runes.first)
-                            : '?';
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: const Color(0xFF8FD0EA),
-                            child: Text(letter,
-                                style: const TextStyle(color: Colors.white)),
-                          ),
-                          title: Text(
-                            c.name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          trailing: selected
-                              ? const Icon(Icons.check_circle,
-                                  color: Colors.white)
-                              : null,
-                          onTap: () {
-                            onPick(c);
-                            Navigator.pop(ctx);
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
+            padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.55),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
             ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Text(
+                  '选择角色世界',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(ctx).height * 0.45,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: characters.length,
+                    itemBuilder: (_, i) {
+                      final c = characters[i];
+                      final selected = c.id == current?.id;
+                      final letter = c.name.isNotEmpty
+                          ? String.fromCharCode(c.name.runes.first)
+                          : '?';
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: const Color(0xFF8FD0EA),
+                          child: Text(letter,
+                              style: const TextStyle(color: Colors.white)),
+                        ),
+                        title: Text(
+                          c.name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        trailing: selected
+                            ? const Icon(Icons.check_circle,
+                                color: Colors.white)
+                            : null,
+                        onTap: () {
+                          onPick(c);
+                          Navigator.pop(ctx);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );

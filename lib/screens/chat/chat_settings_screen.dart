@@ -140,8 +140,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     _localSession = updatedSession;
     await storage.saveChatSession(updatedSession);
     _hasChanges = true;
-    debugPrint(
-        '会话设置保存完成 - backgroundImage: ${updatedSession.backgroundImage}');
+    debugPrint('会话设置保存完成 - backgroundImage: ${updatedSession.backgroundImage}');
   }
 
   Future<void> _autoSave() async {
@@ -218,8 +217,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ? rawExt
           : 'jpg';
       final stamp = DateTime.now().millisecondsSinceEpoch;
-      final destPath =
-          '${bgDir.path}/${widget.session.id}_$stamp.$ext';
+      final destPath = '${bgDir.path}/${widget.session.id}_$stamp.$ext';
       await File(pickedFile.path).copy(destPath);
 
       // 清理旧背景文件 + 缓存
@@ -359,11 +357,11 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     if (userId == null) return;
 
     context.read<ChatBloc>().add(ChatAISendCoins(
-      chatId: _localSession.id,
-      characterId: widget.session.aiCharacterId,
-      amount: amount.toDouble(),
-      message: message.isNotEmpty ? message : null,
-    ));
+          chatId: _localSession.id,
+          characterId: widget.session.aiCharacterId,
+          amount: amount.toDouble(),
+          message: message.isNotEmpty ? message : null,
+        ));
   }
 
   void _showClearChatConfirm() {
@@ -789,6 +787,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     final updatedSession = _localSession.copyWith(
       aiCharacterAvatar: updated.avatarUrl,
       aiCharacterName: updated.name,
+      aiCurrentStatus: updated.currentStatus,
       updatedAt: DateTime.now(),
     );
 
@@ -1108,7 +1107,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _aiWallet != null ? _showTransferToUserDialog : null,
+                  onPressed:
+                      _aiWallet != null ? _showTransferToUserDialog : null,
                   icon: const Icon(Icons.redeem, size: 18),
                   label: const Text('角色转给用户'),
                 ),
@@ -1321,7 +1321,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
           ),
         ],
-        
         _SettingsToggle(
           icon: Icons.notifications_off_outlined,
           title: '消息免打扰',
@@ -1970,12 +1969,8 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
                 _characterTagController,
                 '描述TA的外貌特征：发色、瞳色、脸型、体型、服饰等',
                 sectionIndex: 7),
-            _buildCollapsibleEditableSection(
-                context,
-                '生活习惯与特征',
-                Icons.spa_outlined,
-                null,
-                '兴趣爱好、日常作息、口癖，让AI更有真实的生活气息',
+            _buildCollapsibleEditableSection(context, '生活习惯与特征',
+                Icons.spa_outlined, null, '兴趣爱好、日常作息、口癖，让AI更有真实的生活气息',
                 sectionIndex: 8),
             const SizedBox(height: 12),
             SwitchListTile.adaptive(
@@ -2908,7 +2903,8 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
                             color: colorScheme.onSurface.withOpacity(0.6)),
                       ),
                       trailing: Icon(Icons.chevron_right,
-                          size: 20, color: colorScheme.onSurface.withOpacity(0.4)),
+                          size: 20,
+                          color: colorScheme.onSurface.withOpacity(0.4)),
                       onTap: () => _enterEditMode(sectionIndex),
                     )
                   : TextField(

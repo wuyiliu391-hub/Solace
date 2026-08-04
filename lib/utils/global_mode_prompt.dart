@@ -27,6 +27,8 @@ String buildGlobalModePromptText({
     hasMode = true;
     buffer.writeln('小说模式已开启。所有 AI 回复/创作必须使用小说叙事风格。');
     buffer.writeln('必须包含场景、动作、神态、心理、环境、氛围和细节描写，不能只回一句台词或微信短句。');
+    buffer.writeln('每次回复必须分成 2-4 个自然段并用换行分隔，不能输出一整块无分段文本。');
+    buffer.writeln('必须使用完整中文标点：句末使用。！？等标点，对白使用“”包裹，禁止省略标点或把多句黏成一行。');
     buffer.writeln('每次回复至少形成一个完整场景段落，建议 120-260 字；剧情推进明显时可以更长。');
   }
   if (daoMode) {

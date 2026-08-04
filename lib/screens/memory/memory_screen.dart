@@ -175,14 +175,13 @@ class _MemoryScreenState extends State<MemoryScreen>
       _allMemories = topMemories;
       _typeCountCache = countCache;
       _isLoading = false;
-      _truncatedCount = (countCache[null] ?? 0) > _maxGraphNodes
-          ? countCache[null]
-          : null;
+      _truncatedCount =
+          (countCache[null] ?? 0) > _maxGraphNodes ? countCache[null] : null;
     });
     _applyFilters();
   }
 
-    // 图谱性能保护：最多渲染节点数
+  // 图谱性能保护：最多渲染节点数
   static const int _maxGraphNodes = 200;
 
   void _applyFilters() {
@@ -212,7 +211,7 @@ class _MemoryScreenState extends State<MemoryScreen>
 
     final truncated = filtered.length > _maxGraphNodes;
     final selected = filtered.take(_maxGraphNodes).toList();
-    
+
     setState(() {
       _filteredMemories = selected;
       _selectedMemory = null;
@@ -415,7 +414,8 @@ class _MemoryScreenState extends State<MemoryScreen>
                 if (_truncatedCount != null)
                   Text(
                     '最多展示 200 条精选记忆（按重要性排序），使用筛选缩小范围',
-                    style: TextStyle(fontSize: 11, color: cs.primary.withOpacity(0.7)),
+                    style: TextStyle(
+                        fontSize: 11, color: cs.primary.withOpacity(0.7)),
                   ),
               ],
             ),
@@ -1142,8 +1142,7 @@ class _MemoryScreenState extends State<MemoryScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.refresh_rounded,
-                          size: 18, color: cs.primary),
+                      Icon(Icons.refresh_rounded, size: 18, color: cs.primary),
                       const SizedBox(width: 6),
                       Text(
                         '清除筛选',
@@ -1189,14 +1188,19 @@ class _MemoryScreenState extends State<MemoryScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Center(
-            child: Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2))),
+            child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: cs.outlineVariant,
+                    borderRadius: BorderRadius.circular(2))),
           ),
           const SizedBox(height: 16),
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: typeColor.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12),
@@ -1206,13 +1210,19 @@ class _MemoryScreenState extends State<MemoryScreen>
                   children: [
                     Icon(typeConfig.icon, size: 14, color: typeColor),
                     const SizedBox(width: 4),
-                    Text(typeConfig.label, style: TextStyle(fontSize: 12, color: typeColor, fontWeight: FontWeight.w600)),
+                    Text(typeConfig.label,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: typeColor,
+                            fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
               const Spacer(),
               Text(DateFormat('MM/dd HH:mm').format(m.createdAt),
-                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant.withOpacity(0.5))),
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: cs.onSurfaceVariant.withOpacity(0.5))),
             ],
           ),
           const SizedBox(height: 12),
@@ -1223,7 +1233,8 @@ class _MemoryScreenState extends State<MemoryScreen>
                 children: [
                   Text(
                     m.content,
-                    style: TextStyle(fontSize: 15, height: 1.5, color: cs.onSurface),
+                    style: TextStyle(
+                        fontSize: 15, height: 1.5, color: cs.onSurface),
                   ),
                   if (m.summary != null &&
                       m.summary!.trim().isNotEmpty &&
@@ -1252,14 +1263,19 @@ class _MemoryScreenState extends State<MemoryScreen>
                     Wrap(
                       spacing: 6,
                       runSpacing: 6,
-                      children: m.keywords.map((kw) => Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: typeColor.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(kw, style: TextStyle(fontSize: 11, color: typeColor)),
-                      )).toList(),
+                      children: m.keywords
+                          .map((kw) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: typeColor.withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(kw,
+                                    style: TextStyle(
+                                        fontSize: 11, color: typeColor)),
+                              ))
+                          .toList(),
                     ),
                   ],
                 ],
@@ -1271,7 +1287,8 @@ class _MemoryScreenState extends State<MemoryScreen>
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               _buildDetailStat(Icons.star_rounded, m.importance.label, cs),
-              _buildDetailStat(Icons.scale_rounded, '权重 ${m.weight.toStringAsFixed(1)}', cs),
+              _buildDetailStat(
+                  Icons.scale_rounded, '权重 ${m.weight.toStringAsFixed(1)}', cs),
               TextButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
@@ -1281,7 +1298,8 @@ class _MemoryScreenState extends State<MemoryScreen>
                 label: const Text('编辑'),
                 style: TextButton.styleFrom(
                   foregroundColor: cs.primary,
-                  textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  textStyle: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -1297,7 +1315,9 @@ class _MemoryScreenState extends State<MemoryScreen>
       children: [
         Icon(icon, size: 14, color: cs.primary.withOpacity(0.7)),
         const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant.withOpacity(0.7))),
+        Text(label,
+            style: TextStyle(
+                fontSize: 12, color: cs.onSurfaceVariant.withOpacity(0.7))),
       ],
     );
   }
@@ -1698,6 +1718,7 @@ class _MemoryScreenState extends State<MemoryScreen>
                       MemoryType.milestone,
                       MemoryType.emotion,
                       MemoryType.state,
+                      MemoryType.rollingSummary,
                     ].map((t) {
                       final config =
                           _typeConfigs.firstWhere((c) => c.type == t);
@@ -2166,7 +2187,8 @@ class _MemoryCard extends StatelessWidget {
                         // 摘要（若有且不同）
                         if (memory.summary != null &&
                             memory.summary!.trim().isNotEmpty &&
-                            memory.summary!.trim() != memory.content.trim()) ...[
+                            memory.summary!.trim() !=
+                                memory.content.trim()) ...[
                           const SizedBox(height: 6),
                           Text(
                             memory.summary!,

@@ -19,10 +19,19 @@ import 'vp_apps.dart';
 /// 视觉对齐 Solace 手机桌面壳：天空壁纸 + 玻璃顶栏 + 软图标 + Dock。
 class VirtualPhoneScreen extends StatelessWidget {
   final AICharacter character;
+  final PhoneWallpaperTheme wallpaperTheme;
 
-  const VirtualPhoneScreen({super.key, required this.character});
+  const VirtualPhoneScreen({
+    super.key,
+    required this.character,
+    this.wallpaperTheme = PhoneWallpaperTheme.dawn,
+  });
 
-  static Route<void> route(BuildContext context, AICharacter character) {
+  static Route<void> route(
+    BuildContext context,
+    AICharacter character, {
+    PhoneWallpaperTheme wallpaperTheme = PhoneWallpaperTheme.dawn,
+  }) {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
     return MaterialPageRoute(
       builder: (_) => RepositoryProvider.value(
@@ -30,19 +39,27 @@ class VirtualPhoneScreen extends StatelessWidget {
         child: BlocProvider(
           create: (_) => VirtualPhoneBloc(storage, AIService(storage))
             ..add(VirtualPhoneOpened(character)),
-          child: _Loader(character: character),
+          child: _Loader(
+            character: character,
+            wallpaperTheme: wallpaperTheme,
+          ),
         ),
       ),
     );
   }
 
   @override
-  Widget build(BuildContext context) => _VirtualPhoneView(character: character);
+  Widget build(BuildContext context) => _VirtualPhoneView(
+        character: character,
+        wallpaperTheme: wallpaperTheme,
+      );
 }
 
 class _Loader extends StatefulWidget {
   final AICharacter character;
-  const _Loader({required this.character});
+  final PhoneWallpaperTheme wallpaperTheme;
+
+  const _Loader({required this.character, required this.wallpaperTheme});
 
   @override
   State<_Loader> createState() => _LoaderState();
@@ -66,13 +83,20 @@ class _LoaderState extends State<_Loader> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _VirtualPhoneView(character: widget.character);
+  Widget build(BuildContext context) => _VirtualPhoneView(
+        character: widget.character,
+        wallpaperTheme: widget.wallpaperTheme,
+      );
 }
 
 class _VirtualPhoneView extends StatefulWidget {
   final AICharacter character;
-  const _VirtualPhoneView({required this.character});
+  final PhoneWallpaperTheme wallpaperTheme;
+
+  const _VirtualPhoneView({
+    required this.character,
+    required this.wallpaperTheme,
+  });
 
   @override
   State<_VirtualPhoneView> createState() => _VirtualPhoneViewState();
@@ -121,8 +145,9 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
     return BlocBuilder<VirtualPhoneBloc, VirtualPhoneState>(
       builder: (context, state) {
         return Scaffold(
-          backgroundColor: PhoneTheme.wallpaperMid,
+          backgroundColor: PhoneWallpaperPalette.of(widget.wallpaperTheme).mid,
           body: PhoneWallpaper(
+            theme: widget.wallpaperTheme,
             child: SafeArea(
               bottom: false,
               child: _buildBody(context, state),
@@ -361,8 +386,7 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
             child: PhoneGlassPanel(
               radius: PhoneTheme.dockRadius,
               fillOpacity: 0.36,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -409,6 +433,7 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
         ownerName: character.name,
         ownerAvatarUrl: character.avatarUrl,
         state: state,
+        wallpaperTheme: widget.wallpaperTheme,
       ),
     ));
   }
@@ -439,8 +464,8 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('彻底重建'),
-        content: const Text(
-            '会清空这台手机的全部内容，依据角色人设与记忆重新虚构一遍。原有的动态、聊天、备忘都会被替换。确定吗？'),
+        content:
+            const Text('会清空这台手机的全部内容，依据角色人设与记忆重新虚构一遍。原有的动态、聊天、备忘都会被替换。确定吗？'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -515,7 +540,8 @@ class _OwnerAvatar extends StatelessWidget {
       height: 48,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.7), width: 1.5),
+        border:
+            Border.all(color: Colors.white.withValues(alpha: 0.7), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.12),

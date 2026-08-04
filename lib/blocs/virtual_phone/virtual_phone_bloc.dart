@@ -49,8 +49,7 @@ class VirtualPhoneBloc extends Bloc<VirtualPhoneEvent, VirtualPhoneState> {
     emit(state.copyWith(status: VpStatus.loading));
 
     try {
-      var phone =
-          await _storage.getVirtualPhoneByCharacter(event.character.id);
+      var phone = await _storage.getVirtualPhoneByCharacter(event.character.id);
 
       // 建档（仅落一条空记录，不生成内容）
       if (phone == null) {
@@ -70,6 +69,16 @@ class VirtualPhoneBloc extends Bloc<VirtualPhoneEvent, VirtualPhoneState> {
       }
 
       await _loadContent(phone, emit);
+      // 打开角色手机时做一次低频生活推进，不再要求用户手动点刷新。
+      final messageCount = await _storage.countVisibleChatMessages(
+        event.character.id,
+        _userId,
+      );
+      final canAdvance = messageCount - phone.lastAdvanceMsgCount >= 8 &&
+          (phone.lastAdvanceAt == null ||
+              DateTime.now().difference(phone.lastAdvanceAt!) >=
+                  const Duration(hours: 1));
+      if (canAdvance && !isClosed) add(const VirtualPhoneAdvanced(auto: true));
     } catch (e, st) {
       debugPrint('VirtualPhoneBloc._onOpened failed: $e\n$st');
       emit(state.copyWith(status: VpStatus.failed, error: e.toString()));

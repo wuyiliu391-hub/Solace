@@ -8,6 +8,8 @@ import '../models/bt_agent_action.dart';
 import '../models/memory.dart';
 import '../models/chat_message.dart';
 import '../models/group_chat_message.dart';
+import '../models/group_public_event_memory.dart';
+import 'group_public_event_memory.dart' as group_event;
 import '../models/ai_character.dart';
 import '../models/ai_config.dart';
 import '../repositories/local_storage_repository.dart';
@@ -104,6 +106,7 @@ class _SocialMemoryEntry {
   final DateTime createdAt;
   final double weight;
   final bool pinned;
+  final MemoryImportance importance;
   final DateTime? lastRecalledAt;
 
   const _SocialMemoryEntry({
@@ -115,6 +118,7 @@ class _SocialMemoryEntry {
     required this.createdAt,
     required this.weight,
     required this.pinned,
+    this.importance = MemoryImportance.normal,
     this.lastRecalledAt,
   });
 
@@ -324,7 +328,8 @@ class MemoryEngine {
       try {
         final socialMemories = await _loadSocialMemoriesDetailed(character.id);
         if (socialMemories.isNotEmpty) {
-          final topicKeywords = _extractKeywords(currentMessage, maxKeywords: 24);
+          final topicKeywords =
+              _extractKeywords(currentMessage, maxKeywords: 24);
           final groupLines = <String>[];
           final chatLines = <String>[];
           final recalledIds = <String>[];
@@ -383,19 +388,22 @@ class MemoryEngine {
 
   /// Load private (user-character) memories for [characterId].
   /// These are the one-on-one interaction memories between the character and user.
-  Future<List<Memory>> loadPrivateMemories(String characterId, String userId) async {
-    final allMemories = await _storage.getMemories(characterId: characterId, userId: userId);
+  Future<List<Memory>> loadPrivateMemories(
+      String characterId, String userId) async {
+    final allMemories =
+        await _storage.getMemories(characterId: characterId, userId: userId);
     // Filter to only conversation-type and reflection-type memories
     // (exclude any social-type if they exist in the main table)
-    return allMemories.where((m) =>
-      m.type == MemoryType.conversation ||
-      m.type == MemoryType.reflection ||
-      m.type == MemoryType.milestone ||
-      m.type == MemoryType.emotion ||
-      m.type == MemoryType.preference ||
-      m.type == MemoryType.state ||
-      m.type == MemoryType.rollingSummary
-    ).toList();
+    return allMemories
+        .where((m) =>
+            m.type == MemoryType.conversation ||
+            m.type == MemoryType.reflection ||
+            m.type == MemoryType.milestone ||
+            m.type == MemoryType.emotion ||
+            m.type == MemoryType.preference ||
+            m.type == MemoryType.state ||
+            m.type == MemoryType.rollingSummary)
+        .toList();
   }
 
   /// Load social (AI-to-AI) memories for [characterId].
@@ -405,18 +413,21 @@ class MemoryEngine {
   Future<List<Memory>> loadSocialMemories(String characterId) async {
     try {
       final entries = await _querySocialMemories(characterId: characterId);
-      return entries.map((e) => Memory(
-            id: e.id,
-            characterId: characterId,
-            userId: e.targetCharacterId, // reuse userId field for target
-            type: MemoryType.conversation,
-            content: e.content,
-            keywords: e.keywords,
-            createdAt: e.createdAt,
-            weight: e.weight,
-            pinned: e.pinned,
-            lastRecalledAt: e.lastRecalledAt,
-          )).toList();
+      return entries
+          .map((e) => Memory(
+                id: e.id,
+                characterId: characterId,
+                userId: e.targetCharacterId, // reuse userId field for target
+                type: MemoryType.conversation,
+                content: e.content,
+                keywords: e.keywords,
+                createdAt: e.createdAt,
+                weight: e.weight,
+                pinned: e.pinned,
+                importance: e.importance,
+                lastRecalledAt: e.lastRecalledAt,
+              ))
+          .toList();
     } catch (e) {
       debugPrint('MemoryEngine: loadSocialMemories failed — $e');
       return [];
@@ -460,10 +471,13 @@ class MemoryEngine {
                 interactionType: row['interactionType'] as String? ?? 'chat',
                 content: row['content'] as String? ?? '',
                 keywords: _parseSocialKeywords(row['keywords'] as String?),
-                createdAt: DateTime.tryParse(row['timestamp'] as String? ?? '') ??
-                    now,
+                createdAt:
+                    DateTime.tryParse(row['timestamp'] as String? ?? '') ?? now,
                 weight: (row['weight'] as num?)?.toDouble() ?? 1.0,
                 pinned: (row['pinned'] as int?) == 1,
+                importance: row['importance'] == 'important'
+                    ? MemoryImportance.important
+                    : MemoryImportance.normal,
                 lastRecalledAt:
                     DateTime.tryParse(row['lastRecalledAt'] as String? ?? ''),
               ))
@@ -496,8 +510,7 @@ class MemoryEngine {
   }
 
   /// 社交记忆是否命中当前话题关键词（冷记忆唤醒判定）
-  bool _socialMatchesTopic(
-      _SocialMemoryEntry m, List<String> topicKeywords) {
+  bool _socialMatchesTopic(_SocialMemoryEntry m, List<String> topicKeywords) {
     if (topicKeywords.isEmpty) return false;
     final content = m.content.toLowerCase();
     for (final raw in topicKeywords) {
@@ -573,7 +586,8 @@ class MemoryEngine {
             '${m.isUser ? '用户' : (m.senderName.isEmpty ? '成员' : m.senderName)}: ${m.content}')
         .join('\n');
 
-    final prompt = '''你是记忆提取专家。从以下群聊「$groupName」的对话中，提取每个角色值得记住的事件，以 JSON 数组格式输出。
+    final prompt =
+        '''你是记忆提取专家。从以下群聊「$groupName」的对话中，提取每个角色值得记住的事件，以 JSON 数组格式输出。
 
 提取规则：
 1. 只提取对角色关系/剧情有意义的信息（约定、承诺、重要消息、情绪冲突、喜好、计划）
@@ -607,9 +621,12 @@ $context
       if (text.trim().isEmpty) return 0;
 
       // 群内已有记忆（用于去重）
-      final existing =
-          await _querySocialMemories(targetCharacterId: groupId, limit: 100);
-      final existingContents = existing.map((e) => e.content).toSet();
+      final existingByCharacter = <String, Set<String>>{};
+      for (final characterId in speakerCharacterIds.values.toSet()) {
+        final existing = await _querySocialMemories(
+            characterId: characterId, targetCharacterId: groupId, limit: 100);
+        existingByCharacter[characterId] = existing.map((e) => e.content).toSet();
+      }
 
       int savedCount = 0;
       for (final line in text.split('\n')) {
@@ -622,12 +639,7 @@ $context
           final content = map['content'] as String? ?? '';
           if (content.isEmpty) continue;
 
-          // 去重：与群内已有记忆相似则跳过
-          if (_isContentDuplicate(content, existingContents)) continue;
-          existingContents.add(content);
-
-          final importance =
-              (map['importance'] as int? ?? 1) >= 2 ? 'important' : 'normal';
+          final importance = _parseGroupImportance(map['importance']);
           final keywords = (map['keywords'] as List<dynamic>?)
                   ?.map((k) => k.toString())
                   .toList() ??
@@ -635,6 +647,10 @@ $context
 
           final characterId = speakerCharacterIds[speaker];
           if (characterId != null) {
+            final existingContents = existingByCharacter.putIfAbsent(
+                characterId, () => <String>{});
+            if (_isContentDuplicate(content, existingContents)) continue;
+            existingContents.add(content);
             // 角色发言：记入该角色的社交记忆
             await saveSocialMemory(
               characterId: characterId,
@@ -649,6 +665,10 @@ $context
           } else if (speaker == '用户' && importance == 'important') {
             // 用户的重要发言：分发到全员（角色在单聊时也能想起）
             for (final cid in speakerCharacterIds.values.toSet()) {
+              final existingContents = existingByCharacter.putIfAbsent(
+                  cid, () => <String>{});
+              if (_isContentDuplicate(content, existingContents)) continue;
+              existingContents.add(content);
               await saveSocialMemory(
                 characterId: cid,
                 targetCharacterId: groupId,
@@ -673,6 +693,15 @@ $context
       debugPrint('MemoryEngine: extractGroupMemories failed — $e');
       return 0;
     }
+  }
+
+  String _parseGroupImportance(Object? value) {
+    if (value?.toString().trim().toLowerCase() == 'important') {
+      return 'important';
+    }
+    final numeric =
+        value is num ? value : num.tryParse(value?.toString() ?? '');
+    return numeric == 2 ? 'important' : 'normal';
   }
 
   /// Save a social interaction memory.
@@ -824,7 +853,8 @@ $context
   }) async {
     try {
       final now = DateTime.now();
-      final lastRunStr = _storage.getString('memory_last_decay_social_$groupId');
+      final lastRunStr =
+          _storage.getString('memory_last_decay_social_$groupId');
       if (lastRunStr != null) {
         final lastRun = DateTime.tryParse(lastRunStr);
         if (lastRun != null && now.difference(lastRun).inHours < 20) {
@@ -2614,8 +2644,7 @@ ${userMessages.join('\n')}
           '用户本轮提到了 ${mentioned.length} 个真实角色：${mentioned.map((c) => c.name).join('、')}。');
       buffer.writeln('这是多方关系语境，不是一对一闲聊。');
     } else {
-      buffer.writeln(
-          '用户提到了以下你认识的真实角色。这些是同一个世界里的既有角色，不是路人，也不是新编角色。');
+      buffer.writeln('用户提到了以下你认识的真实角色。这些是同一个世界里的既有角色，不是路人，也不是新编角色。');
     }
     buffer.writeln('规则：');
     buffer.writeln('1. 只能使用下列档案与记忆中的事实，禁止另编姓名、关系、经历。');
@@ -2645,8 +2674,7 @@ ${userMessages.join('\n')}
       String? lastMessage;
       DateTime? lastTime;
       try {
-        final sessions =
-            await _storage.getChatSessionsByCharacterId(other.id);
+        final sessions = await _storage.getChatSessionsByCharacterId(other.id);
         final mine = sessions.where((s) => s.userId == userId).toList();
         final session = mine.isNotEmpty
             ? mine.first
@@ -2661,8 +2689,7 @@ ${userMessages.join('\n')}
       }
 
       final relation = _intimacyRelationLabel(intimacy);
-      rosterLines.add(
-          '${other.name}（用户关系：$relation，$intimacy/100）');
+      rosterLines.add('${other.name}（用户关系：$relation，$intimacy/100）');
 
       buffer.writeln('');
       buffer.writeln('── 角色：${other.name} ──');
@@ -2733,8 +2760,8 @@ ${userMessages.join('\n')}
           for (final m in related) {
             final c = m.content.trim();
             if (c.isEmpty) continue;
-            buffer.writeln(
-                '  · ${c.length > 70 ? '${c.substring(0, 70)}…' : c}');
+            buffer
+                .writeln('  · ${c.length > 70 ? '${c.substring(0, 70)}…' : c}');
           }
         }
       } catch (e) {
@@ -2750,19 +2777,16 @@ ${userMessages.join('\n')}
       for (final line in rosterLines) {
         buffer.writeln('- $line');
       }
-      buffer.writeln(
-          '- 用户同时谈及多人时：先对齐各自关系，再回应群体事件；禁止把所有人当成同一种关系。');
+      buffer.writeln('- 用户同时谈及多人时：先对齐各自关系，再回应群体事件；禁止把所有人当成同一种关系。');
     }
 
     // 若消息里像还点了更多名字但被截断
     if (mentioned.length >= maxOthers) {
-      buffer.writeln(
-          '- 提示：本轮已注入 $maxOthers 个角色档案；若用户还提到其他人，只承认名字存在，不编造细节。');
+      buffer.writeln('- 提示：本轮已注入 $maxOthers 个角色档案；若用户还提到其他人，只承认名字存在，不编造细节。');
     }
 
     buffer.writeln('');
-    buffer.writeln(
-        '再次强调：以上是真实互通数据。提到这些名字时，必须对齐上述关系与记忆，禁止另造一个同名的新人。');
+    buffer.writeln('再次强调：以上是真实互通数据。提到这些名字时，必须对齐上述关系与记忆，禁止另造一个同名的新人。');
     return buffer.toString();
   }
 
@@ -2776,11 +2800,24 @@ ${userMessages.join('\n')}
     required List<AICharacter> members, // 除自己外的群成员
     required String userId,
     required String groupId,
+    String? chatId,
     int maxMemPerMember = 3,
     int maxSocialPerMember = 2,
   }) async {
-    if (members.isEmpty) return '';
     final buffer = StringBuffer();
+    if (chatId != null && chatId.isNotEmpty) {
+      try {
+        final summary = await _storage.getGroupChatSummary(groupId, chatId);
+        if (summary != null && summary.summary.trim().isNotEmpty) {
+          buffer.writeln('【群聊长期记忆摘要】');
+          buffer.writeln(summary.summary.trim());
+          buffer.writeln();
+        }
+      } catch (e) {
+        debugPrint('MemoryEngine: group rolling summary failed: $e');
+      }
+    }
+    if (members.isEmpty) return buffer.toString();
     buffer.writeln('\n【群成员共享信息 — 实时记忆库（禁止编造）】');
     buffer.writeln('你是「${self.name}」，本段是群里所有成员的公开信息与记忆，全员可见。');
     buffer.writeln('规则：');
@@ -2851,8 +2888,8 @@ ${userMessages.join('\n')}
           for (final m in inGroup) {
             final c = m.content.trim();
             if (c.isEmpty) continue;
-            buffer.writeln(
-                '  · ${c.length > 70 ? '${c.substring(0, 70)}…' : c}');
+            buffer
+                .writeln('  · ${c.length > 70 ? '${c.substring(0, 70)}…' : c}');
           }
         }
       } catch (e) {
@@ -2863,6 +2900,35 @@ ${userMessages.join('\n')}
     buffer.writeln('');
     buffer.writeln('再次强调：以上为全员共享的实时信息；回应他人时对齐上述事实。');
     return buffer.toString();
+  }
+
+  Future<String> buildRelatedGroupMemoryContext(
+      String characterId, String query,
+      {int limit = 3}) async {
+    try {
+      final memories =
+          await _storage.getGroupPublicEventMemories(characterId: characterId);
+      final relevant = group_event.buildRelevantGroupEventMemories(
+          query: query, memories: memories, limit: limit);
+      if (relevant.isEmpty) return '';
+      final buffer = StringBuffer('【群聊中的相关记忆】\n');
+      for (final memory in relevant) {
+        buffer.writeln('- ${memory.content}');
+        if (memory.speakerNames.isNotEmpty) {
+          buffer.writeln('  参与者：${memory.speakerNames.join('、')}');
+        }
+      }
+      for (final memory in relevant.where((memory) => !memory.pinned)) {
+        await _storage.updateGroupPublicEventMemory(memory.copyWith(
+          weight: (memory.weight + 0.01).clamp(0.0, 2.0),
+          lastRecalledAt: DateTime.now(),
+        ));
+      }
+      return buffer.toString().trim();
+    } catch (e) {
+      debugPrint('MemoryEngine: related group memory failed: $e');
+      return '';
+    }
   }
 
   String _intimacyRelationLabel(int level) {
@@ -2876,7 +2942,8 @@ ${userMessages.join('\n')}
 
   /// 为一条记忆生成1-2句中文摘要（约20-40字），用于前端卡片展示
   /// 失败或无配置时返回 null，调用方自行兜底（截断原文）
-  Future<String?> generateSummary(String content, {String? apiKey, String? baseUrl, String? modelName}) async {
+  Future<String?> generateSummary(String content,
+      {String? apiKey, String? baseUrl, String? modelName}) async {
     if (content.length < 40) return null;
 
     String key = apiKey ?? '';
@@ -2887,7 +2954,9 @@ ${userMessages.join('\n')}
       final config = await _storage.getActiveAIConfig();
       if (config == null) return null;
       key = config.apiKey;
-      url = config.baseUrl.endsWith('/') ? config.baseUrl.substring(0, config.baseUrl.length - 1) : config.baseUrl;
+      url = config.baseUrl.endsWith('/')
+          ? config.baseUrl.substring(0, config.baseUrl.length - 1)
+          : config.baseUrl;
       model = config.modelName;
     }
 
@@ -2903,7 +2972,9 @@ ${userMessages.join('\n')}
             },
             body: jsonEncode({
               'model': model,
-              'messages': [{'role': 'user', 'content': prompt}],
+              'messages': [
+                {'role': 'user', 'content': prompt}
+              ],
               'temperature': 0.3,
               'max_tokens': 100,
             }),

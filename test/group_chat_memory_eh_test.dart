@@ -62,7 +62,8 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    registerFallbackValue(_char('fb', 'fb'));    registerFallbackValue(GroupChatMessage(
+    registerFallbackValue(_char('fb', 'fb'));
+    registerFallbackValue(GroupChatMessage(
       id: 'fb',
       groupId: 'g',
       senderId: 's',
@@ -164,6 +165,63 @@ void main() {
     expect(c2.first.content, contains('旅行'));
   });
 
+  test('extractGroupMemories：字符串和 num 重要度均正确保存', () async {
+    final storage = stubStorage();
+    final engine = MemoryEngine(
+      storage,
+      httpClient: MockClient((request) async {
+        return _llmResponse(
+            '{"speaker": "小A", "content": "字符串格式的重要事件是周末去海边看日出", "importance": "important"}\n{"speaker": "小B", "content": "数字格式的重要事件是下个月搬去新城市生活", "importance": 2.0}');
+      }),
+    );
+
+    final saved = await engine.extractGroupMemories(
+      messages: [
+        GroupChatMessage(id: 'm1', groupId: 'g', senderId: 'u', isUser: true),
+        GroupChatMessage(
+            id: 'm2', groupId: 'g', senderId: 'a', senderName: '小A'),
+      ],
+      groupName: '群',
+      speakerCharacterIds: {'小A': 'cA', '小B': 'cB'},
+      groupId: 'importance-format-${DateTime.now().microsecondsSinceEpoch}',
+    );
+
+    expect(saved, 2);
+    expect((await engine.loadSocialMemories('cA')).single.importance,
+        MemoryImportance.important);
+    expect((await engine.loadSocialMemories('cB')).single.importance,
+        MemoryImportance.important);
+  });
+
+  test('extractGroupMemories：只有 2/important 是重要度，1/normal 是普通度', () async {
+    final storage = stubStorage();
+    final engine = MemoryEngine(
+      storage,
+      httpClient: MockClient((request) async {
+        return _llmResponse(
+            '{"speaker":"小A","content":"普通数字","importance":1}\n'
+            '{"speaker":"小B","content":"普通字符串","importance":"1"}\n'
+            '{"speaker":"小A","content":"普通标签","importance":"normal"}');
+      }),
+    );
+
+    final saved = await engine.extractGroupMemories(
+      messages: [
+        GroupChatMessage(id: 'm1', groupId: 'g', senderId: 'u'),
+        GroupChatMessage(id: 'm2', groupId: 'g', senderId: 'a', senderName: '小A'),
+      ],
+      groupName: '群',
+      speakerCharacterIds: {'小A': 'cA', '小B': 'cB'},
+      groupId: 'importance-normal-${DateTime.now().microsecondsSinceEpoch}',
+    );
+
+    expect(saved, 3);
+    expect((await engine.loadSocialMemories('cA')).map((m) => m.importance),
+        everyElement(MemoryImportance.normal));
+    expect((await engine.loadSocialMemories('cB')).single.importance,
+        MemoryImportance.normal);
+  });
+
   test('extractGroupMemories：LLM 失败（非200）→ 静默返回 0 不抛错', () async {
     final storage = stubStorage();
     final engine = MemoryEngine(
@@ -249,6 +307,31 @@ void main() {
     expect(c2.first.userId, 'g3');
   });
 
+  test('extractGroupMemories：相同事件分别按角色去重，未知 speaker 不污染去重', () async {
+    final storage = stubStorage();
+    final engine = MemoryEngine(
+      storage,
+      httpClient: MockClient((request) async => _llmResponse(
+          '{"speaker":"未知","content":"角色事件"}\n'
+          '{"speaker":"小A","content":"角色事件"}\n'
+          '{"speaker":"小B","content":"角色事件"}')),
+    );
+
+    final saved = await engine.extractGroupMemories(
+      messages: [
+        GroupChatMessage(id: 'm1', groupId: 'g', senderId: 'u'),
+        GroupChatMessage(id: 'm2', groupId: 'g', senderId: 'a'),
+      ],
+      groupName: '群',
+      speakerCharacterIds: {'小A': 'cA', '小B': 'cB'},
+      groupId: 'g-per-character',
+    );
+
+    expect(saved, 2);
+    expect((await engine.loadSocialMemories('cA')).single.content, '角色事件');
+    expect((await engine.loadSocialMemories('cB')).single.content, '角色事件');
+  });
+
   test('dailyDecaySocial：未回忆衰减 / 24h内回忆强化 / pinned 跳过', () async {
     final storage = stubStorage();
     final engine = MemoryEngine(storage);
@@ -256,11 +339,20 @@ void main() {
 
     // 造 3 条（weight 通过直连 DB 调整到指定值）
     await engine.saveSocialMemory(
-        characterId: 'c1', targetCharacterId: 'g4', interactionType: 'group_chat', content: '衰记忆1');
+        characterId: 'c1',
+        targetCharacterId: 'g4',
+        interactionType: 'group_chat',
+        content: '衰记忆1');
     await engine.saveSocialMemory(
-        characterId: 'c1', targetCharacterId: 'g4', interactionType: 'group_chat', content: '强记忆2');
+        characterId: 'c1',
+        targetCharacterId: 'g4',
+        interactionType: 'group_chat',
+        content: '强记忆2');
     await engine.saveSocialMemory(
-        characterId: 'c1', targetCharacterId: 'g4', interactionType: 'group_chat', content: '锁记忆3');
+        characterId: 'c1',
+        targetCharacterId: 'g4',
+        interactionType: 'group_chat',
+        content: '锁记忆3');
     final rows = await db.query('social_memories',
         where: 'characterId = ? AND targetCharacterId = ?',
         whereArgs: ['c1', 'g4']);
@@ -270,8 +362,7 @@ void main() {
     await db.update('social_memories',
         {'weight': 1.0, 'lastRecalledAt': DateTime.now().toIso8601String()},
         where: 'id = ?', whereArgs: [rows[1]['id']]);
-    await db.update('social_memories',
-        {'weight': 0.5, 'pinned': 1},
+    await db.update('social_memories', {'weight': 0.5, 'pinned': 1},
         where: 'id = ?', whereArgs: [rows[2]['id']]);
 
     final changed = await engine.dailyDecaySocial(
@@ -281,9 +372,15 @@ void main() {
     final after = await db.query('social_memories',
         where: 'characterId = ? AND targetCharacterId = ?',
         whereArgs: ['c1', 'g4']);
-    final w1 = (after.firstWhere((r) => r['id'] == rows[0]['id'])['weight'] as num).toDouble();
-    final w2 = (after.firstWhere((r) => r['id'] == rows[1]['id'])['weight'] as num).toDouble();
-    final w3 = (after.firstWhere((r) => r['id'] == rows[2]['id'])['weight'] as num).toDouble();
+    final w1 =
+        (after.firstWhere((r) => r['id'] == rows[0]['id'])['weight'] as num)
+            .toDouble();
+    final w2 =
+        (after.firstWhere((r) => r['id'] == rows[1]['id'])['weight'] as num)
+            .toDouble();
+    final w3 =
+        (after.firstWhere((r) => r['id'] == rows[2]['id'])['weight'] as num)
+            .toDouble();
     expect(w1, closeTo(1.0 * 0.998, 0.0001)); // 未回忆 → 衰减
     expect(w2, closeTo(1.0 * 1.01, 0.0001)); // 被回忆 → 强化
     expect(w3, 0.5); // pinned 不动
@@ -296,11 +393,20 @@ void main() {
     final db = await DatabaseService.instance.database;
 
     await engine.saveSocialMemory(
-        characterId: 'c1', targetCharacterId: 'g5', interactionType: 'group_chat', content: '温记忆');
+        characterId: 'c1',
+        targetCharacterId: 'g5',
+        interactionType: 'group_chat',
+        content: '温记忆');
     await engine.saveSocialMemory(
-        characterId: 'c1', targetCharacterId: 'g5', interactionType: 'group_chat', content: '冷记忆');
+        characterId: 'c1',
+        targetCharacterId: 'g5',
+        interactionType: 'group_chat',
+        content: '冷记忆');
     await engine.saveSocialMemory(
-        characterId: 'c1', targetCharacterId: 'g5', interactionType: 'group_chat', content: '锁记忆');
+        characterId: 'c1',
+        targetCharacterId: 'g5',
+        interactionType: 'group_chat',
+        content: '锁记忆');
     final rows = await db.query('social_memories',
         where: 'characterId = ? AND targetCharacterId = ?',
         whereArgs: ['c1', 'g5']);
@@ -317,31 +423,35 @@ void main() {
     final after = await db.query('social_memories',
         where: 'characterId = ? AND targetCharacterId = ?',
         whereArgs: ['c1', 'g5']);
-    final w1 = (after.firstWhere((r) => r['id'] == rows[0]['id'])['weight'] as num).toDouble();
-    final w2 = (after.firstWhere((r) => r['id'] == rows[1]['id'])['weight'] as num).toDouble();
-    final w3 = (after.firstWhere((r) => r['id'] == rows[2]['id'])['weight'] as num).toDouble();
+    final w1 =
+        (after.firstWhere((r) => r['id'] == rows[0]['id'])['weight'] as num)
+            .toDouble();
+    final w2 =
+        (after.firstWhere((r) => r['id'] == rows[1]['id'])['weight'] as num)
+            .toDouble();
+    final w3 =
+        (after.firstWhere((r) => r['id'] == rows[2]['id'])['weight'] as num)
+            .toDouble();
     expect(w1, closeTo(1.0 + 0.01, 0.0001)); // 基础强化
     expect(w2, closeTo(0.3 + 0.1, 0.0001)); // 冷记忆额外强化
     expect(w3, 1.0); // pinned 不动
     final recalledAt =
-        after.firstWhere((r) => r['id'] == rows[0]['id'])['lastRecalledAt'] as String;
+        after.firstWhere((r) => r['id'] == rows[0]['id'])['lastRecalledAt']
+            as String;
     expect(recalledAt, isNotEmpty);
   });
 
-  test('buildConsolidatedMemoryPrompt ④段：群聊/互动分组注入 + 冷记忆过滤 + 标记已回忆',
-      () async {
+  test('buildConsolidatedMemoryPrompt ④段：群聊/互动分组注入 + 冷记忆过滤 + 标记已回忆', () async {
     final storage = stubStorage();
     when(() => storage.getPromptSafeMemories(
-            characterId: any(named: 'characterId'),
-            userId: any(named: 'userId'),
-            limit: any(named: 'limit')))
-        .thenAnswer((_) async => <Memory>[]);
+        characterId: any(named: 'characterId'),
+        userId: any(named: 'userId'),
+        limit: any(named: 'limit'))).thenAnswer((_) async => <Memory>[]);
     when(() => storage.getMemories(
-            characterId: any(named: 'characterId'),
-            userId: any(named: 'userId'),
-            type: any(named: 'type'),
-            limit: any(named: 'limit')))
-        .thenAnswer((_) async => <Memory>[]);
+        characterId: any(named: 'characterId'),
+        userId: any(named: 'userId'),
+        type: any(named: 'type'),
+        limit: any(named: 'limit'))).thenAnswer((_) async => <Memory>[]);
 
     final engine = MemoryEngine(storage);
     // 预置：1 条群聊回忆（热）+ 1 条角色互动 + 1 条群聊冷记忆（30 天前，weight 0.2）
@@ -366,11 +476,16 @@ void main() {
     final db = await DatabaseService.instance.database;
     final cold = await db.query('social_memories',
         where: 'content = ?', whereArgs: ['远古时期遗忘的往事']);
-    await db.update('social_memories',
-        {'weight': 0.2, 'timestamp': DateTime.now()
-            .subtract(const Duration(days: 30))
-            .toIso8601String()},
-        where: 'id = ?', whereArgs: [cold.first['id']]);
+    await db.update(
+        'social_memories',
+        {
+          'weight': 0.2,
+          'timestamp': DateTime.now()
+              .subtract(const Duration(days: 30))
+              .toIso8601String()
+        },
+        where: 'id = ?',
+        whereArgs: [cold.first['id']]);
 
     final out = await engine.buildConsolidatedMemoryPrompt(
       character: _char('cZ', '小A'),
@@ -390,8 +505,7 @@ void main() {
     final recalled = await engine.loadSocialMemories('cZ');
     final hot = recalled.firstWhere((m) => m.content.contains('海边散步'));
     expect(hot.weight, greaterThan(1.0));
-    final coldAfter = recalled.firstWhere(
-        (m) => m.content.contains('远古时期'),
+    final coldAfter = recalled.firstWhere((m) => m.content.contains('远古时期'),
         orElse: () => Memory(
             id: 'none',
             characterId: 'cZ',
@@ -402,8 +516,7 @@ void main() {
     expect(coldAfter.weight, closeTo(0.2, 0.0001)); // 未注入 → 不增强
   });
 
-  test('GroupChatBloc：第 5 轮回复触发 LLM 提取，粗摘要仅第 1 轮写入（降频）',
-      () async {
+  test('GroupChatBloc：第 5 轮回复触发 LLM 提取，粗摘要仅第 1 轮写入（降频）', () async {
     final storage = _MockStorage();
     final aiService = _MockAiService();
     final memEngine = _MockMemoryEngine();
@@ -436,30 +549,29 @@ void main() {
     when(() => storage.isFaModeEnabled()).thenReturn(false);
     when(() => storage.saveGroupChatMessage(any())).thenAnswer((_) async {});
     when(() => storage.saveGroupChatSession(any())).thenAnswer((_) async {});
-    when(() => storage.getGroupChatMessages(any(),
-            chatId: any(named: 'chatId')))
+    when(() =>
+            storage.getGroupChatMessages(any(), chatId: any(named: 'chatId')))
         .thenAnswer((_) async => [userMsg, aiMsg]);
     when(() => storage.getGroupChatMessages(any(),
             limit: any(named: 'limit'), chatId: any(named: 'chatId')))
         .thenAnswer((_) async => [userMsg, aiMsg]);
     when(() => storage.getMemories(
-            characterId: any(named: 'characterId'),
-            userId: any(named: 'userId'),
-            limit: any(named: 'limit')))
-        .thenAnswer((_) async => <Memory>[]);
+        characterId: any(named: 'characterId'),
+        userId: any(named: 'userId'),
+        limit: any(named: 'limit'))).thenAnswer((_) async => <Memory>[]);
     when(() => storage.getAICharacter('c1'))
         .thenAnswer((_) async => _char('c1', '小A'));
     when(() => aiService.sendMessageStream(
-      character: any(named: 'character'),
-      userId: any(named: 'userId'),
-      userMessage: any(named: 'userMessage'),
-      chatHistory: any(named: 'chatHistory'),
-      memories: any(named: 'memories'),
-      intimacyLevel: any(named: 'intimacyLevel'),
-      sentiment: any(named: 'sentiment'),
-      imagePaths: any(named: 'imagePaths'),
-      internalSystemContext: any(named: 'internalSystemContext'),
-    )).thenAnswer((_) => Stream.fromIterable([
+          character: any(named: 'character'),
+          userId: any(named: 'userId'),
+          userMessage: any(named: 'userMessage'),
+          chatHistory: any(named: 'chatHistory'),
+          memories: any(named: 'memories'),
+          intimacyLevel: any(named: 'intimacyLevel'),
+          sentiment: any(named: 'sentiment'),
+          imagePaths: any(named: 'imagePaths'),
+          internalSystemContext: any(named: 'internalSystemContext'),
+        )).thenAnswer((_) => Stream.fromIterable([
           AIStreamChunk(reasoning: '', content: '你好呀'),
         ]));
     when(() => memEngine.buildGroupSharedContext(
@@ -467,8 +579,7 @@ void main() {
           members: any(named: 'members'),
           userId: any(named: 'userId'),
           groupId: any(named: 'groupId'),
-        ))
-        .thenAnswer((_) async => '');
+        )).thenAnswer((_) async => '');
     when(() => memEngine.saveSocialMemory(
           characterId: any(named: 'characterId'),
           targetCharacterId: any(named: 'targetCharacterId'),
@@ -477,14 +588,13 @@ void main() {
           emotionTag: any(named: 'emotionTag'),
           importance: any(named: 'importance'),
           keywords: any(named: 'keywords'),
-        ))
-        .thenAnswer((_) async {});
+        )).thenAnswer((_) async {});
     when(() => memEngine.extractGroupMemories(
-      messages: any(named: 'messages'),
-      groupName: any(named: 'groupName'),
-      speakerCharacterIds: any(named: 'speakerCharacterIds'),
-      groupId: any(named: 'groupId'),
-    )).thenAnswer((_) async => 0);
+          messages: any(named: 'messages'),
+          groupName: any(named: 'groupName'),
+          speakerCharacterIds: any(named: 'speakerCharacterIds'),
+          groupId: any(named: 'groupId'),
+        )).thenAnswer((_) async => 0);
 
     final bloc = GroupChatBloc(storage, aiService, memoryEngine: memEngine);
     for (var i = 0; i < 5; i++) {
@@ -499,20 +609,20 @@ void main() {
 
     // 粗摘要降频：仅第 1 轮写入 1 条
     verify(() => memEngine.saveSocialMemory(
-      characterId: any(named: 'characterId'),
-      targetCharacterId: any(named: 'targetCharacterId'),
-      interactionType: any(named: 'interactionType'),
-      content: any(named: 'content'),
-      emotionTag: any(named: 'emotionTag'),
-      importance: any(named: 'importance'),
-      keywords: any(named: 'keywords'),
-    )).called(1);
+          characterId: any(named: 'characterId'),
+          targetCharacterId: any(named: 'targetCharacterId'),
+          interactionType: any(named: 'interactionType'),
+          content: any(named: 'content'),
+          emotionTag: any(named: 'emotionTag'),
+          importance: any(named: 'importance'),
+          keywords: any(named: 'keywords'),
+        )).called(1);
     // 第 5 轮触发 LLM 提取（可能因接话提前，至少触发 1 次）
     verify(() => memEngine.extractGroupMemories(
-      messages: any(named: 'messages'),
-      groupName: any(named: 'groupName'),
-      speakerCharacterIds: any(named: 'speakerCharacterIds'),
-      groupId: 'g7',
-    )).called(greaterThanOrEqualTo(1));
+          messages: any(named: 'messages'),
+          groupName: any(named: 'groupName'),
+          speakerCharacterIds: any(named: 'speakerCharacterIds'),
+          groupId: 'g7',
+        )).called(greaterThanOrEqualTo(1));
   });
 }

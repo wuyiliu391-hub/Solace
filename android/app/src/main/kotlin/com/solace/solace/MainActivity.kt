@@ -19,6 +19,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.content.pm.PackageManager
+import android.graphics.Color
 import com.solace.solace.live2d.Live2DPlugin
 import com.solace.solace.live2d.Live2DStateManager
 import com.solace.solace.live2d.Live2DEngineCache
@@ -60,6 +61,9 @@ class MainActivity : FlutterActivity() {
     private var nextPermissionRequestCode: Int = 100
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Flutter's saved theme preference is available before the first frame.
+        // Match the native launch window to it so dark mode never flashes white.
+        applySavedLaunchBackground()
         super.onCreate(savedInstanceState)
 
         // 预缓存 Live2D 悬浮窗引擎
@@ -67,6 +71,17 @@ class MainActivity : FlutterActivity() {
 
         // ═══ Shizuku 生命周期初始化 ═══
         setupShizukuLifecycle()
+    }
+
+    private fun applySavedLaunchBackground() {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        val themeMode = prefs.getString("flutter.app_theme_mode", null)
+        val isDark = themeMode == "2" ||
+            (themeMode != "1" && (resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES)
+        val background = if (isDark) Color.rgb(16, 17, 20) else Color.rgb(247, 248, 250)
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(background))
     }
 
     override fun onDestroy() {

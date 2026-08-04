@@ -20,6 +20,7 @@ class VpAppPage extends StatelessWidget {
   /// 手机主人（角色本人）头像，用于聊天页气泡/顶栏，视觉对齐单聊。
   final String? ownerAvatarUrl;
   final VirtualPhoneState state;
+  final PhoneWallpaperTheme wallpaperTheme;
 
   const VpAppPage({
     super.key,
@@ -27,13 +28,15 @@ class VpAppPage extends StatelessWidget {
     required this.ownerName,
     this.ownerAvatarUrl,
     required this.state,
+    this.wallpaperTheme = PhoneWallpaperTheme.dawn,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: PhoneTheme.wallpaperMid,
+      backgroundColor: PhoneWallpaperPalette.of(wallpaperTheme).mid,
       body: PhoneWallpaper(
+        theme: wallpaperTheme,
         child: SafeArea(
           child: Column(
             children: [
@@ -42,7 +45,8 @@ class VpAppPage extends StatelessWidget {
                 child: PhoneGlassPanel(
                   radius: 18,
                   fillOpacity: 0.28,
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                   child: Row(
                     children: [
                       IconButton(
@@ -91,9 +95,7 @@ class VpAppPage extends StatelessWidget {
     switch (kind) {
       case VpAppKind.messages:
         return _MessagesList(
-            state: state,
-            ownerName: ownerName,
-            ownerAvatarUrl: ownerAvatarUrl);
+            state: state, ownerName: ownerName, ownerAvatarUrl: ownerAvatarUrl);
       case VpAppKind.contacts:
         return _ContactsList(contacts: state.contacts);
       case VpAppKind.notes:
@@ -210,9 +212,8 @@ class _ChatThreadPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: pageBg,
       appBar: AppBar(
-        backgroundColor: isDark
-            ? const Color(0xEE121212)
-            : const Color(0xEEF7FBFE),
+        backgroundColor:
+            isDark ? const Color(0xEE121212) : const Color(0xEEF7FBFE),
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
@@ -327,7 +328,8 @@ class _ChatThreadPage extends StatelessWidget {
           if (m.timeLabel.isNotEmpty)
             Padding(
               padding: EdgeInsets.only(
-                  top: 3, left: mine ? 0 : _avatarSize + 8,
+                  top: 3,
+                  left: mine ? 0 : _avatarSize + 8,
                   right: mine ? _avatarSize + 8 : 0),
               child: Text(m.timeLabel,
                   style: TextStyle(
@@ -346,16 +348,13 @@ class _ChatThreadPage extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isOwner
-                ? const Color(0xFFFFFFFF)
-                : const Color(0xFFE8E4EC),
+            color: isOwner ? const Color(0xFFFFFFFF) : const Color(0xFFE8E4EC),
           ),
           child: Text(
             name.isNotEmpty ? String.fromCharCode(name.runes.first) : '?',
             style: TextStyle(
-                color: isOwner
-                    ? const Color(0xFF2B7BF5)
-                    : const Color(0xFF9C27B0),
+                color:
+                    isOwner ? const Color(0xFF2B7BF5) : const Color(0xFF9C27B0),
                 fontSize: 14,
                 fontWeight: FontWeight.w600),
           ),
@@ -400,9 +399,8 @@ class _ContactsList extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
         final c = contacts[i];
-        final letter = c.name.isNotEmpty
-            ? String.fromCharCode(c.name.runes.first)
-            : '?';
+        final letter =
+            c.name.isNotEmpty ? String.fromCharCode(c.name.runes.first) : '?';
         return PhoneGlassPanel(
           radius: 18,
           fillOpacity: 0.28,
@@ -552,8 +550,8 @@ class _MomentsList extends StatelessWidget {
                       backgroundColor: const Color(0xFFFF2D55),
                       child: Text(
                         letter,
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 13),
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 13),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -608,8 +606,8 @@ class _MomentsList extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: m.commentList
                           .map((c) => Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 2),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 2),
                                 child: Text(c,
                                     style: const TextStyle(fontSize: 13)),
                               ))

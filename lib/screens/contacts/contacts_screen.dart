@@ -107,10 +107,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   Widget _buildContactList(BuildContext context) {
     return ListView.builder(
-      itemCount:
-          (_groupChats.isNotEmpty ? _groupChats.length + 1 : 0) +
-              _characters.length +
-              1,
+      itemCount: (_groupChats.isNotEmpty ? _groupChats.length + 1 : 0) +
+          _characters.length +
+          1,
       itemBuilder: (context, index) {
         // 群聊分组（在好友之前）
         if (_groupChats.isNotEmpty && index < _groupChats.length + 1) {
@@ -121,9 +120,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
           return _GroupContactTile(
             session: group,
             onTap: () => _openGroupChat(group),
+            onDelete: () => _deleteGroupPermanently(group),
           );
         }
-        final charIndex = index - (_groupChats.isNotEmpty ? _groupChats.length + 1 : 0);
+        final charIndex =
+            index - (_groupChats.isNotEmpty ? _groupChats.length + 1 : 0);
         if (charIndex == 0) {
           return _buildHeader(context, '我的好友 (${_characters.length})');
         }
@@ -137,11 +138,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
+  Future<void> _deleteGroupPermanently(GroupChatSession group) async {
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    await storage.deleteGroupChatSession(group.id);
+    await _loadCharacters();
+  }
+
   void _openGroupChat(GroupChatSession group) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-          builder: (_) => GroupChatDetailScreen(session: group)),
+      MaterialPageRoute(builder: (_) => GroupChatDetailScreen(session: group)),
     ).then((_) {
       if (mounted) _loadCharacters();
     });
@@ -150,7 +156,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Widget _buildHeader(BuildContext context, String title) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
+      color: Theme.of(context)
+          .colorScheme
+          .surfaceContainerHighest
+          .withOpacity(0.3),
       child: Text(
         title,
         style: TextStyle(
@@ -235,7 +244,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 userAlias: alias.isEmpty ? null : alias,
                 updatedAt: DateTime.now(),
               );
-              final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+              final storage =
+                  RepositoryProvider.of<LocalStorageRepository>(context);
               await storage.saveAICharacter(updated);
               _loadCharacters();
             },
@@ -246,7 +256,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  Future<void> _changeAvatar(BuildContext context, AICharacter character) async {
+  Future<void> _changeAvatar(
+      BuildContext context, AICharacter character) async {
     final hasPermission = await PermissionService.requestStoragePermission();
     if (!hasPermission) return;
 
@@ -259,7 +270,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
 
     if (pickedFile != null) {
-      final persistentPath = await _copyToPersistentPath(pickedFile.path, character.id);
+      final persistentPath =
+          await _copyToPersistentPath(pickedFile.path, character.id);
       final updated = character.copyWith(
         avatarUrl: persistentPath,
         updatedAt: DateTime.now(),
@@ -293,7 +305,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
-  Future<String> _copyToPersistentPath(String sourcePath, String characterId) async {
+  Future<String> _copyToPersistentPath(
+      String sourcePath, String characterId) async {
     try {
       final source = File(sourcePath);
       if (!await source.exists()) return sourcePath;
@@ -314,7 +327,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   void _hideCharacter(BuildContext context, AICharacter character) async {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    final updated = character.copyWith(isHidden: true, updatedAt: DateTime.now());
+    final updated =
+        character.copyWith(isHidden: true, updatedAt: DateTime.now());
     await storage.saveAICharacter(updated);
     _loadCharacters();
     _refreshChatList();
@@ -330,7 +344,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除联系人'),
-        content: Text('确定要永久删除"${character.userNickname ?? character.name}"吗？\n\n这将删除其所有聊天记录和记忆。'),
+        content: Text(
+            '确定要永久删除"${character.userNickname ?? character.name}"吗？\n\n这将删除其所有聊天记录和记忆。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -339,13 +354,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+              final storage =
+                  RepositoryProvider.of<LocalStorageRepository>(context);
               await storage.deleteAICharacterCascade(character.id);
               _loadCharacters();
               _refreshChatList();
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('已删除"${character.userNickname ?? character.name}"')),
+                  SnackBar(
+                      content: Text(
+                          '已删除"${character.userNickname ?? character.name}"')),
                 );
               }
             },
@@ -362,7 +380,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
 
     final sessions = await storage.getChatSessions(user.id);
-    final existingSession = sessions.where((s) => s.aiCharacterId == character.id).firstOrNull;
+    final existingSession =
+        sessions.where((s) => s.aiCharacterId == character.id).firstOrNull;
 
     if (existingSession != null) {
       if (mounted) {
@@ -524,12 +543,15 @@ class _CharacterTile extends StatelessWidget {
     );
   }
 }
+
 /// 群聊联系人项
 class _GroupContactTile extends StatelessWidget {
   final GroupChatSession session;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
 
-  const _GroupContactTile({required this.session, required this.onTap});
+  const _GroupContactTile(
+      {required this.session, required this.onTap, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -549,7 +571,14 @@ class _GroupContactTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: const Icon(Icons.chevron_right, size: 20),
+      trailing: PopupMenuButton<String>(
+        onSelected: (value) {
+          if (value == 'delete') onDelete();
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'delete', child: Text('永久删除')),
+        ],
+      ),
       onTap: onTap,
     );
   }

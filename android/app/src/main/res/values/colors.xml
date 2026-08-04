@@ -2,4 +2,5 @@
 <resources>
     <!-- 浅蓝，配合左蓝右粉双色图标 -->
     <color name="ic_launcher_background">#81D4FA</color>
+    <color name="splash_background">#F7F8FA</color>
 </resources>

@@ -17,6 +17,12 @@ class GroupMessageBubble extends StatelessWidget {
   /// 长按回调（消息操作菜单）
   final VoidCallback? onLongPress;
 
+  /// 多选模式点击回调（选中/取消选中）
+  final VoidCallback? onTap;
+
+  /// 多选模式下是否被选中（高亮背景）
+  final bool isSelected;
+
   const GroupMessageBubble({
     super.key,
     required this.message,
@@ -25,6 +31,8 @@ class GroupMessageBubble extends StatelessWidget {
     this.speakerColor,
     this.avatarUrl,
     this.onLongPress,
+    this.onTap,
+    this.isSelected = false,
   });
 
   @override
@@ -54,9 +62,11 @@ class GroupMessageBubble extends StatelessWidget {
 
     // 用户消息：右对齐主色气泡（沿用现有）
     if (message.isUser) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Row(
+      return _wrapSelected(
+        context,
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
@@ -81,6 +91,7 @@ class GroupMessageBubble extends StatelessWidget {
                 avatarUrl: avatarUrl),
           ],
         ),
+        ),
       );
     }
 
@@ -89,37 +100,56 @@ class GroupMessageBubble extends StatelessWidget {
     final bubbleBg = color.withValues(
       alpha: Theme.of(context).brightness == Brightness.dark ? 0.18 : 0.10,
     );
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (showAvatar)
-            _avatar(message.senderName, color, Colors.white,
-                avatarUrl: avatarUrl)
-          else
-            const SizedBox(width: 32),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  message.senderName,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: color,
-                    fontWeight: FontWeight.w600,
+    return _wrapSelected(
+      context,
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (showAvatar)
+              _avatar(message.senderName, color, Colors.white,
+                  avatarUrl: avatarUrl)
+            else
+              const SizedBox(width: 32),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.senderName,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                _contentBubble(cs,
-                    isMe: false, aiColor: color, bg: bubbleBg, isDark: isDark),
-              ],
+                  const SizedBox(height: 2),
+                  _contentBubble(cs,
+                      isMe: false, aiColor: color, bg: bubbleBg, isDark: isDark),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+
+  /// 多选模式下选中态高亮背景
+  Widget _wrapSelected(BuildContext context, Widget child) {
+    if (!isSelected) return child;
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .primaryContainer
+            .withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: child,
     );
   }
 
@@ -137,6 +167,7 @@ class GroupMessageBubble extends StatelessWidget {
     final edited = message.metadata?['editedAt'] != null;
 
     return GestureDetector(
+      onTap: onTap,
       onLongPress: onLongPress,
       child: Column(
         mainAxisSize: MainAxisSize.min,

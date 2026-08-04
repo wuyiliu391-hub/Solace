@@ -63,6 +63,10 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   /// 引用的消息（发送时写入 metadata['replyTo']）
   GroupChatMessage? _replyToMessage;
 
+  /// 多选模式（批量删除 / 收藏，对齐单聊）
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = {};
+
   @override
   void initState() {
     super.initState();
@@ -83,6 +87,11 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     context.read<GroupChatBloc>().add(GroupChatLoadMessages(_groupId));
     _isLoading = true;
     if (mounted) setState(() {});
+  }
+
+  /// 静默刷新消息（批量操作后），不发 loading
+  void _reloadMessages() {
+    context.read<GroupChatBloc>().add(GroupChatLoadMessages(_groupId));
   }
 
   Future<void> _loadMembers() async {
@@ -161,56 +170,66 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: colorScheme.surface,
-      appBar: AppBar(
-        title: InkWell(
-          onTap: () => _scaffoldKey.currentState?.openEndDrawer(),
-          borderRadius: BorderRadius.circular(8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _memberStackAvatar(),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  _session.name,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme.onSurface,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+      appBar: _selectionMode
+          ? _buildSelectionAppBar(colorScheme)
+          : AppBar(
+              title: InkWell(
+                onTap: () => _scaffoldKey.currentState?.openEndDrawer(),
+                borderRadius: BorderRadius.circular(8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _memberStackAvatar(),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        _session.name,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSurface,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(_session.isMuted
-                ? Icons.notifications_off
-                : Icons.notifications),
-            onPressed: () {
-              context.read<GroupChatBloc>().add(GroupChatUpdateSession(
-                    groupId: _groupId,
-                    isMuted: !_session.isMuted,
-                  ));
-            },
-          ),
-          PopupMenuButton<String>(
-            onSelected: _handleMenuAction,
-            itemBuilder: (ctx) => [
-              PopupMenuItem(
-                value: 'pin',
-                child: Text(_session.isPinned ? '取消置顶' : '置顶群聊'),
-              ),
-              const PopupMenuItem(value: 'settings', child: Text('群设置')),
-              const PopupMenuItem(value: 'branches', child: Text('聊天记录')),
-              const PopupMenuItem(value: 'delete', child: Text('删除群聊')),
-            ],
-          ),
-        ],
-      ),
+              actions: [
+                IconButton(
+                  icon: Icon(_session.isMuted
+                      ? Icons.notifications_off
+                      : Icons.notifications),
+                  onPressed: () {
+                    final muted = !_session.isMuted;
+                    setState(
+                        () => _session = _session.copyWith(isMuted: muted));
+                    context.read<GroupChatBloc>().add(GroupChatUpdateSession(
+                          groupId: _groupId,
+                          isMuted: muted,
+                        ));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text(muted ? '已静音群聊通知' : '已开启群聊通知'),
+                          duration: const Duration(seconds: 1)),
+                    );
+                  },
+                ),
+                PopupMenuButton<String>(
+                  onSelected: _handleMenuAction,
+                  itemBuilder: (ctx) => [
+                    PopupMenuItem(
+                      value: 'pin',
+                      child: Text(_session.isPinned ? '取消置顶' : '置顶群聊'),
+                    ),
+                    const PopupMenuItem(value: 'settings', child: Text('群设置')),
+                    const PopupMenuItem(value: 'branches', child: Text('聊天记录')),
+                    const PopupMenuItem(value: 'delete', child: Text('删除群聊')),
+                  ],
+                ),
+              ],
+            ),
       endDrawer: GroupMemberDrawer(
         session: _session,
         members: _members,
@@ -251,8 +270,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                       }
                       return _buildMessageList(streaming: state);
                     }
-                    if (state is GroupChatTyping &&
-                        state.groupId == _groupId) {
+                    if (state is GroupChatTyping && state.groupId == _groupId) {
                       _isLoading = false;
                       if (state.messages.isNotEmpty) {
                         _messages = state.messages;
@@ -302,6 +320,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     onChatTap: _showBranchManager,
                     onAutoModeChanged: (v) {
                       _dispatchConfig(autoModeEnabled: v);
+                      setState(() =>
+                          _session = _session.copyWith(autoModeEnabled: v));
                     },
                   ),
                 ),
@@ -359,16 +379,18 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       final streamingContent = streaming.streamingText.isNotEmpty
           ? streaming.streamingText
           : (streaming.reasoning.isNotEmpty ? '思考中…' : '');
-      displayMessages.insert(0, GroupChatMessage(
-        id: '_streaming_',
-        groupId: _groupId,
-        senderId: '_streaming_',
-        senderName: streaming.characterName,
-        content: streamingContent,
-        isUser: false,
-        type: GroupChatMessageType.text,
-        timestamp: DateTime.now(),
-      ));
+      displayMessages.insert(
+          0,
+          GroupChatMessage(
+            id: '_streaming_',
+            groupId: _groupId,
+            senderId: '_streaming_',
+            senderName: streaming.characterName,
+            content: streamingContent,
+            isUser: false,
+            type: GroupChatMessageType.text,
+            timestamp: DateTime.now(),
+          ));
     }
 
     if (displayMessages.isEmpty && typingCharacter == null) {
@@ -400,8 +422,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
         if (typingCharacter != null && index == 0) {
           return _TypingIndicator(
             name: typingCharacter,
-            avatarUrl: _memberById(_memberIdByName(typingCharacter))
-                ?.avatarUrl,
+            avatarUrl: _memberById(_memberIdByName(typingCharacter))?.avatarUrl,
           );
         }
         // 有打字指示器时消息整体后移一格
@@ -425,11 +446,15 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           message: msg,
           showAvatar: showAvatar,
           screenWidth: MediaQuery.of(context).size.width,
-          speakerColor: senderId != null
-              ? _memberColors[senderId]
-              : null,
+          speakerColor: senderId != null ? _memberColors[senderId] : null,
           avatarUrl: msg.isUser ? userAvatarUrl : sender?.avatarUrl,
-          onLongPress: isStreamingMsg ? null : () => _showMessageOptions(msg),
+          isSelected: _selectionMode && _selectedIds.contains(msg.id),
+          onTap: _selectionMode ? () => _toggleSelect(msg.id) : null,
+          onLongPress: _selectionMode
+              ? null
+              : isStreamingMsg
+                  ? null
+                  : () => _showMessageOptions(msg),
         );
       },
     );
@@ -521,22 +546,14 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     );
   }
 
-  /// 发送箭头：先横向、右端向上直角弯折 90°、顶端箭头尖朝上
-  Widget _sendArrowIcon() {
-    return CustomPaint(
-      size: const Size(20, 20),
-      painter: const _SendArrowPainter(),
-    );
-  }
-
   Widget _buildInputBar() {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
-        border:
-            Border(top: BorderSide(color: colorScheme.outline.withOpacity(0.2))),
+        border: Border(
+            top: BorderSide(color: colorScheme.outline.withOpacity(0.2))),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -550,8 +567,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 color: colorScheme.primaryContainer.withOpacity(0.4),
                 borderRadius: BorderRadius.circular(10),
                 border: Border(
-                  left: BorderSide(
-                      color: colorScheme.primary, width: 3),
+                  left: BorderSide(color: colorScheme.primary, width: 3),
                 ),
               ),
               child: Row(
@@ -620,8 +636,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                         top: 0,
                         right: 0,
                         child: GestureDetector(
-                          onTap: () =>
-                              setState(() => _pendingImagePaths.removeAt(index)),
+                          onTap: () => setState(
+                              () => _pendingImagePaths.removeAt(index)),
                           child: Container(
                             decoration: BoxDecoration(
                               color: Colors.black54,
@@ -655,8 +671,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     ),
                     filled: true,
                     fillColor: colorScheme.surface,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 8),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
                   maxLines: null,
                   textCapitalization: TextCapitalization.sentences,
@@ -664,12 +680,20 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: colorScheme.primary,
-                child: IconButton(
-                  icon: _sendArrowIcon(),
-                  onPressed: _sendCurrentMessage,
+              GestureDetector(
+                onTap: _sendCurrentMessage,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.arrow_upward_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
                 ),
               ),
             ],
@@ -716,11 +740,10 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
 
       // 与 vision 请求上限对齐
       if (_pendingImagePaths.length > VisionImageEncoder.maxImagesPerRequest) {
-        final overflow = _pendingImagePaths.length -
-            VisionImageEncoder.maxImagesPerRequest;
+        final overflow =
+            _pendingImagePaths.length - VisionImageEncoder.maxImagesPerRequest;
         setState(() => _pendingImagePaths.removeRange(
-            VisionImageEncoder.maxImagesPerRequest,
-            _pendingImagePaths.length));
+            VisionImageEncoder.maxImagesPerRequest, _pendingImagePaths.length));
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text(
@@ -799,12 +822,138 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     }
   }
 
+  // ─── 多选模式（批量删除 / 收藏，对齐单聊）───
+
+  void _enterSelection(String messageId) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds
+        ..clear()
+        ..add(messageId);
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelect(String messageId) {
+    setState(() {
+      if (!_selectedIds.remove(messageId)) _selectedIds.add(messageId);
+      if (_selectedIds.isEmpty) _selectionMode = false;
+    });
+  }
+
+  void _selectAllMessages() {
+    setState(() {
+      _selectedIds
+        ..clear()
+        ..addAll(_messages.map((m) => m.id));
+    });
+  }
+
+  Future<void> _batchBookmark() async {
+    if (_selectedIds.isEmpty) return;
+    final ids = Set<String>.from(_selectedIds);
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    var n = 0;
+    for (final m in _messages) {
+      if (ids.contains(m.id) && !m.isBookmarked) {
+        await storage.saveGroupChatMessage(m.copyWith(metadata: {
+          ...?m.metadata,
+          'bookmarked': true,
+        }));
+        n++;
+      }
+    }
+    _reloadMessages();
+    _exitSelection();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('已收藏 $n 条消息'), duration: const Duration(seconds: 1)),
+      );
+    }
+  }
+
+  Future<void> _batchDelete() async {
+    if (_selectedIds.isEmpty) return;
+    final count = _selectedIds.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('批量删除'),
+        content: Text('确定要删除选中的 $count 条消息吗？此操作不可恢复。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final ids = Set<String>.from(_selectedIds);
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    for (final id in ids) {
+      await storage.deleteGroupChatMessage(id);
+    }
+    _reloadMessages();
+    _exitSelection();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('已删除 ${ids.length} 条消息'),
+            duration: const Duration(seconds: 1)),
+      );
+    }
+  }
+
+  PreferredSizeWidget _buildSelectionAppBar(ColorScheme colorScheme) {
+    return AppBar(
+      backgroundColor: colorScheme.surface,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: _exitSelection,
+      ),
+      title: Text('已选 ${_selectedIds.length} 项'),
+      actions: [
+        IconButton(
+          tooltip: '全选',
+          icon: const Icon(Icons.select_all),
+          onPressed: _selectAllMessages,
+        ),
+        IconButton(
+          tooltip: '批量收藏',
+          icon: const Icon(Icons.bookmark_add_outlined),
+          onPressed: _selectedIds.isEmpty ? null : _batchBookmark,
+        ),
+        IconButton(
+          tooltip: '批量删除',
+          icon: const Icon(Icons.delete_outline),
+          onPressed: _selectedIds.isEmpty ? null : _batchDelete,
+        ),
+        const SizedBox(width: 4),
+      ],
+    );
+  }
+
   // ─── 消息操作（对齐单聊 7 项：引用/复制/编辑/重生成/收藏/删除/撤回）───
 
   /// 引用摘要文本（对齐单聊 _replyPreview）
   String _replyPreview(GroupChatMessage msg) {
     final content = msg.content.trim();
-    if (content.isEmpty) return msg.type == GroupChatMessageType.image ? '[图片]' : '';
+    if (content.isEmpty)
+      return msg.type == GroupChatMessageType.image ? '[图片]' : '';
     if (content.length <= 60) return content;
     return '${content.substring(0, 60)}…';
   }
@@ -818,8 +967,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     final canRecall = message.isUser &&
         DateTime.now().difference(message.timestamp).inMinutes <= 2 &&
         !message.isRecalled;
-    final canEditAI =
-        isAIMessage && !message.isRecalled && message.type == GroupChatMessageType.text;
+    final canEditAI = isAIMessage &&
+        !message.isRecalled &&
+        message.type == GroupChatMessageType.text;
     final canRegenerate = isAIMessage && !message.isRecalled;
 
     showModalBottomSheet(
@@ -848,7 +998,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 _setReplyTo(message);
               },
             ),
-            if (!message.isRecalled && message.type == GroupChatMessageType.text)
+            if (!message.isRecalled &&
+                message.type == GroupChatMessageType.text)
               ListTile(
                 leading: const Icon(Icons.copy, color: Colors.teal),
                 title: const Text('复制'),
@@ -897,7 +1048,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 },
               ),
             ListTile(
-              leading: Icon(Icons.bookmark_border, color: Colors.amber.shade700),
+              leading:
+                  Icon(Icons.bookmark_border, color: Colors.amber.shade700),
               title: Text(message.isBookmarked ? '取消收藏' : '收藏'),
               subtitle: Text(message.isBookmarked ? '从收藏夹移除' : '收藏此消息'),
               onTap: () {
@@ -914,6 +1066,15 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
               onTap: () {
                 Navigator.pop(ctx);
                 _showDeleteConfirm(message);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.checklist_rtl, color: Colors.blueGrey),
+              title: const Text('多选'),
+              subtitle: const Text('批量删除 / 收藏消息'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _enterSelection(message.id);
               },
             ),
             const SizedBox(height: 8),
@@ -1027,181 +1188,181 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       builder: (ctx) => Container(
         decoration: BoxDecoration(
           color: Theme.of(ctx).colorScheme.surface,
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: SafeArea(
           child: SingleChildScrollView(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Theme.of(ctx)
-                        .colorScheme
-                        .onSurfaceVariant
-                        .withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                // 群头像：点选后立即显示并持久化（存 docs/avatars，实时同步列表/详情）
-                StatefulBuilder(builder: (ctxAvatar, setAvatar) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Center(
-                      child: AvatarPicker(
-                        currentAvatar: _dialogAvatar ?? _session.avatarUrl,
-                        onAvatarSelected: (path) {
-                          setAvatar(() => _dialogAvatar = path);
-                          context.read<GroupChatBloc>().add(
-                                GroupChatUpdateSession(
-                                  groupId: _groupId,
-                                  avatarUrl: path,
-                                ),
-                              );
-                        },
-                        size: 72,
-                      ),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(ctx)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                  );
-                }),
-                ListTile(
-                  leading: const Icon(Icons.drive_file_rename_outline),
-                  title: const Text('重命名群聊'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _showRenameDialog();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.campaign_outlined),
-                  title: const Text('群公告'),
-                  subtitle: Text(_session.notice?.isNotEmpty == true
-                      ? _session.notice!
-                      : '未设置'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _showNoticeDialog();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.group),
-                  title: const Text('群成员'),
-                  subtitle: Text('${_session.memberIds.length} 人'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _showMembers();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.person_add_alt_outlined),
-                  title: const Text('邀请 AI 角色'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _showInviteDialog();
-                  },
-                ),
-                // ─── SillyTavern 引擎配置 ───
-                StatefulBuilder(builder: (ctx2, setSheet) {
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Divider(height: 24),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('群聊引擎',
-                              style: TextStyle(
-                                  fontSize: 13, fontWeight: FontWeight.bold)),
+                  ),
+                  // 群头像：点选后立即显示并持久化（存 docs/avatars，实时同步列表/详情）
+                  StatefulBuilder(builder: (ctxAvatar, setAvatar) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Center(
+                        child: AvatarPicker(
+                          currentAvatar: _dialogAvatar ?? _session.avatarUrl,
+                          onAvatarSelected: (path) {
+                            setAvatar(() => _dialogAvatar = path);
+                            context.read<GroupChatBloc>().add(
+                                  GroupChatUpdateSession(
+                                    groupId: _groupId,
+                                    avatarUrl: path,
+                                  ),
+                                );
+                          },
+                          size: 72,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      ListTile(
-                        leading: const Icon(Icons.rule),
-                        title: const Text('激活策略'),
-                        subtitle: Text(_strategyLabel(_session
-                                .activationStrategy) ??
-                            '自然'),
-                        trailing: const Icon(Icons.chevron_right, size: 18),
-                        onTap: () async {
-                          final v = await _showStrategyPicker();
-                          if (v != null) {
-                            _dispatchConfig(activationStrategy: v);
+                    );
+                  }),
+                  ListTile(
+                    leading: const Icon(Icons.drive_file_rename_outline),
+                    title: const Text('重命名群聊'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showRenameDialog();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.campaign_outlined),
+                    title: const Text('群公告'),
+                    subtitle: Text(_session.notice?.isNotEmpty == true
+                        ? _session.notice!
+                        : '未设置'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showNoticeDialog();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.group),
+                    title: const Text('群成员'),
+                    subtitle: Text('${_session.memberIds.length} 人'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showMembers();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.person_add_alt_outlined),
+                    title: const Text('邀请 AI 角色'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showInviteDialog();
+                    },
+                  ),
+                  // ─── SillyTavern 引擎配置 ───
+                  StatefulBuilder(builder: (ctx2, setSheet) {
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Divider(height: 24),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text('群聊引擎',
+                                style: TextStyle(
+                                    fontSize: 13, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        ListTile(
+                          leading: const Icon(Icons.rule),
+                          title: const Text('激活策略'),
+                          subtitle: Text(
+                              _strategyLabel(_session.activationStrategy) ??
+                                  '自然'),
+                          trailing: const Icon(Icons.chevron_right, size: 18),
+                          onTap: () async {
+                            final v = await _showStrategyPicker();
+                            if (v != null) {
+                              _dispatchConfig(activationStrategy: v);
+                              setSheet(() {});
+                            }
+                          },
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.merge_type),
+                          title: const Text('生成模式'),
+                          subtitle: Text(
+                              _generationModeLabel(_session.generationMode) ??
+                                  '逐角色切换'),
+                          trailing: const Icon(Icons.chevron_right, size: 18),
+                          onTap: () async {
+                            final v = await _showGenerationModePicker();
+                            if (v != null) {
+                              _dispatchConfig(generationMode: v);
+                              setSheet(() {});
+                            }
+                          },
+                        ),
+                        SwitchListTile(
+                          secondary: const Icon(Icons.repeat),
+                          title: const Text('允许同一角色连续发言'),
+                          value: _session.allowSelfResponses ?? false,
+                          onChanged: (v) {
+                            _dispatchConfig(allowSelfResponses: v);
                             setSheet(() {});
-                          }
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.merge_type),
-                        title: const Text('生成模式'),
-                        subtitle: Text(
-                            _generationModeLabel(_session.generationMode) ??
-                                '逐角色切换'),
-                        trailing: const Icon(Icons.chevron_right, size: 18),
-                        onTap: () async {
-                          final v = await _showGenerationModePicker();
-                          if (v != null) {
-                            _dispatchConfig(generationMode: v);
+                          },
+                        ),
+                        SwitchListTile(
+                          secondary: const Icon(Icons.auto_awesome),
+                          title: const Text('自动接话'),
+                          subtitle:
+                              const Text('AI 之间持续聊天（对标 SillyTavern Auto Mode）'),
+                          value: _session.autoModeEnabled ?? false,
+                          onChanged: (v) {
+                            _dispatchConfig(autoModeEnabled: v);
                             setSheet(() {});
-                          }
-                        },
-                      ),
-                      SwitchListTile(
-                        secondary: const Icon(Icons.repeat),
-                        title: const Text('允许同一角色连续发言'),
-                        value: _session.allowSelfResponses ?? false,
-                        onChanged: (v) {
-                          _dispatchConfig(allowSelfResponses: v);
-                          setSheet(() {});
-                        },
-                      ),
-                      SwitchListTile(
-                        secondary: const Icon(Icons.auto_awesome),
-                        title: const Text('自动接话'),
-                        subtitle: const Text('AI 之间持续聊天（对标 SillyTavern Auto Mode）'),
-                        value: _session.autoModeEnabled ?? false,
-                        onChanged: (v) {
-                          _dispatchConfig(autoModeEnabled: v);
-                          setSheet(() {});
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.timer_outlined),
-                        title: const Text('自动接话间隔'),
-                        subtitle: Text('${_session.autoModeDelay ?? 5} 秒'),
-                        trailing: const Icon(Icons.chevron_right, size: 18),
-                        onTap: () => _showAutoModeDelayPicker(),
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.block),
-                        title: const Text('禁言成员'),
-                        subtitle: Text(_session.disabledMemberIds.isEmpty
-                            ? '无'
-                            : '${_session.disabledMemberIds.length} 人被禁言'),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _showMuteMembersPicker();
-                        },
-                      ),
-                    ],
-                  );
-                }),
-                ListTile(
-                  leading: const Icon(Icons.info_outline),
-                  title: const Text('群信息'),
-                  subtitle:
-                      Text('创建者: ${_session.creatorId.substring(0, 8)}...'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                  },
-                ),
-              ],
+                          },
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.timer_outlined),
+                          title: const Text('自动接话间隔（按角色）'),
+                          subtitle: const Text('为每个角色设置独立接话冷却时间'),
+                          trailing: const Icon(Icons.chevron_right, size: 18),
+                          onTap: () => _showCharacterAutoModeDelayPicker(),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.block),
+                          title: const Text('禁言成员'),
+                          subtitle: Text(_session.disabledMemberIds.isEmpty
+                              ? '无'
+                              : '${_session.disabledMemberIds.length} 人被禁言'),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _showMuteMembersPicker();
+                          },
+                        ),
+                      ],
+                    );
+                  }),
+                  ListTile(
+                    leading: const Icon(Icons.info_outline),
+                    title: const Text('群信息'),
+                    subtitle:
+                        Text('创建者: ${_session.creatorId.substring(0, 8)}...'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                    },
+                  ),
+                ],
               ),
             ),
           ),
@@ -1219,6 +1380,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     int? autoModeDelay,
     bool? autoModeEnabled,
     List<String>? disabledMemberIds,
+    Map<String, int>? autoModeDelaysByCharacter,
   }) {
     context.read<GroupChatBloc>().add(GroupChatUpdateConfig(
           groupId: _groupId,
@@ -1228,6 +1390,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           autoModeDelay: autoModeDelay,
           autoModeEnabled: autoModeEnabled,
           disabledMemberIds: disabledMemberIds,
+          autoModeDelaysByCharacter: autoModeDelaysByCharacter,
         ));
   }
 
@@ -1300,6 +1463,55 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     ).then((d) {
       if (d != null) _dispatchConfig(autoModeDelay: d);
     });
+  }
+
+  Future<void> _showCharacterAutoModeDelayPicker() async {
+    final chars = await _loadMemberCharacters(_session);
+    if (!mounted) return;
+    final delays = Map<String, int>.from(_session.autoModeDelaysByCharacter);
+    final result = await showDialog<Map<String, int>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: const Text('角色自动接话间隔'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: chars.map((character) {
+                final current = delays[character.id] ?? _session.autoModeDelay;
+                return ListTile(
+                  dense: true,
+                  title: Text(character.name),
+                  subtitle: Text('$current 秒'),
+                  trailing: DropdownButton<int>(
+                    value: current,
+                    items: [5, 10, 15, 20, 30]
+                        .map((v) =>
+                            DropdownMenuItem(value: v, child: Text('$v 秒')))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setDialog(() => delays[character.id] = v);
+                    },
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, delays),
+                child: const Text('保存')),
+          ],
+        ),
+      ),
+    );
+    if (result != null) {
+      setState(() =>
+          _session = _session.copyWith(autoModeDelaysByCharacter: result));
+      _dispatchConfig(autoModeDelaysByCharacter: result);
+    }
   }
 
   void _showMuteMembersPicker() {
@@ -1385,9 +1597,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 else
                   ...branches.map((b) => ListTile(
                         title: Text(b.name),
-                        subtitle: Text(b.branchId == _session.chatId
-                            ? '当前'
-                            : ''),
+                        subtitle:
+                            Text(b.branchId == _session.chatId ? '当前' : ''),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -1396,9 +1607,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                               tooltip: '切换到此记录',
                               onPressed: b.branchId == _session.chatId
                                   ? null
-                                  : () => context
-                                      .read<GroupChatBloc>()
-                                      .add(GroupChatSwitchBranch(
+                                  : () => context.read<GroupChatBloc>().add(
+                                      GroupChatSwitchBranch(
                                           groupId: _groupId,
                                           chatId: b.branchId)),
                             ),
@@ -1407,9 +1617,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                               tooltip: '删除记录',
                               onPressed: branches.length <= 1
                                   ? null
-                                  : () => context
-                                      .read<GroupChatBloc>()
-                                      .add(GroupChatDeleteBranch(
+                                  : () => context.read<GroupChatBloc>().add(
+                                      GroupChatDeleteBranch(
                                           groupId: _groupId,
                                           chatId: b.branchId)),
                             ),
@@ -1442,16 +1651,16 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () =>
-                Navigator.pop(ctx, controller.text.trim()),
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
             child: const Text('创建'),
           ),
         ],
       ),
     ).then((name) {
       if (name != null && name.isNotEmpty) {
-        context.read<GroupChatBloc>().add(
-            GroupChatCreateBranch(groupId: _groupId, name: name));
+        context
+            .read<GroupChatBloc>()
+            .add(GroupChatCreateBranch(groupId: _groupId, name: name));
       }
     });
   }
@@ -1567,8 +1776,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                             : Theme.of(ctx).colorScheme.primary,
                       ),
                 ),
-                title: Text(
-                    isAi ? 'AI 角色' : (memberId == 'local_user' ? '我' : memberId)),
+                title: Text(isAi
+                    ? 'AI 角色'
+                    : (memberId == 'local_user' ? '我' : memberId)),
                 subtitle: Text(isAi ? 'AI' : '用户'),
                 trailing: isAi && memberId != 'local_user'
                     ? IconButton(
@@ -1576,8 +1786,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                             size: 18, color: Color(0xFFE53935)),
                         tooltip: '移出群聊',
                         onPressed: () {
-                          context.read<GroupChatBloc>().add(
-                              GroupChatRemoveMember(_groupId, memberId));
+                          context
+                              .read<GroupChatBloc>()
+                              .add(GroupChatRemoveMember(_groupId, memberId));
                           Navigator.pop(ctx);
                         },
                       )
@@ -1600,13 +1811,12 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     showDialog(
       context: context,
       builder: (ctx) => FutureBuilder<List<AICharacter>>(
-        future:
-            RepositoryProvider.of<LocalStorageRepository>(ctx).getAllAICharacters(),
+        future: RepositoryProvider.of<LocalStorageRepository>(ctx)
+            .getAllAICharacters(),
         builder: (ctx, snap) {
           final all = snap.data ?? <AICharacter>[];
           final inGroup = _session.aiCharacterIds.toSet();
-          final candidates =
-              all.where((c) => !inGroup.contains(c.id)).toList();
+          final candidates = all.where((c) => !inGroup.contains(c.id)).toList();
 
           return AlertDialog(
             title: const Text('邀请 AI 角色'),
@@ -1633,8 +1843,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                               : ch.personality),
                           trailing: const Icon(Icons.add, size: 20),
                           onTap: () {
-                            context.read<GroupChatBloc>().add(
-                                GroupChatAddMember(_groupId, ch.id));
+                            context
+                                .read<GroupChatBloc>()
+                                .add(GroupChatAddMember(_groupId, ch.id));
                             Navigator.pop(ctx);
                           },
                         );
@@ -1658,7 +1869,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除群聊'),
-        content: Text('确定要删除群聊"${_session.name}"吗？此操作不可撤销。'),
+        content: Text('确定要从消息页隐藏群聊"${_session.name}"吗？群聊和历史内容会保留，可在联系人中继续查看。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -1667,7 +1878,10 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              context.read<GroupChatBloc>().add(GroupChatDelete(_groupId));
+              context.read<GroupChatBloc>().add(GroupChatUpdateSession(
+                    groupId: _groupId,
+                    isHidden: true,
+                  ));
               if (context.mounted) {
                 Navigator.pop(context, true);
               }
@@ -1761,38 +1975,3 @@ class _TypingIndicator extends StatelessWidget {
     );
   }
 }
-
-/// 先横向、再向上直角弯折 90° 的箭头（箭头尖朝上）
-class _SendArrowPainter extends CustomPainter {
-  const _SendArrowPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 2.2
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
-
-    final w = size.width;
-    final h = size.height;
-    final path = Path();
-    // 横向线段
-    path.moveTo(2, h - 4);
-    path.lineTo(w - 4, h - 4);
-    // 右端向上直角弯折 90°
-    path.lineTo(w - 4, 6);
-    // 箭头尖朝上（左右两条斜线）
-    path.moveTo(w - 4, 6);
-    path.lineTo(w - 9.5, 2);
-    path.moveTo(w - 4, 6);
-    path.lineTo(w + 1.5, 2);
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-

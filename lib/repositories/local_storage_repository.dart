@@ -47,8 +47,11 @@ import '../models/device_agent_action.dart';
 import '../models/novel.dart';
 import '../models/group_chat_session.dart';
 import '../models/group_chat_message.dart';
+import '../models/group_chat_summary.dart';
+import '../models/group_public_event_memory.dart';
 import '../models/group_chat_branch.dart';
 import '../services/bt_operation_lock_service.dart';
+import '../services/group_chat_rolling_summary.dart';
 import '../config/business_rules.dart';
 import '../config/constants.dart';
 import '../utils/global_mode_prompt.dart';
@@ -188,11 +191,13 @@ class LocalStorageRepository {
       ValueNotifier<String?>(null); // 'light'/'dark'/'system'/null
   bool _isWeb = false;
   Timer? _syncTimer;
+  LocalStorageRepository({bool? isWeb}) : _isWeb = isWeb ?? kIsWeb;
+
   Future<void> initialize() async {
     _prefs = await SharedPreferences.getInstance();
     pureAiModeNotifier.value =
         _prefs?.getBool(PrefKeys.pureAiModeEnabled) ?? false;
-    _isWeb = kIsWeb;
+    _isWeb = _isWeb || kIsWeb;
     if (!_isWeb) {
       _database = await _initDatabase();
       await _validateDatabaseIntegrity(_database!);
@@ -395,6 +400,8 @@ class LocalStorageRepository {
       'translatedSettings': 'TEXT',
       'immutableAnchor': 'TEXT',
       'deviationRadius': 'REAL NOT NULL DEFAULT 0.4',
+      'talkativeness': 'REAL NOT NULL DEFAULT 0.5',
+      'colorHex': 'TEXT',
       'evolutionEnabled': 'INTEGER NOT NULL DEFAULT 1',
       'qualitativeEvolutionEnabled': 'INTEGER NOT NULL DEFAULT 0',
       'currentAnchor': 'TEXT',
@@ -935,6 +942,30 @@ class LocalStorageRepository {
       'status': 'TEXT NOT NULL DEFAULT "sent"',
       'metadata': 'TEXT',
     },
+    'group_chat_summaries': {
+      'groupId': 'TEXT NOT NULL DEFAULT ""',
+      'chatId': 'TEXT NOT NULL DEFAULT ""',
+      'summary': 'TEXT NOT NULL DEFAULT ""',
+      'messageCount': 'INTEGER NOT NULL DEFAULT 0',
+      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
+    },
+    'group_public_event_memories': {
+      'id': 'TEXT PRIMARY KEY',
+      'characterId': 'TEXT NOT NULL DEFAULT ""',
+      'groupId': 'TEXT NOT NULL DEFAULT ""',
+      'chatId': 'TEXT NOT NULL DEFAULT ""',
+      'content': 'TEXT NOT NULL DEFAULT ""',
+      'keywords': 'TEXT NOT NULL DEFAULT "[]"',
+      'sourceMessageIds': 'TEXT NOT NULL DEFAULT "[]"',
+      'speakerNames': 'TEXT NOT NULL DEFAULT "[]"',
+      'metadata': 'TEXT',
+      'sourceGroupName': 'TEXT',
+      'importance': 'TEXT NOT NULL DEFAULT "normal"',
+      'pinned': 'INTEGER NOT NULL DEFAULT 0',
+      'weight': 'REAL NOT NULL DEFAULT 1.0',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'lastRecalledAt': 'TEXT',
+    },
   };
 
   /// 修复 isUser 字段：根据 senderId 修正因迁移导致的默认值错误
@@ -959,8 +990,8 @@ class LocalStorageRepository {
           if (!existingCols.contains(colName)) {
             debugPrint('[schema] add column: $table.$colName ($colDef)');
             try {
-              await db.execute(
-                  'ALTER TABLE $table ADD COLUMN $colName $colDef');
+              await db
+                  .execute('ALTER TABLE $table ADD COLUMN $colName $colDef');
               if (colName == 'isUser' && table == 'chat_messages') {
                 needsIsUserRepair = true;
               }
@@ -1130,18 +1161,30 @@ class LocalStorageRepository {
           notice TEXT,
           createdAt TEXT NOT NULL DEFAULT '',
           updatedAt TEXT,
-          sync_seq INTEGER NOT NULL DEFAULT 0
-        ) ''');
+      sync_seq INTEGER NOT NULL DEFAULT 0
+     ) ''');
+        await _addColumnIfNotExists(db, 'group_chat_sessions', 'autoModeDelay',
+            'INTEGER NOT NULL DEFAULT 5');
+        await _addColumnIfNotExists(db, 'group_chat_sessions',
+            'autoModeEnabled', 'INTEGER NOT NULL DEFAULT 0');
+        await _addColumnIfNotExists(db, 'group_chat_sessions',
+            'autoModeDelaysByCharacter', "TEXT NOT NULL DEFAULT '{}'");
         // 兼容旧表缺少 userId 列的情况（老版本建的表可能含 userId 或缺失）
         await _addColumnIfNotExists(
             db, 'group_chat_sessions', 'userId', 'TEXT NOT NULL DEFAULT ""');
         // 兼容旧表缺少 creatorId 列的情况（v56 之前创建的旧表无此列）
         await _addColumnIfNotExists(
             db, 'group_chat_sessions', 'creatorId', 'TEXT NOT NULL DEFAULT ""');
-        await _addColumnIfNotExists(
-            db, 'group_chat_sessions', 'sync_seq', 'INTEGER NOT NULL DEFAULT 0');
+        await _addColumnIfNotExists(db, 'group_chat_sessions', 'sync_seq',
+            'INTEGER NOT NULL DEFAULT 0');
         await _addColumnIfNotExists(
             db, 'group_chat_sessions', 'notice', 'TEXT');
+        await _addColumnIfNotExists(db, 'group_chat_sessions', 'autoModeDelay',
+            'INTEGER NOT NULL DEFAULT 5');
+        await _addColumnIfNotExists(db, 'group_chat_sessions',
+            'autoModeEnabled', 'INTEGER NOT NULL DEFAULT 0');
+        await _addColumnIfNotExists(db, 'group_chat_sessions',
+            'autoModeDelaysByCharacter', "TEXT NOT NULL DEFAULT '{}'");
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_gc_sessions_creator ON group_chat_sessions(creatorId)');
         await db.execute(
@@ -1175,6 +1218,30 @@ class LocalStorageRepository {
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_gc_branches_group ON group_chat_branches(groupId)');
         break;
+      case 'group_chat_summaries':
+        await db.execute('''CREATE TABLE IF NOT EXISTS group_chat_summaries (
+          groupId TEXT NOT NULL,
+          chatId TEXT NOT NULL,
+          summary TEXT NOT NULL DEFAULT '',
+          messageCount INTEGER NOT NULL DEFAULT 0,
+          updatedAt TEXT NOT NULL DEFAULT '',
+          PRIMARY KEY (groupId, chatId)
+        )''');
+        break;
+      case 'group_public_event_memories':
+        await db
+            .execute('''CREATE TABLE IF NOT EXISTS group_public_event_memories (
+          id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '',
+          groupId TEXT NOT NULL DEFAULT '', chatId TEXT NOT NULL DEFAULT '',
+          content TEXT NOT NULL DEFAULT '', keywords TEXT NOT NULL DEFAULT '[]',
+          sourceMessageIds TEXT NOT NULL DEFAULT '[]', speakerNames TEXT NOT NULL DEFAULT '[]',
+          metadata TEXT, sourceGroupName TEXT, importance TEXT NOT NULL DEFAULT 'normal',
+          pinned INTEGER NOT NULL DEFAULT 0, weight REAL NOT NULL DEFAULT 1.0,
+          createdAt TEXT NOT NULL DEFAULT '', lastRecalledAt TEXT
+        )''');
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_group_public_events_scope ON group_public_event_memories(characterId, groupId, chatId)');
+        break;
     }
   }
 
@@ -1203,12 +1270,34 @@ class LocalStorageRepository {
       if (exists.isEmpty) return;
 
       const allCols = [
-        'id', 'userId', 'name', 'avatarUrl', 'memberIds', 'aiCharacterIds',
-        'creatorId', 'lastMessage', 'lastMessageTime', 'unreadCount',
-        'createdAt', 'updatedAt', 'isMuted', 'isPinned', 'backgroundImage',
-        'notice', 'sync_seq', 'chatId', 'activationStrategy', 'generationMode',
-        'allowSelfResponses', 'disabledMemberIds', 'autoModeDelay',
-        'autoModeEnabled', 'joinPrefix', 'joinSuffix',
+        'id',
+        'userId',
+        'name',
+        'avatarUrl',
+        'memberIds',
+        'aiCharacterIds',
+        'creatorId',
+        'lastMessage',
+        'lastMessageTime',
+        'unreadCount',
+        'createdAt',
+        'updatedAt',
+        'isMuted',
+        'isPinned',
+        'backgroundImage',
+        'notice',
+        'sync_seq',
+        'chatId',
+        'activationStrategy',
+        'generationMode',
+        'allowSelfResponses',
+        'disabledMemberIds',
+        'autoModeDelay',
+        'autoModeEnabled',
+        'autoModeDelaysByCharacter',
+        'joinPrefix',
+        'joinSuffix',
+        'isHidden',
       ];
 
       await db.execute('DROP TABLE IF EXISTS group_chat_sessions_bak');
@@ -1240,14 +1329,16 @@ class LocalStorageRepository {
         disabledMemberIds TEXT NOT NULL DEFAULT '[]',
         autoModeDelay INTEGER NOT NULL DEFAULT 5,
         autoModeEnabled INTEGER NOT NULL DEFAULT 0,
+        isHidden INTEGER NOT NULL DEFAULT 0,
+        autoModeDelaysByCharacter TEXT NOT NULL DEFAULT '{}',
         joinPrefix TEXT NOT NULL DEFAULT '',
         joinSuffix TEXT NOT NULL DEFAULT ''
       ) ''');
 
-      final bakCols = (await db
-              .rawQuery('PRAGMA table_info(group_chat_sessions_bak)'))
-          .map((r) => r['name'] as String)
-          .toSet();
+      final bakCols =
+          (await db.rawQuery('PRAGMA table_info(group_chat_sessions_bak)'))
+              .map((r) => r['name'] as String)
+              .toSet();
       final cols = allCols.where(bakCols.contains).toList();
       if (cols.isNotEmpty) {
         final colList = cols.join(',');
@@ -1287,6 +1378,8 @@ class LocalStorageRepository {
               return 'COALESCE(autoModeDelay, 5)';
             case 'autoModeEnabled':
               return 'COALESCE(autoModeEnabled, 0)';
+            case 'autoModeDelaysByCharacter':
+              return "COALESCE(autoModeDelaysByCharacter, '{}')";
             case 'joinPrefix':
               return "COALESCE(joinPrefix, '')";
             case 'joinSuffix':
@@ -1499,7 +1592,8 @@ class LocalStorageRepository {
     if (oldVersion < 5) {
       await _addColumnIfNotExists(
           db, 'chat_sessions', 'isPinned', 'INTEGER NOT NULL DEFAULT 0');
-      await _addColumnIfNotExists(db, 'chat_sessions', 'backgroundImage', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'backgroundImage', 'TEXT');
     }
     if (oldVersion < 6) {
       await _addColumnIfNotExists(db, 'users', 'gender', 'TEXT');
@@ -1524,9 +1618,10 @@ class LocalStorageRepository {
       await _addColumnIfNotExists(db, 'users', 'status', 'TEXT');
     }
     if (oldVersion < 10) {
+      await _addColumnIfNotExists(db, 'chat_sessions', 'dailyIntimacyCount',
+          'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfNotExists(
-          db, 'chat_sessions', 'dailyIntimacyCount', 'INTEGER NOT NULL DEFAULT 0');
-      await _addColumnIfNotExists(db, 'chat_sessions', 'lastIntimacyDate', 'TEXT');
+          db, 'chat_sessions', 'lastIntimacyDate', 'TEXT');
     }
     if (oldVersion < 11) {
       await _addColumnIfNotExists(
@@ -1535,7 +1630,8 @@ class LocalStorageRepository {
       await _addColumnIfNotExists(db, 'ai_characters', 'lastOnlineAt', 'TEXT');
       await _addColumnIfNotExists(
           db, 'chat_sessions', 'aiIsOnline', 'INTEGER NOT NULL DEFAULT 1');
-      await _addColumnIfNotExists(db, 'chat_sessions', 'aiCurrentStatus', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'aiCurrentStatus', 'TEXT');
     }
     if (oldVersion < 12) {
       await db.execute(
@@ -1647,8 +1743,8 @@ class LocalStorageRepository {
       await _addColumnIfNotExists(db, 'users', 'currentWeather', 'TEXT');
       await _addColumnIfNotExists(db, 'users', 'lastWeatherUpdate', 'TEXT');
       await _addColumnIfNotExists(db, 'ai_characters', 'avatarGif', 'TEXT');
-      await _addColumnIfNotExists(
-          db, 'ai_characters', 'autoReplyStickers', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'ai_characters', 'autoReplyStickers',
+          'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfNotExists(
           db, 'ai_characters', 'translatedSettings', 'TEXT');
       await _addColumnIfNotExists(db, 'chat_messages', 'pokeSuffix', 'TEXT');
@@ -1660,13 +1756,14 @@ class LocalStorageRepository {
           db, 'moments', 'aiLiked', 'INTEGER NOT NULL DEFAULT 0');
     }
     if (oldVersion < 27) {
-      await _addColumnIfNotExists(db, 'ai_characters', 'immutableAnchor', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'ai_characters', 'immutableAnchor', 'TEXT');
       await _addColumnIfNotExists(
           db, 'ai_characters', 'deviationRadius', 'REAL NOT NULL DEFAULT 0.4');
-      await _addColumnIfNotExists(
-          db, 'ai_characters', 'evolutionEnabled', 'INTEGER NOT NULL DEFAULT 1');
-      await _addColumnIfNotExists(
-          db, 'ai_characters', 'qualitativeEvolutionEnabled', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'ai_characters', 'evolutionEnabled',
+          'INTEGER NOT NULL DEFAULT 1');
+      await _addColumnIfNotExists(db, 'ai_characters',
+          'qualitativeEvolutionEnabled', 'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfNotExists(db, 'ai_characters', 'currentAnchor', 'TEXT');
       await db.execute(
           ''' CREATE TABLE IF NOT EXISTS growth_events ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '', userId TEXT NOT NULL DEFAULT '', triggerType TEXT NOT NULL DEFAULT 'micro', evolutionMode TEXT NOT NULL DEFAULT 'micro', triggerData TEXT NOT NULL DEFAULT '{}', deltas TEXT NOT NULL DEFAULT '{}', impactScore REAL NOT NULL DEFAULT 0, reason TEXT, createdAt TEXT NOT NULL DEFAULT '' ) ''');
@@ -1868,8 +1965,8 @@ class LocalStorageRepository {
     }
     if (oldVersion < 51) {
       // 虚拟手机「生活推进」增量追踪列（首次全量后，跟随关系缓慢生长）
-      await _addColumnIfNotExists(
-          db, 'virtual_phones', 'lastAdvanceMsgCount', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'virtual_phones', 'lastAdvanceMsgCount',
+          'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfNotExists(
           db, 'virtual_phones', 'lastAdvanceAt', 'TEXT');
     }
@@ -1918,8 +2015,7 @@ class LocalStorageRepository {
     }
     if (oldVersion < 57) {
       // v57: chat_sessions 增加 lastOnlineAt 字段（在线状态最后活跃时间）
-      await _addColumnIfNotExists(
-          db, 'chat_sessions', 'lastOnlineAt', 'TEXT');
+      await _addColumnIfNotExists(db, 'chat_sessions', 'lastOnlineAt', 'TEXT');
       debugPrint(' v57 迁移: chat_sessions.lastOnlineAt 已添加');
     }
     if (oldVersion < 58) {
@@ -1945,8 +2041,7 @@ class LocalStorageRepository {
           db, 'chat_sessions', 'sync_seq', 'INTEGER DEFAULT 0');
       await _addColumnIfNotExists(
           db, 'chat_sessions', 'novelMode', 'INTEGER DEFAULT -1');
-      await _addColumnIfNotExists(
-          db, 'chat_sessions', 'lastOnlineAt', 'TEXT');
+      await _addColumnIfNotExists(db, 'chat_sessions', 'lastOnlineAt', 'TEXT');
       await _addColumnIfNotExists(
           db, 'chat_messages', 'sync_seq', 'INTEGER DEFAULT 0');
       await _addColumnIfNotExists(
@@ -1954,7 +2049,8 @@ class LocalStorageRepository {
       await _addColumnIfNotExists(db, 'chat_messages', 'pokeSuffix', 'TEXT');
       await _addColumnIfNotExists(db, 'chat_messages', 'stickerId', 'TEXT');
       await _addColumnIfNotExists(db, 'chat_messages', 'stickerPath', 'TEXT');
-      await _addColumnIfNotExists(db, 'chat_messages', 'isUser', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'chat_messages', 'isUser', 'INTEGER DEFAULT 0');
       await _addColumnIfNotExists(
           db, 'chat_messages', 'isSystem', 'INTEGER DEFAULT 0');
       await _addColumnIfNotExists(
@@ -1967,16 +2063,14 @@ class LocalStorageRepository {
       await _addColumnIfNotExists(db, 'memories', 'lastAccessedAt', 'TEXT');
       await _addColumnIfNotExists(
           db, 'memories', 'accessCount', 'INTEGER DEFAULT 0');
-      await _addColumnIfNotExists(
-          db, 'memories', 'weight', 'REAL DEFAULT 1.0');
+      await _addColumnIfNotExists(db, 'memories', 'weight', 'REAL DEFAULT 1.0');
       await _addColumnIfNotExists(
           db, 'memories', 'pinned', 'INTEGER DEFAULT 0');
       await _addColumnIfNotExists(db, 'memories', 'lastRecalledAt', 'TEXT');
       await _addColumnIfNotExists(
           db, 'memories', 'sync_seq', 'INTEGER DEFAULT 0');
       // moments：早期表只有基础字段，X 风格扩展列必须补齐
-      await _addColumnIfNotExists(
-          db, 'moments', 'source', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(db, 'moments', 'source', 'INTEGER DEFAULT 0');
       await _addColumnIfNotExists(
           db, 'moments', 'sync_seq', 'INTEGER DEFAULT 0');
       await _addColumnIfNotExists(db, 'moments', 'replyToCommentId', 'TEXT');
@@ -2064,16 +2158,20 @@ class LocalStorageRepository {
           db, 'group_chat_sessions', 'chatId', 'TEXT NOT NULL DEFAULT ""');
       await _addColumnIfNotExists(db, 'group_chat_sessions',
           'activationStrategy', 'INTEGER NOT NULL DEFAULT 0');
-      await _addColumnIfNotExists(
-          db, 'group_chat_sessions', 'generationMode', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'group_chat_sessions', 'generationMode',
+          'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfNotExists(db, 'group_chat_sessions',
           'allowSelfResponses', 'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfNotExists(db, 'group_chat_sessions',
           'disabledMemberIds', 'TEXT NOT NULL DEFAULT "[]"');
+      await _addColumnIfNotExists(db, 'group_chat_sessions', 'autoModeDelay',
+          'INTEGER NOT NULL DEFAULT 5');
+      await _addColumnIfNotExists(db, 'group_chat_sessions', 'autoModeEnabled',
+          'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'group_chat_sessions',
+          'autoModeDelaysByCharacter', "TEXT NOT NULL DEFAULT '{}'");
       await _addColumnIfNotExists(
-          db, 'group_chat_sessions', 'autoModeDelay', 'INTEGER NOT NULL DEFAULT 5');
-      await _addColumnIfNotExists(
-          db, 'group_chat_sessions', 'autoModeEnabled', 'INTEGER NOT NULL DEFAULT 0');
+          db, 'group_chat_sessions', 'isHidden', 'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfNotExists(
           db, 'group_chat_sessions', 'joinPrefix', 'TEXT NOT NULL DEFAULT ""');
       await _addColumnIfNotExists(
@@ -2094,12 +2192,15 @@ class LocalStorageRepository {
       final sessions = await db.query('group_chat_sessions');
       for (final row in sessions) {
         final gid = row['id'] as String;
-        await db.insert('group_chat_branches', {
-          'branchId': gid,
-          'groupId': gid,
-          'name': '默认聊天',
-          'createdAt': DateTime.now().toIso8601String(),
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        await db.insert(
+            'group_chat_branches',
+            {
+              'branchId': gid,
+              'groupId': gid,
+              'name': '默认聊天',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore);
         await db.rawUpdate(
             'UPDATE group_chat_sessions SET chatId = ? WHERE id = ? AND chatId = ""',
             [gid, gid]);
@@ -2142,7 +2243,6 @@ class LocalStorageRepository {
     await db.execute(
         ''' CREATE INDEX IF NOT EXISTS idx_vp_moments_phone ON vp_moments(phoneId) ''');
   }
-
 
   /// 小说模块两张表建表语句（_onCreate / 迁移 / createMissingTable 共用）
   static Future<void> _createNovelTables(Database db) async {
@@ -2363,6 +2463,8 @@ class LocalStorageRepository {
       senderId TEXT NOT NULL DEFAULT '',
       senderName TEXT,
       content TEXT NOT NULL DEFAULT '',
+      isUser INTEGER NOT NULL DEFAULT 0,
+      isSystem INTEGER NOT NULL DEFAULT 0,
       type TEXT NOT NULL DEFAULT 'text',
       status TEXT NOT NULL DEFAULT 'sent',
       createdAt TEXT NOT NULL DEFAULT '',
@@ -2371,6 +2473,8 @@ class LocalStorageRepository {
     ) ''');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_gc_msgs_group ON group_chat_messages(groupId, createdAt DESC)');
+    await createMissingTable(db, 'group_chat_summaries');
+    await createMissingTable(db, 'group_public_event_memories');
 
     // v65: 群聊分支表（多聊天记录）+ 引擎配置字段 + 话痨属性
     await createMissingTable(db, 'group_chat_branches');
@@ -2378,18 +2482,22 @@ class LocalStorageRepository {
         db, 'ai_characters', 'talkativeness', 'REAL NOT NULL DEFAULT 0.5');
     await _addColumnIfNotExists(
         db, 'group_chat_sessions', 'chatId', 'TEXT NOT NULL DEFAULT ""');
+    await _addColumnIfNotExists(db, 'group_chat_sessions', 'activationStrategy',
+        'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfNotExists(db, 'group_chat_sessions', 'generationMode',
+        'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfNotExists(db, 'group_chat_sessions', 'allowSelfResponses',
+        'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfNotExists(db, 'group_chat_sessions', 'disabledMemberIds',
+        'TEXT NOT NULL DEFAULT "[]"');
+    await _addColumnIfNotExists(db, 'group_chat_sessions', 'autoModeDelay',
+        'INTEGER NOT NULL DEFAULT 5');
+    await _addColumnIfNotExists(db, 'group_chat_sessions', 'autoModeEnabled',
+        'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfNotExists(db, 'group_chat_sessions',
+        'autoModeDelaysByCharacter', "TEXT NOT NULL DEFAULT '{}'");
     await _addColumnIfNotExists(
-        db, 'group_chat_sessions', 'activationStrategy', 'INTEGER NOT NULL DEFAULT 0');
-    await _addColumnIfNotExists(
-        db, 'group_chat_sessions', 'generationMode', 'INTEGER NOT NULL DEFAULT 0');
-    await _addColumnIfNotExists(
-        db, 'group_chat_sessions', 'allowSelfResponses', 'INTEGER NOT NULL DEFAULT 0');
-    await _addColumnIfNotExists(
-        db, 'group_chat_sessions', 'disabledMemberIds', 'TEXT NOT NULL DEFAULT "[]"');
-    await _addColumnIfNotExists(
-        db, 'group_chat_sessions', 'autoModeDelay', 'INTEGER NOT NULL DEFAULT 5');
-    await _addColumnIfNotExists(
-        db, 'group_chat_sessions', 'autoModeEnabled', 'INTEGER NOT NULL DEFAULT 0');
+        db, 'group_chat_sessions', 'isHidden', 'INTEGER NOT NULL DEFAULT 0');
     await _addColumnIfNotExists(
         db, 'group_chat_sessions', 'joinPrefix', 'TEXT NOT NULL DEFAULT ""');
     await _addColumnIfNotExists(
@@ -2474,12 +2582,10 @@ class LocalStorageRepository {
       final delta = amount;
       final updatedUser = user.copyWith(
         coins: (user.coins + delta).clamp(0, 999999999),
-        totalCoinsEarned: delta > 0
-            ? user.totalCoinsEarned + delta
-            : user.totalCoinsEarned,
-        totalCoinsSpent: delta < 0
-            ? user.totalCoinsSpent + (-delta)
-            : user.totalCoinsSpent,
+        totalCoinsEarned:
+            delta > 0 ? user.totalCoinsEarned + delta : user.totalCoinsEarned,
+        totalCoinsSpent:
+            delta < 0 ? user.totalCoinsSpent + (-delta) : user.totalCoinsSpent,
       );
       await saveUser(updatedUser);
     } catch (e) {
@@ -4192,8 +4298,8 @@ class LocalStorageRepository {
           await _addColumnIfNotExists(db, 'memories', 'lastRecalledAt', 'TEXT');
           await _addColumnIfNotExists(
               db, 'memories', 'sync_seq', 'INTEGER DEFAULT 0');
-          final map = await _filterMapToExistingColumns(
-              db, 'memories', memory.toMap());
+          final map =
+              await _filterMapToExistingColumns(db, 'memories', memory.toMap());
           await db.insert(
             'memories',
             map,
@@ -4263,7 +4369,7 @@ class LocalStorageRepository {
       );
       return maps.map((map) => Memory.fromMap(map)).toList();
     }
-    }
+  }
 
   /// 按类型统计记忆数量（高性能，只做 COUNT，不加 LIMIT）
   Future<Map<MemoryType?, int>> getMemoryCountByType({
@@ -4271,7 +4377,8 @@ class LocalStorageRepository {
     required String userId,
   }) async {
     if (_isWeb) {
-      final ids = _prefs?.getStringList('memory_ids_${characterId}_$userId') ?? [];
+      final ids =
+          _prefs?.getStringList('memory_ids_${characterId}_$userId') ?? [];
       final countByType = <MemoryType?, int>{null: ids.length};
       for (final id in ids) {
         final data = _prefs?.getString('memory_$id');
@@ -4298,7 +4405,9 @@ class LocalStorageRepository {
     );
     for (final row in typeRows) {
       final typeIdx = row['type'] as int?;
-      if (typeIdx != null && typeIdx >= 0 && typeIdx < MemoryType.values.length) {
+      if (typeIdx != null &&
+          typeIdx >= 0 &&
+          typeIdx < MemoryType.values.length) {
         result[MemoryType.values[typeIdx]] = row['cnt'] as int? ?? 0;
       }
     }
@@ -4573,8 +4682,7 @@ class LocalStorageRepository {
     if (color == null) {
       await _prefs?.remove(PrefKeys.novelDialogueColor);
     } else {
-      await _prefs?.setString(
-          PrefKeys.novelDialogueColor,
+      await _prefs?.setString(PrefKeys.novelDialogueColor,
           color.toARGB32().toRadixString(16).padLeft(8, '0'));
     }
     modeSettingsNotifier.value++;
@@ -5615,9 +5723,8 @@ class LocalStorageRepository {
   Future<List<StoryBook>> getStoryBooks(String userId,
       {bool includeArchived = false}) async {
     final db = await _ensureDb();
-    final where = includeArchived
-        ? 'userId = ?'
-        : 'userId = ? AND isArchived = 0';
+    final where =
+        includeArchived ? 'userId = ?' : 'userId = ? AND isArchived = 0';
     final maps = await db.query('story_books',
         where: where, whereArgs: [userId], orderBy: 'updatedAt DESC');
     return maps.map((m) => StoryBook.fromMap(m)).toList();
@@ -5968,40 +6075,220 @@ class LocalStorageRepository {
   List<ShopItem> _seedShopItems() {
     return const [
       // ═══ 礼物类 ═══
-      ShopItem(id: 'gift_01', name: '棒棒糖', category: 'gift', price: 10, emoji: '🍭', description: '甜蜜的奖励'),
-      ShopItem(id: 'gift_02', name: '小熊', category: 'gift', price: 50, emoji: '🧸', description: '毛茸茸的陪伴'),
-      ShopItem(id: 'gift_03', name: '玫瑰', category: 'gift', price: 30, emoji: '🌹', description: '浪漫的表达'),
-      ShopItem(id: 'gift_04', name: '巧克力', category: 'gift', price: 25, emoji: '🍫', description: '丝滑的心意'),
-      ShopItem(id: 'gift_05', name: '水晶', category: 'gift', price: 100, emoji: '💎', description: '永恒的珍藏'),
-      ShopItem(id: 'gift_06', name: '故事书', category: 'gift', price: 40, emoji: '📖', description: '共同的回忆'),
-      ShopItem(id: 'gift_07', name: '音乐盒', category: 'gift', price: 60, emoji: '🎵', description: '旋律的礼物'),
-      ShopItem(id: 'gift_08', name: '樱花', category: 'gift', price: 35, emoji: '🌸', description: '春日的气息'),
-      ShopItem(id: 'gift_09', name: '水晶球', category: 'gift', price: 80, emoji: '🔮', description: '梦幻的回忆'),
-      ShopItem(id: 'gift_10', name: '爱心', category: 'gift', price: 15, emoji: '💕', description: '满满的爱意'),
+      ShopItem(
+          id: 'gift_01',
+          name: '棒棒糖',
+          category: 'gift',
+          price: 10,
+          emoji: '🍭',
+          description: '甜蜜的奖励'),
+      ShopItem(
+          id: 'gift_02',
+          name: '小熊',
+          category: 'gift',
+          price: 50,
+          emoji: '🧸',
+          description: '毛茸茸的陪伴'),
+      ShopItem(
+          id: 'gift_03',
+          name: '玫瑰',
+          category: 'gift',
+          price: 30,
+          emoji: '🌹',
+          description: '浪漫的表达'),
+      ShopItem(
+          id: 'gift_04',
+          name: '巧克力',
+          category: 'gift',
+          price: 25,
+          emoji: '🍫',
+          description: '丝滑的心意'),
+      ShopItem(
+          id: 'gift_05',
+          name: '水晶',
+          category: 'gift',
+          price: 100,
+          emoji: '💎',
+          description: '永恒的珍藏'),
+      ShopItem(
+          id: 'gift_06',
+          name: '故事书',
+          category: 'gift',
+          price: 40,
+          emoji: '📖',
+          description: '共同的回忆'),
+      ShopItem(
+          id: 'gift_07',
+          name: '音乐盒',
+          category: 'gift',
+          price: 60,
+          emoji: '🎵',
+          description: '旋律的礼物'),
+      ShopItem(
+          id: 'gift_08',
+          name: '樱花',
+          category: 'gift',
+          price: 35,
+          emoji: '🌸',
+          description: '春日的气息'),
+      ShopItem(
+          id: 'gift_09',
+          name: '水晶球',
+          category: 'gift',
+          price: 80,
+          emoji: '🔮',
+          description: '梦幻的回忆'),
+      ShopItem(
+          id: 'gift_10',
+          name: '爱心',
+          category: 'gift',
+          price: 15,
+          emoji: '💕',
+          description: '满满的爱意'),
 
       // ═══ 外卖类 ═══
-      ShopItem(id: 'food_01', name: '奶茶', category: 'food', price: 20, emoji: '🧋', description: '温暖的下午茶'),
-      ShopItem(id: 'food_02', name: '蛋糕', category: 'food', price: 35, emoji: '🎂', description: '甜蜜的庆祝'),
-      ShopItem(id: 'food_03', name: '鸡腿', category: 'food', price: 18, emoji: '🍗', description: '香喷喷的美食'),
-      ShopItem(id: 'food_04', name: '火锅', category: 'food', price: 50, emoji: '🍲', description: '热腾腾的团圆'),
-      ShopItem(id: 'food_05', name: '寿司', category: 'food', price: 45, emoji: '🍣', description: '精致的一餐'),
-      ShopItem(id: 'food_06', name: '冰淇淋', category: 'food', price: 15, emoji: '🍦', description: '清凉的享受'),
-      ShopItem(id: 'food_07', name: '水果', category: 'food', price: 25, emoji: '🍎', description: '健康的选择'),
-      ShopItem(id: 'food_08', name: '烧烤', category: 'food', price: 40, emoji: '🍖', description: '烟火气的美味'),
-      ShopItem(id: 'food_09', name: '披萨', category: 'food', price: 38, emoji: '🍕', description: '分享的快乐'),
-      ShopItem(id: 'food_10', name: '饺子', category: 'food', price: 22, emoji: '🥟', description: '家的味道'),
+      ShopItem(
+          id: 'food_01',
+          name: '奶茶',
+          category: 'food',
+          price: 20,
+          emoji: '🧋',
+          description: '温暖的下午茶'),
+      ShopItem(
+          id: 'food_02',
+          name: '蛋糕',
+          category: 'food',
+          price: 35,
+          emoji: '🎂',
+          description: '甜蜜的庆祝'),
+      ShopItem(
+          id: 'food_03',
+          name: '鸡腿',
+          category: 'food',
+          price: 18,
+          emoji: '🍗',
+          description: '香喷喷的美食'),
+      ShopItem(
+          id: 'food_04',
+          name: '火锅',
+          category: 'food',
+          price: 50,
+          emoji: '🍲',
+          description: '热腾腾的团圆'),
+      ShopItem(
+          id: 'food_05',
+          name: '寿司',
+          category: 'food',
+          price: 45,
+          emoji: '🍣',
+          description: '精致的一餐'),
+      ShopItem(
+          id: 'food_06',
+          name: '冰淇淋',
+          category: 'food',
+          price: 15,
+          emoji: '🍦',
+          description: '清凉的享受'),
+      ShopItem(
+          id: 'food_07',
+          name: '水果',
+          category: 'food',
+          price: 25,
+          emoji: '🍎',
+          description: '健康的选择'),
+      ShopItem(
+          id: 'food_08',
+          name: '烧烤',
+          category: 'food',
+          price: 40,
+          emoji: '🍖',
+          description: '烟火气的美味'),
+      ShopItem(
+          id: 'food_09',
+          name: '披萨',
+          category: 'food',
+          price: 38,
+          emoji: '🍕',
+          description: '分享的快乐'),
+      ShopItem(
+          id: 'food_10',
+          name: '饺子',
+          category: 'food',
+          price: 22,
+          emoji: '🥟',
+          description: '家的味道'),
 
       // ═══ 快递类 ═══
-      ShopItem(id: 'express_01', name: '手套', category: 'express', price: 30, emoji: '🧤', description: '冬日的温暖'),
-      ShopItem(id: 'express_02', name: '围巾', category: 'express', price: 45, emoji: '🧣', description: '贴心的呵护'),
-      ShopItem(id: 'express_03', name: '书籍', category: 'express', price: 35, emoji: '📚', description: '知识的礼物'),
-      ShopItem(id: 'express_04', name: '情书', category: 'express', price: 20, emoji: '💌', description: '真挚的告白'),
-      ShopItem(id: 'express_05', name: '耳机', category: 'express', price: 80, emoji: '🎧', description: '音乐的陪伴'),
-      ShopItem(id: 'express_06', name: '香薰', category: 'express', price: 40, emoji: '🕯️', description: '放松的氛围'),
-      ShopItem(id: 'express_07', name: '拖鞋', category: 'express', price: 25, emoji: '🩴', description: '居家的舒适'),
-      ShopItem(id: 'express_08', name: '礼盒', category: 'express', price: 55, emoji: '🎁', description: '惊喜的包装'),
-      ShopItem(id: 'express_09', name: '星空灯', category: 'express', price: 70, emoji: '🌌', description: '梦幻的夜晚'),
-      ShopItem(id: 'express_10', name: '抱枕', category: 'express', price: 35, emoji: '🛋️', description: '柔软的依靠'),
+      ShopItem(
+          id: 'express_01',
+          name: '手套',
+          category: 'express',
+          price: 30,
+          emoji: '🧤',
+          description: '冬日的温暖'),
+      ShopItem(
+          id: 'express_02',
+          name: '围巾',
+          category: 'express',
+          price: 45,
+          emoji: '🧣',
+          description: '贴心的呵护'),
+      ShopItem(
+          id: 'express_03',
+          name: '书籍',
+          category: 'express',
+          price: 35,
+          emoji: '📚',
+          description: '知识的礼物'),
+      ShopItem(
+          id: 'express_04',
+          name: '情书',
+          category: 'express',
+          price: 20,
+          emoji: '💌',
+          description: '真挚的告白'),
+      ShopItem(
+          id: 'express_05',
+          name: '耳机',
+          category: 'express',
+          price: 80,
+          emoji: '🎧',
+          description: '音乐的陪伴'),
+      ShopItem(
+          id: 'express_06',
+          name: '香薰',
+          category: 'express',
+          price: 40,
+          emoji: '🕯️',
+          description: '放松的氛围'),
+      ShopItem(
+          id: 'express_07',
+          name: '拖鞋',
+          category: 'express',
+          price: 25,
+          emoji: '🩴',
+          description: '居家的舒适'),
+      ShopItem(
+          id: 'express_08',
+          name: '礼盒',
+          category: 'express',
+          price: 55,
+          emoji: '🎁',
+          description: '惊喜的包装'),
+      ShopItem(
+          id: 'express_09',
+          name: '星空灯',
+          category: 'express',
+          price: 70,
+          emoji: '🌌',
+          description: '梦幻的夜晚'),
+      ShopItem(
+          id: 'express_10',
+          name: '抱枕',
+          category: 'express',
+          price: 35,
+          emoji: '🛋️',
+          description: '柔软的依靠'),
     ];
   }
 
@@ -6901,7 +7188,8 @@ class LocalStorageRepository {
       return null;
     }
     final db = await _ensureDb();
-    final maps = await db.query('group_chat_sessions', where: 'id = ?', whereArgs: [id]);
+    final maps =
+        await db.query('group_chat_sessions', where: 'id = ?', whereArgs: [id]);
     if (maps.isEmpty) return null;
     return GroupChatSession.fromMap(maps.first);
   }
@@ -6909,7 +7197,11 @@ class LocalStorageRepository {
   /// 获取用户的所有群聊会话
   Future<List<GroupChatSession>> getGroupChatSessions(String userId) async {
     if (_isWeb) {
-      final keys = _prefs?.getKeys().where((k) => k.startsWith('gc_session_')).toList() ?? [];
+      final keys = _prefs
+              ?.getKeys()
+              .where((k) => k.startsWith('gc_session_'))
+              .toList() ??
+          [];
       final sessions = <GroupChatSession>[];
       for (final key in keys) {
         final data = _prefs?.getString(key);
@@ -6938,12 +7230,49 @@ class LocalStorageRepository {
   Future<void> deleteGroupChatSession(String groupId) async {
     if (_isWeb) {
       await _prefs?.remove('gc_session_$groupId');
+      final messageKeys = _prefs
+              ?.getKeys()
+              .where((key) => key.startsWith('gc_msg_'))
+              .toList() ??
+          [];
+      for (final key in messageKeys) {
+        final data = _prefs?.getString(key);
+        if (data == null) continue;
+        try {
+          if (GroupChatMessage.fromJson(jsonDecode(data)).groupId == groupId) {
+            await _prefs?.remove(key);
+          }
+        } catch (_) {}
+      }
+      await _deleteWebGroupChatSummaries(groupId);
+      final branchKeys = _prefs
+              ?.getKeys()
+              .where((key) => key.startsWith('group_branch_'))
+              .toList() ??
+          [];
+      for (final key in branchKeys) {
+        final data = _prefs?.getString(key);
+        if (data == null) continue;
+        try {
+          final branch = GroupChatBranch.fromMap(jsonDecode(data));
+          if (branch.groupId == groupId) await _prefs?.remove(key);
+        } catch (_) {}
+      }
+      await _deleteWebGroupPublicEvents(groupId: groupId);
       return;
     }
     final db = await _ensureDb();
-    await db.delete('group_chat_sessions', where: 'id = ?', whereArgs: [groupId]);
+    await db
+        .delete('group_chat_sessions', where: 'id = ?', whereArgs: [groupId]);
     // 级联删除消息
-    await db.delete('group_chat_messages', where: 'groupId = ?', whereArgs: [groupId]);
+    await db.delete('group_chat_messages',
+        where: 'groupId = ?', whereArgs: [groupId]);
+    await db.delete('group_chat_summaries',
+        where: 'groupId = ?', whereArgs: [groupId]);
+    await db.delete('group_chat_branches',
+        where: 'groupId = ?', whereArgs: [groupId]);
+    await db.delete('group_public_event_memories',
+        where: 'groupId = ?', whereArgs: [groupId]);
   }
 
   /// 保存群聊消息
@@ -6961,8 +7290,7 @@ class LocalStorageRepository {
   Future<List<GroupChatBranch>> getGroupChatBranches(String groupId) async {
     final db = await _ensureDb();
     final maps = await db.query('group_chat_branches',
-        where: 'groupId = ?', whereArgs: [groupId],
-        orderBy: 'createdAt ASC');
+        where: 'groupId = ?', whereArgs: [groupId], orderBy: 'createdAt ASC');
     return maps.map(GroupChatBranch.fromMap).toList();
   }
 
@@ -6990,10 +7318,34 @@ class LocalStorageRepository {
 
   /// 删除聊天记录（分支）及其中消息
   Future<void> deleteGroupChatBranch(String groupId, String branchId) async {
+    if (_isWeb) {
+      await deleteGroupChatSummary(groupId, branchId);
+      await _deleteWebGroupPublicEvents(groupId: groupId, chatId: branchId);
+      final messageKeys = _prefs
+              ?.getKeys()
+              .where((key) => key.startsWith('gc_msg_'))
+              .toList() ??
+          [];
+      for (final key in messageKeys) {
+        final data = _prefs?.getString(key);
+        if (data == null) continue;
+        try {
+          final message = GroupChatMessage.fromJson(jsonDecode(data));
+          if (message.groupId == groupId && message.chatId == branchId) {
+            await _prefs?.remove(key);
+          }
+        } catch (_) {}
+      }
+      return;
+    }
     final db = await _ensureDb();
     await db.delete('group_chat_branches',
         where: 'branchId = ?', whereArgs: [branchId]);
     await db.delete('group_chat_messages',
+        where: 'groupId = ? AND chatId = ?', whereArgs: [groupId, branchId]);
+    await db.delete('group_chat_summaries',
+        where: 'groupId = ? AND chatId = ?', whereArgs: [groupId, branchId]);
+    await db.delete('group_public_event_memories',
         where: 'groupId = ? AND chatId = ?', whereArgs: [groupId, branchId]);
   }
 
@@ -7001,7 +7353,9 @@ class LocalStorageRepository {
   Future<List<GroupChatMessage>> getGroupChatMessages(String groupId,
       {int limit = 100, int offset = 0, String? chatId}) async {
     if (_isWeb) {
-      final keys = _prefs?.getKeys().where((k) => k.startsWith('gc_msg_')).toList() ?? [];
+      final keys =
+          _prefs?.getKeys().where((k) => k.startsWith('gc_msg_')).toList() ??
+              [];
       final messages = <GroupChatMessage>[];
       for (final key in keys) {
         final data = _prefs?.getString(key);
@@ -7043,9 +7397,203 @@ class LocalStorageRepository {
   Future<void> deleteGroupChatMessage(String messageId) async {
     if (_isWeb) {
       await _prefs?.remove('gc_msg_$messageId');
+      await _deleteWebGroupPublicEventsBySourceMessageId(messageId);
       return;
     }
     final db = await _ensureDb();
-    await db.delete('group_chat_messages', where: 'id = ?', whereArgs: [messageId]);
+    await db
+        .delete('group_chat_messages', where: 'id = ?', whereArgs: [messageId]);
+    final rows = await db.query('group_public_event_memories',
+        columns: ['id', 'sourceMessageIds']);
+    for (final row in rows) {
+      final raw = row['sourceMessageIds'];
+      try {
+        final ids = raw is String ? jsonDecode(raw) : raw;
+        if (ids is List && ids.map((id) => id.toString()).contains(messageId)) {
+          await db.delete('group_public_event_memories',
+              where: 'id = ?', whereArgs: [row['id']]);
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<GroupChatSummary?> getGroupChatSummary(
+      String groupId, String chatId) async {
+    if (_isWeb) {
+      final data = _prefs
+          ?.getString('group_summary_${groupSummaryKey(groupId, chatId)}');
+      if (data == null) return null;
+      try {
+        return GroupChatSummary.fromMap(jsonDecode(data));
+      } catch (_) {
+        return null;
+      }
+    }
+    final db = await _ensureDb();
+    final rows = await db.query(
+      'group_chat_summaries',
+      where: 'groupId = ? AND chatId = ?',
+      whereArgs: [groupId, chatId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : GroupChatSummary.fromMap(rows.first);
+  }
+
+  Future<void> saveGroupChatSummary(GroupChatSummary summary) async {
+    if (_isWeb) {
+      await _prefs?.setString(
+        'group_summary_${groupSummaryKey(summary.groupId, summary.chatId)}',
+        jsonEncode(summary.toMap()),
+      );
+      return;
+    }
+    final db = await _ensureDb();
+    await db.insert(
+      'group_chat_summaries',
+      summary.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteGroupChatSummary(String groupId, String chatId) async {
+    if (_isWeb) {
+      await _prefs?.remove('group_summary_${groupSummaryKey(groupId, chatId)}');
+      return;
+    }
+    final db = await _ensureDb();
+    await db.delete(
+      'group_chat_summaries',
+      where: 'groupId = ? AND chatId = ?',
+      whereArgs: [groupId, chatId],
+    );
+  }
+
+  Future<void> saveGroupPublicEventMemory(GroupPublicEventMemory memory) async {
+    if (_isWeb) {
+      await _prefs?.setString(
+          'group_event_${memory.id}', jsonEncode(memory.toMap()));
+      return;
+    }
+    final db = await _ensureDb();
+    await db.insert('group_public_event_memories', memory.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<GroupPublicEventMemory>> getGroupPublicEventMemories({
+    required String characterId,
+    String? groupId,
+    String? chatId,
+    int? limit,
+  }) async {
+    if (_isWeb) {
+      final result = <GroupPublicEventMemory>[];
+      for (final key
+          in _prefs?.getKeys().where((k) => k.startsWith('group_event_')) ??
+              const <String>[]) {
+        final raw = _prefs?.getString(key);
+        if (raw == null) continue;
+        try {
+          final memory = GroupPublicEventMemory.fromMap(jsonDecode(raw));
+          if (memory.characterId == characterId &&
+              (groupId == null || memory.groupId == groupId) &&
+              (chatId == null || memory.chatId == chatId)) result.add(memory);
+        } catch (_) {}
+      }
+      result.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return limit == null ? result : result.take(limit).toList();
+    }
+    final db = await _ensureDb();
+    final clauses = <String>['characterId = ?'];
+    final args = <Object>[characterId];
+    if (groupId != null) {
+      clauses.add('groupId = ?');
+      args.add(groupId);
+    }
+    if (chatId != null) {
+      clauses.add('chatId = ?');
+      args.add(chatId);
+    }
+    final rows = await db.query('group_public_event_memories',
+        where: clauses.join(' AND '),
+        whereArgs: args,
+        orderBy: 'createdAt DESC',
+        limit: limit);
+    return rows.map(GroupPublicEventMemory.fromMap).toList();
+  }
+
+  Future<void> deleteGroupPublicEventMemory(String id) async {
+    if (_isWeb) {
+      await _prefs?.remove('group_event_$id');
+      return;
+    }
+    final db = await _ensureDb();
+    await db.delete('group_public_event_memories',
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateGroupPublicEventMemory(
+      GroupPublicEventMemory memory) async {
+    if (_isWeb) {
+      await _prefs?.setString(
+          'group_event_${memory.id}', jsonEncode(memory.toMap()));
+      return;
+    }
+    final db = await _ensureDb();
+    await db.update('group_public_event_memories', memory.toMap(),
+        where: 'id = ?', whereArgs: [memory.id]);
+  }
+
+  Future<void> _deleteWebGroupPublicEvents(
+      {required String groupId, String? chatId}) async {
+    final keys = _prefs
+            ?.getKeys()
+            .where((key) => key.startsWith('group_event_'))
+            .toList() ??
+        [];
+    for (final key in keys) {
+      final raw = _prefs?.getString(key);
+      if (raw == null) continue;
+      try {
+        final memory = GroupPublicEventMemory.fromMap(jsonDecode(raw));
+        if (memory.groupId == groupId &&
+            (chatId == null || memory.chatId == chatId)) {
+          await _prefs?.remove(key);
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _deleteWebGroupPublicEventsBySourceMessageId(
+      String messageId) async {
+    final keys =
+        _prefs?.getKeys().where((k) => k.startsWith('group_event_')).toList() ??
+            [];
+    for (final key in keys) {
+      final raw = _prefs?.getString(key);
+      if (raw == null) continue;
+      try {
+        final memory = GroupPublicEventMemory.fromMap(jsonDecode(raw));
+        if (memory.sourceMessageIds.contains(messageId)) {
+          await _prefs?.remove(key);
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _deleteWebGroupChatSummaries(String groupId) async {
+    final keys = _prefs
+            ?.getKeys()
+            .where((key) => key.startsWith('group_summary_'))
+            .toList() ??
+        [];
+    for (final key in keys) {
+      final data = _prefs?.getString(key);
+      if (data == null) continue;
+      try {
+        if (GroupChatSummary.fromMap(jsonDecode(data)).groupId == groupId) {
+          await _prefs?.remove(key);
+        }
+      } catch (_) {}
+    }
   }
 }

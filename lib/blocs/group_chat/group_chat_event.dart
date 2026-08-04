@@ -30,7 +30,8 @@ class GroupChatCreate extends GroupChatEvent {
     required this.aiCharacterIds,
   });
   @override
-  List<Object?> get props => [userId, name, avatarUrl, memberIds, aiCharacterIds];
+  List<Object?> get props =>
+      [userId, name, avatarUrl, memberIds, aiCharacterIds];
 }
 
 /// 删除群聊
@@ -73,7 +74,8 @@ class GroupChatSendMessage extends GroupChatEvent {
 class GroupChatDeleteMessage extends GroupChatEvent {
   final String groupId;
   final String messageId;
-  const GroupChatDeleteMessage({required this.groupId, required this.messageId});
+  const GroupChatDeleteMessage(
+      {required this.groupId, required this.messageId});
   @override
   List<Object?> get props => [groupId, messageId];
 }
@@ -118,7 +120,8 @@ class GroupChatRegenerateMessage extends GroupChatEvent {
 class GroupChatRecallMessage extends GroupChatEvent {
   final String groupId;
   final String messageId;
-  const GroupChatRecallMessage({required this.groupId, required this.messageId});
+  const GroupChatRecallMessage(
+      {required this.groupId, required this.messageId});
   @override
   List<Object?> get props => [groupId, messageId];
 }
@@ -132,6 +135,7 @@ class GroupChatUpdateSession extends GroupChatEvent {
   final bool? isPinned;
   final String? backgroundImage;
   final String? notice; // 群公告（存 metadata['notice']）
+  final bool? isHidden;
   const GroupChatUpdateSession({
     required this.groupId,
     this.name,
@@ -140,6 +144,7 @@ class GroupChatUpdateSession extends GroupChatEvent {
     this.isPinned,
     this.backgroundImage,
     this.notice,
+    this.isHidden,
   });
   @override
   List<Object?> get props => [
@@ -150,6 +155,7 @@ class GroupChatUpdateSession extends GroupChatEvent {
         isPinned,
         backgroundImage,
         notice,
+        isHidden,
       ];
 }
 
@@ -214,6 +220,7 @@ class GroupChatUpdateConfig extends GroupChatEvent {
   final List<String>? disabledMemberIds;
   final int? autoModeDelay;
   final bool? autoModeEnabled;
+  final Map<String, int>? autoModeDelaysByCharacter;
   const GroupChatUpdateConfig({
     required this.groupId,
     this.activationStrategy,
@@ -222,6 +229,7 @@ class GroupChatUpdateConfig extends GroupChatEvent {
     this.disabledMemberIds,
     this.autoModeDelay,
     this.autoModeEnabled,
+    this.autoModeDelaysByCharacter,
   });
   @override
   List<Object?> get props => [
@@ -232,6 +240,7 @@ class GroupChatUpdateConfig extends GroupChatEvent {
         disabledMemberIds,
         autoModeDelay,
         autoModeEnabled,
+        autoModeDelaysByCharacter,
       ];
 }
 

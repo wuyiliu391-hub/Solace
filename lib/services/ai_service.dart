@@ -6,6 +6,7 @@ import '../models/ai_character.dart';
 import '../models/ai_config.dart';
 import '../models/ai_stream_chunk.dart';
 import '../models/chat_message.dart';
+import '../models/group_public_event_memory.dart';
 import '../models/memory.dart';
 import '../repositories/local_storage_repository.dart';
 import '../utils/sentiment_analyzer.dart';
@@ -66,8 +67,7 @@ Object _summarizeRequestBodyForLog(Object body) {
               if (url.startsWith('data:')) {
                 final comma = url.indexOf(',');
                 final meta = comma > 0 ? url.substring(0, comma) : 'data:';
-                final b64Len =
-                    comma > 0 ? url.length - comma - 1 : url.length;
+                final b64Len = comma > 0 ? url.length - comma - 1 : url.length;
                 iu['url'] = '$meta,<base64 $b64Len chars>';
               } else if (url.length > 80) {
                 iu['url'] = '${url.substring(0, 80)}…';
@@ -98,7 +98,8 @@ String _friendlyApiErrorMessage(String? raw, {String? modelName}) {
   final m = raw.toLowerCase();
   if (m.contains('model') &&
       (m.contains('not found') || m.contains('does not exist'))) {
-    final name = modelName == null || modelName.isEmpty ? '当前模型' : '模型「$modelName」';
+    final name =
+        modelName == null || modelName.isEmpty ? '当前模型' : '模型「$modelName」';
     return '$name不存在或中转站未配置，请检查模型名称';
   }
   return raw;
@@ -111,8 +112,25 @@ class ForgivenessJudgment {
       {required this.shouldForgive, required this.forgiveMessage});
 }
 
+class GroupPublicEventExtraction {
+  final String content;
+  final List<String> keywords;
+  final List<String> sourceMessageIds;
+  final List<String> speakerNames;
+  final GroupEventImportance importance;
+  final bool pinned;
+  const GroupPublicEventExtraction(
+      {required this.content,
+      this.keywords = const [],
+      this.sourceMessageIds = const [],
+      this.speakerNames = const [],
+      this.importance = GroupEventImportance.normal,
+      this.pinned = false});
+}
+
 class AIService {
   final LocalStorageRepository _storage;
+  final http.Client _httpClient;
   late final MemoryEngine _memoryEngine;
   late final EmotionEngine _emotionEngine;
   late final PromptBuilder _promptBuilder;
@@ -125,10 +143,12 @@ class AIService {
   bool _isNovelModeEnabled() {
     return _storage.isChatStyleNovelModeEnabled();
   }
+
   String? _lastParsedStatus;
   Map<String, dynamic>? _lastWebSearchTrace;
 
-  AIService(this._storage) {
+  AIService(this._storage, {http.Client? httpClient})
+      : _httpClient = httpClient ?? http.Client() {
     _memoryEngine = MemoryEngine(_storage);
     _emotionEngine = EmotionEngine(_storage);
     _promptBuilder = PromptBuilder(
@@ -322,7 +342,8 @@ class AIService {
 
     final allApiKeys = config.allApiKeys;
     int currentKeyIndex = 0;
-    final maxTokens = overrideMaxTokens ?? _chatMaxTokensForCurrentMode(config.maxTokens);
+    final maxTokens =
+        overrideMaxTokens ?? _chatMaxTokensForCurrentMode(config.maxTokens);
 
     for (int attempt = 1; attempt <= AppDurations.maxRetries; attempt++) {
       try {
@@ -449,20 +470,20 @@ class AIService {
               throw Exception('账户余额不足，请充值后重试');
             case 403:
               // 部分中转用 403 表示模型未开通 vision
-              throw Exception(
-                  VisionImageEncoder.friendlyVisionError(errorMsg?.toString()) ??
-                      '当前 API Key 没有调用该模型的权限，请在模型广场开通');
+              throw Exception(VisionImageEncoder.friendlyVisionError(
+                      errorMsg?.toString()) ??
+                  '当前 API Key 没有调用该模型的权限，请在模型广场开通');
             case 404:
               throw Exception('模型「${config.modelName}」不存在，请检查模型名称是否正确');
             case 410:
               throw Exception(
                   '模型「${config.modelName}」已被弃用，请在「设置助手」中更换为最新模型（如 minimax-m2.7、gpt-4o-mini 等）');
             case 413:
-              throw Exception(
-                  '图片请求体积过大，中转站拒绝。请少发几张或换更清晰的压缩后再试。');
+              throw Exception('图片请求体积过大，中转站拒绝。请少发几张或换更清晰的压缩后再试。');
           }
 
-          throw Exception(friendly.startsWith('请求') ? friendly : '请求失败: $friendly');
+          throw Exception(
+              friendly.startsWith('请求') ? friendly : '请求失败: $friendly');
         } catch (e) {
           if (e is Exception) rethrow;
           throw Exception(
@@ -624,10 +645,9 @@ class AIService {
                 throw Exception(friendly);
               }
               if (code == 403) {
-                throw Exception(
-                    VisionImageEncoder.friendlyVisionError(
-                            errorMsg?.toString()) ??
-                        friendly);
+                throw Exception(VisionImageEncoder.friendlyVisionError(
+                        errorMsg?.toString()) ??
+                    friendly);
               }
               throw Exception('API错误 ($code): $friendly');
             } catch (e) {
@@ -649,8 +669,10 @@ class AIService {
           // 60s 内无新数据则中断，避免无限等待。
           DateTime lastChunkTime = DateTime.now();
           final perChunkTimeout = const Duration(seconds: 60);
-          final timedLineStream = lineStream.timeout(perChunkTimeout, onTimeout: (sink) {
-            if (accumulatedContent.isNotEmpty || accumulatedReasoning.isNotEmpty) {
+          final timedLineStream =
+              lineStream.timeout(perChunkTimeout, onTimeout: (sink) {
+            if (accumulatedContent.isNotEmpty ||
+                accumulatedReasoning.isNotEmpty) {
               // 已有部分内容，正常结束流
               sink.close();
             } else {
@@ -659,178 +681,182 @@ class AIService {
           });
 
           try {
-          await for (final line in timedLineStream) {
-            lastChunkTime = DateTime.now();
-            final trimmed = line.trim();
-            if (!trimmed.startsWith('data:')) continue;
-            final data = trimmed.substring(5).trimLeft();
-            if (data == '[DONE]') {
-              if (accumulatedContent.isNotEmpty ||
-                  accumulatedReasoning.isNotEmpty) {
-                unawaited(UsageMeterService.instance.trackStreamResponse(
-                  url: url,
-                  requestBody: requestBody,
-                  statusCode: streamedResponse.statusCode,
-                  responseBodyBytes: utf8.encode(jsonEncode({
-                    'choices': [
-                      {
-                        'message': {'content': accumulatedContent}
-                      }
-                    ]
-                  })),
-                  endpointHint: 'openai_chat',
-                  extractedUsage: capturedUsage,
-                  outputChars:
-                      accumulatedContent.length + accumulatedReasoning.length,
-                ));
-              }
-              // 流式路径空内容兜底：非流式有 _cleanResponse 兜底，流式缺失
-              if (accumulatedContent.isEmpty && accumulatedReasoning.isEmpty) {
-                const fallback = '嗯，让我想想该怎么回答你。';
-                yield AIStreamChunk(reasoning: '', content: fallback);
-              }
-              return;
-            }
-
-            try {
-              final json = jsonDecode(data) as Map<String, dynamic>;
-              final type = json['type'] as String?;
-
-              // 主动捕获 usage（OpenAI 非流式最终 chunk / Anthropic message_delta / Responses API）
-              final chunkUsage = json['usage'] as Map<String, dynamic>?;
-              if (chunkUsage != null) capturedUsage = chunkUsage;
-              final respUsage =
-                  json['response']?['usage'] as Map<String, dynamic>?;
-              if (respUsage != null) capturedUsage = respUsage;
-
-              // Anthropic Claude 流式格式
-              if (type == 'content_block_delta') {
-                final delta = json['delta'] as Map<String, dynamic>?;
-                if (delta != null &&
-                    delta['type'] == 'text_delta' &&
-                    delta['text'] != null) {
-                  accumulatedContent += delta['text'] as String;
-                  yield AIStreamChunk(
-                      reasoning: accumulatedReasoning,
-                      content: accumulatedContent);
+            await for (final line in timedLineStream) {
+              lastChunkTime = DateTime.now();
+              final trimmed = line.trim();
+              if (!trimmed.startsWith('data:')) continue;
+              final data = trimmed.substring(5).trimLeft();
+              if (data == '[DONE]') {
+                if (accumulatedContent.isNotEmpty ||
+                    accumulatedReasoning.isNotEmpty) {
+                  unawaited(UsageMeterService.instance.trackStreamResponse(
+                    url: url,
+                    requestBody: requestBody,
+                    statusCode: streamedResponse.statusCode,
+                    responseBodyBytes: utf8.encode(jsonEncode({
+                      'choices': [
+                        {
+                          'message': {'content': accumulatedContent}
+                        }
+                      ]
+                    })),
+                    endpointHint: 'openai_chat',
+                    extractedUsage: capturedUsage,
+                    outputChars:
+                        accumulatedContent.length + accumulatedReasoning.length,
+                  ));
                 }
-                continue;
-              }
-              // Anthropic message_delta 可能包含 usage
-              if (type == 'message_delta') {
-                final usage =
-                    json['message']?['usage'] as Map<String, dynamic>?;
-                if (usage != null) capturedUsage = usage;
-                continue;
+                // 流式路径空内容兜底：非流式有 _cleanResponse 兜底，流式缺失
+                if (accumulatedContent.isEmpty &&
+                    accumulatedReasoning.isEmpty) {
+                  const fallback = '嗯，让我想想该怎么回答你。';
+                  yield AIStreamChunk(reasoning: '', content: fallback);
+                }
+                return;
               }
 
-              // OpenAI Responses API 流式格式
-              if (type != null && type.startsWith('response.')) {
-                if (type == 'response.output_text.delta') {
-                  final delta = json['delta'] as String?;
-                  if (delta != null) {
-                    accumulatedContent += ResponseDecoder.repairText(delta);
+              try {
+                final json = jsonDecode(data) as Map<String, dynamic>;
+                final type = json['type'] as String?;
+
+                // 主动捕获 usage（OpenAI 非流式最终 chunk / Anthropic message_delta / Responses API）
+                final chunkUsage = json['usage'] as Map<String, dynamic>?;
+                if (chunkUsage != null) capturedUsage = chunkUsage;
+                final respUsage =
+                    json['response']?['usage'] as Map<String, dynamic>?;
+                if (respUsage != null) capturedUsage = respUsage;
+
+                // Anthropic Claude 流式格式
+                if (type == 'content_block_delta') {
+                  final delta = json['delta'] as Map<String, dynamic>?;
+                  if (delta != null &&
+                      delta['type'] == 'text_delta' &&
+                      delta['text'] != null) {
+                    accumulatedContent += delta['text'] as String;
                     yield AIStreamChunk(
                         reasoning: accumulatedReasoning,
                         content: accumulatedContent);
                   }
-                } else if (type == 'response.reasoning.delta') {
-                  final delta = json['delta'] as String?;
-                  if (delta != null) {
-                    accumulatedReasoning += ResponseDecoder.repairText(delta);
-                    yield AIStreamChunk(
-                        reasoning: accumulatedReasoning,
-                        content: accumulatedContent);
+                  continue;
+                }
+                // Anthropic message_delta 可能包含 usage
+                if (type == 'message_delta') {
+                  final usage =
+                      json['message']?['usage'] as Map<String, dynamic>?;
+                  if (usage != null) capturedUsage = usage;
+                  continue;
+                }
+
+                // OpenAI Responses API 流式格式
+                if (type != null && type.startsWith('response.')) {
+                  if (type == 'response.output_text.delta') {
+                    final delta = json['delta'] as String?;
+                    if (delta != null) {
+                      accumulatedContent += ResponseDecoder.repairText(delta);
+                      yield AIStreamChunk(
+                          reasoning: accumulatedReasoning,
+                          content: accumulatedContent);
+                    }
+                  } else if (type == 'response.reasoning.delta') {
+                    final delta = json['delta'] as String?;
+                    if (delta != null) {
+                      accumulatedReasoning += ResponseDecoder.repairText(delta);
+                      yield AIStreamChunk(
+                          reasoning: accumulatedReasoning,
+                          content: accumulatedContent);
+                    }
+                  } else if (type == 'response.completed') {
+                    final response = json['response'] as Map<String, dynamic>?;
+                    if (response != null) {
+                      final finalContent = _extractResponseContent(response);
+                      if (finalContent.isNotEmpty &&
+                          accumulatedContent.isEmpty) {
+                        accumulatedContent = finalContent;
+                        yield AIStreamChunk(
+                            reasoning: accumulatedReasoning,
+                            content: accumulatedContent);
+                      }
+                    }
                   }
-                } else if (type == 'response.completed') {
-                  final response = json['response'] as Map<String, dynamic>?;
-                  if (response != null) {
-                    final finalContent = _extractResponseContent(response);
-                    if (finalContent.isNotEmpty && accumulatedContent.isEmpty) {
-                      accumulatedContent = finalContent;
+                  continue;
+                }
+
+                // OpenAI Chat Completions 流式格式
+                final choices = json['choices'] as List?;
+                if (choices != null && choices.isNotEmpty) {
+                  final choice = choices[0] as Map<String, dynamic>;
+                  final finishReason = choice['finish_reason']?.toString();
+                  final delta = choice['delta'] as Map<String, dynamic>?;
+                  if (delta != null) {
+                    final reasoning =
+                        delta['reasoning_content'] ?? delta['reasoning'];
+                    final content = delta['content'] ?? delta['text'];
+                    if (reasoning != null) {
+                      accumulatedReasoning +=
+                          ResponseDecoder.repairText(reasoning as String);
+                      yield AIStreamChunk(
+                          reasoning: accumulatedReasoning,
+                          content: accumulatedContent);
+                    }
+                    if (content != null) {
+                      accumulatedContent +=
+                          ResponseDecoder.repairText(content as String);
                       yield AIStreamChunk(
                           reasoning: accumulatedReasoning,
                           content: accumulatedContent);
                     }
                   }
+                  final message = choice['message'] as Map<String, dynamic>?;
+                  if (message != null) {
+                    final msgContent = message['content'] ?? message['text'];
+                    if (msgContent != null) {
+                      accumulatedContent +=
+                          ResponseDecoder.repairText(msgContent as String);
+                      yield AIStreamChunk(
+                          reasoning: accumulatedReasoning,
+                          content: accumulatedContent);
+                    }
+                  }
+                  if (finishReason != null && finishReason.isNotEmpty) {
+                    yield AIStreamChunk(
+                      reasoning: accumulatedReasoning,
+                      content: accumulatedContent,
+                      finishReason: finishReason,
+                    );
+                  }
                 }
-                continue;
-              }
 
-              // OpenAI Chat Completions 流式格式
-              final choices = json['choices'] as List?;
-              if (choices != null && choices.isNotEmpty) {
-                final choice = choices[0] as Map<String, dynamic>;
-                final finishReason = choice['finish_reason']?.toString();
-                final delta = choice['delta'] as Map<String, dynamic>?;
-                if (delta != null) {
-                  final reasoning =
-                      delta['reasoning_content'] ?? delta['reasoning'];
-                  final content = delta['content'] ?? delta['text'];
-                  if (reasoning != null) {
-                    accumulatedReasoning +=
-                        ResponseDecoder.repairText(reasoning as String);
-                    yield AIStreamChunk(
-                        reasoning: accumulatedReasoning,
-                        content: accumulatedContent);
-                  }
-                  if (content != null) {
-                    accumulatedContent +=
-                        ResponseDecoder.repairText(content as String);
-                    yield AIStreamChunk(
-                        reasoning: accumulatedReasoning,
-                        content: accumulatedContent);
-                  }
-                }
-                final message = choice['message'] as Map<String, dynamic>?;
-                if (message != null) {
-                  final msgContent = message['content'] ?? message['text'];
-                  if (msgContent != null) {
-                    accumulatedContent +=
-                        ResponseDecoder.repairText(msgContent as String);
-                    yield AIStreamChunk(
-                        reasoning: accumulatedReasoning,
-                        content: accumulatedContent);
-                  }
-                }
-                if (finishReason != null && finishReason.isNotEmpty) {
+                if (json['content'] != null) {
+                  accumulatedContent +=
+                      ResponseDecoder.repairText(json['content'] as String);
                   yield AIStreamChunk(
-                    reasoning: accumulatedReasoning,
-                    content: accumulatedContent,
-                    finishReason: finishReason,
-                  );
+                      reasoning: accumulatedReasoning,
+                      content: accumulatedContent);
+                } else if (json['response'] != null &&
+                    json['response'] is String) {
+                  accumulatedContent +=
+                      ResponseDecoder.repairText(json['response'] as String);
+                  yield AIStreamChunk(
+                      reasoning: accumulatedReasoning,
+                      content: accumulatedContent);
                 }
+              } catch (e) {
+                debugPrint('SSE parse error: $e, data: $data');
               }
-
-              if (json['content'] != null) {
-                accumulatedContent +=
-                    ResponseDecoder.repairText(json['content'] as String);
-                yield AIStreamChunk(
-                    reasoning: accumulatedReasoning,
-                    content: accumulatedContent);
-              } else if (json['response'] != null &&
-                  json['response'] is String) {
-                accumulatedContent +=
-                    ResponseDecoder.repairText(json['response'] as String);
-                yield AIStreamChunk(
-                    reasoning: accumulatedReasoning,
-                    content: accumulatedContent);
-              }
-            } catch (e) {
-              debugPrint('SSE parse error: $e, data: $data');
             }
-          }
 
-          // 流式结束但无内容（未收到 [DONE] 或 API 直接关闭连接）
-          if (accumulatedContent.isEmpty && accumulatedReasoning.isEmpty) {
-            const fallback = '嗯，让我想想该怎么回答你。';
-            yield AIStreamChunk(reasoning: '', content: fallback);
-          }
-          return;
+            // 流式结束但无内容（未收到 [DONE] 或 API 直接关闭连接）
+            if (accumulatedContent.isEmpty && accumulatedReasoning.isEmpty) {
+              const fallback = '嗯，让我想想该怎么回答你。';
+              yield AIStreamChunk(reasoning: '', content: fallback);
+            }
+            return;
           } on TimeoutException {
             // P4: 流式超时 — 已有部分内容时正常结束，否则抛出异常触发兜底
-            debugPrint('[AIService] 流式 chunk 超时，已累积 ${accumulatedContent.length} 字符');
-            if (accumulatedContent.isNotEmpty || accumulatedReasoning.isNotEmpty) {
+            debugPrint(
+                '[AIService] 流式 chunk 超时，已累积 ${accumulatedContent.length} 字符');
+            if (accumulatedContent.isNotEmpty ||
+                accumulatedReasoning.isNotEmpty) {
               yield AIStreamChunk(
                   reasoning: accumulatedReasoning, content: accumulatedContent);
               return;
@@ -895,9 +921,13 @@ class AIService {
         RegExp(r'\[STICK\w*[^\]]*\]', caseSensitive: false), '');
     // 过滤内部上下文标签泄漏 — 某些模型会把 <internal_context> 当正文输出
     cleaned = cleaned.replaceAll(
-        RegExp(r'<internal_context[\s\S]*?</internal_context>', caseSensitive: false, dotAll: true), '');
+        RegExp(r'<internal_context[\s\S]*?</internal_context>',
+            caseSensitive: false, dotAll: true),
+        '');
     cleaned = cleaned.replaceAll(
-        RegExp(r'internal_context[\s\S]{0,200}visibility[\s\S]{0,100}private', caseSensitive: false, dotAll: true), '');
+        RegExp(r'internal_context[\s\S]{0,200}visibility[\s\S]{0,100}private',
+            caseSensitive: false, dotAll: true),
+        '');
 
     final faMode = _storage.isFaModeEnabled();
 
@@ -958,11 +988,14 @@ class AIService {
         RegExp(r'\[/?\s*STATUS\s*\]', caseSensitive: false), '');
     // 去除BT_ACTION标签（流式展示净化）
     cleaned = cleaned.replaceAll(
-        RegExp(r'<BT_ACTION>.*?</BT_ACTION>', caseSensitive: false, dotAll: true),
+        RegExp(r'<BT_ACTION>.*?</BT_ACTION>',
+            caseSensitive: false, dotAll: true),
         '');
     // 过滤internal_context标签泄漏
     cleaned = cleaned.replaceAll(
-        RegExp(r'<internal_context[\s\S]*?</internal_context>', caseSensitive: false, dotAll: true), '');
+        RegExp(r'<internal_context[\s\S]*?</internal_context>',
+            caseSensitive: false, dotAll: true),
+        '');
     // 去除控制字符
     cleaned = cleaned.replaceAll(
         RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]'), '');
@@ -1320,10 +1353,9 @@ class AIService {
       final isNewline = text[j] == '\n';
 
       // 引号内部不分割，确保对白完整性
-      final shouldSplit =
-          (isEndPunctuation || isEllipsis || isNewline) &&
-              currentSentence.length >= 5 &&
-              !insideQuote;
+      final shouldSplit = (isEndPunctuation || isEllipsis || isNewline) &&
+          currentSentence.length >= 5 &&
+          !insideQuote;
 
       if (shouldSplit && j + 1 < text.length) {
         final next = text[j + 1];
@@ -1623,7 +1655,6 @@ class AIService {
         .toList();
   }
 
-
   static const _visionEncoder = VisionImageEncoder();
 
   /// 构建 OpenAI 兼容多模态 user content（text + image_url[]）
@@ -1678,9 +1709,7 @@ class AIService {
     // 若所有图都失败，退回纯文本（避免空 image 数组被部分中转拒）
     if (encodedCount == 0) {
       debugPrint('[AIService] 多模态：全部图片编码失败 paths=$uniquePaths');
-      return text.isEmpty
-          ? '（用户发送了图片，但读取或压缩失败。请换 JPG/PNG 再试。）'
-          : text;
+      return text.isEmpty ? '（用户发送了图片，但读取或压缩失败。请换 JPG/PNG 再试。）' : text;
     }
 
     debugPrint(
@@ -1888,8 +1917,7 @@ class AIService {
     if (!pureAiModeEarly && filteredMessages.isNotEmpty) {
       messages.add({
         'role': 'system',
-        'content':
-            '【对话连续性】你与用户已有进行中的对话，不是初次见面。'
+        'content': '【对话连续性】你与用户已有进行中的对话，不是初次见面。'
             '必须承接以下历史消息中的人物关系、已确认事实、称呼、约定与当前话题。'
             '禁止说“不认识你/第一次聊天/你是谁/我们刚认识”。'
             '若某细节不在近期历史中，可依据记忆段落推断，但不要否认已知事实。',
@@ -1900,8 +1928,7 @@ class AIService {
     if (!pureAiModeEarly && filteredMessages.isNotEmpty) {
       messages.add({
         'role': 'system',
-        'content':
-            '【避免复读】不要反复讲述同一件事，也不要重复你近期已经说过的信息、观点或劝说。'
+        'content': '【避免复读】不要反复讲述同一件事，也不要重复你近期已经说过的信息、观点或劝说。'
             '凡是用户已经知道、或已经明确表态/强调过的内容，视为双方共识，直接在此基础上往前推进，'
             '不要再解释、复述或反复劝同一件事。每一轮都要带来新的推进，而不是原地打转。',
       });
@@ -1910,13 +1937,11 @@ class AIService {
     // 每轮再钉人称/主体，对抗长上下文漂移
     if (!pureAiModeEarly) {
       final g = character.gender?.trim() ?? '';
-      final genderHint = g.isEmpty
-          ? '第三人称代词必须与你的人设性别一致'
-          : '你的性别是$g，第三人称指代你自己必须用正确的「他/她」';
+      final genderHint =
+          g.isEmpty ? '第三人称代词必须与你的人设性别一致' : '你的性别是$g，第三人称指代你自己必须用正确的「他/她」';
       messages.add({
         'role': 'system',
-        'content':
-            '【本轮人称与主体复核】你是${character.name}。$genderHint。'
+        'content': '【本轮人称与主体复核】你是${character.name}。$genderHint。'
             '第一人称用「我」，称呼用户用「你」。'
             '用户消息的主语、计划、行为只属于用户；禁止抢夺用户主语、禁止把用户台词改写成你自己的。'
             '例如用户问「什么时候搬」，应理解为在问用户或双方相关安排，不要变成你单方面替用户夺舍发言。',
@@ -2094,15 +2119,18 @@ class AIService {
 
     try {
       // 开源版本：联网搜索功能需要自行配置服务端点
-      final url = Uri.parse('https://your-search-service.example.com/v1/search');
-      final response = await http.post(
-        url,
-        headers: {
-          'Authorization': 'Bearer YOUR_TOKEN_HERE',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({'prompt': userMessage}),
-      ).timeout(const Duration(seconds: 20));
+      final url =
+          Uri.parse('https://your-search-service.example.com/v1/search');
+      final response = await http
+          .post(
+            url,
+            headers: {
+              'Authorization': 'Bearer YOUR_TOKEN_HERE',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'prompt': userMessage}),
+          )
+          .timeout(const Duration(seconds: 20));
 
       if (response.statusCode != 200) {
         debugPrint('[WebSearch] HTTP ${response.statusCode}');
@@ -2123,11 +2151,13 @@ class AIService {
         'server': 'chatgpt2api',
         'query': userMessage,
         'searchedAt': DateTime.now().toIso8601String(),
-        'results': results.map((r) => {
-          'title': r['title'] ?? '',
-          'url': r['url'] ?? '',
-          'snippet': r['snippet'] ?? r['description'] ?? '',
-        }).toList(),
+        'results': results
+            .map((r) => {
+                  'title': r['title'] ?? '',
+                  'url': r['url'] ?? '',
+                  'snippet': r['snippet'] ?? r['description'] ?? '',
+                })
+            .toList(),
       };
 
       if (results.isEmpty) return const [];
@@ -2233,15 +2263,13 @@ class AIService {
     caseSensitive: false,
   );
 
-  static final RegExp _actionBracketPattern =
-      RegExp(r'（[^（）]+）|\([^()]+\)');
+  static final RegExp _actionBracketPattern = RegExp(r'（[^（）]+）|\([^()]+\)');
 
   String _extractBracketDirectives(String text) {
     final directives = <String>[];
     for (final match in _actionBracketPattern.allMatches(text)) {
       final raw = match.group(0) ?? '';
-      final inner =
-          raw.replaceAll(RegExp(r'^[（(]|[）)]$'), '').trim();
+      final inner = raw.replaceAll(RegExp(r'^[（(]|[）)]$'), '').trim();
       if (inner.isNotEmpty) directives.add(inner);
     }
     return directives.join('；');
@@ -2258,9 +2286,8 @@ class AIService {
     final actions = <String>[];
     final dialogue = text
         .replaceAllMapped(_actionBracketPattern, (m) {
-          final inner = (m.group(0) ?? '')
-              .replaceAll(RegExp(r'^[（(]|[）)]$'), '')
-              .trim();
+          final inner =
+              (m.group(0) ?? '').replaceAll(RegExp(r'^[（(]|[）)]$'), '').trim();
           if (inner.isNotEmpty) actions.add(inner);
           return ' ';
         })
@@ -2341,12 +2368,18 @@ class AIService {
     bool isFirstMessage = false,
   }) async {
     return _promptBuilder.buildSystemPrompt(
-      character: character, userId: userId,
-      currentTopic: currentTopic, memories: memories,
-      intimacyLevel: intimacyLevel, userStatus: userStatus,
-      sentiment: sentiment, imageDescription: imageDescription,
-      isBlockedByAI: isBlockedByAI, blockReason: blockReason,
-      messageCount: messageCount, isFirstMessage: isFirstMessage,
+      character: character,
+      userId: userId,
+      currentTopic: currentTopic,
+      memories: memories,
+      intimacyLevel: intimacyLevel,
+      userStatus: userStatus,
+      sentiment: sentiment,
+      imageDescription: imageDescription,
+      isBlockedByAI: isBlockedByAI,
+      blockReason: blockReason,
+      messageCount: messageCount,
+      isFirstMessage: isFirstMessage,
     );
   }
 
@@ -2465,7 +2498,7 @@ $conversation
       payload['max_tokens'] = maxTokens;
     }
     final requestBody = jsonEncode(payload);
-    final response = await http
+    final response = await _httpClient
         .post(
           url,
           headers: {
@@ -2682,7 +2715,6 @@ $conversation
     }
   }
 
-
   Future<String> generateRollingSummary({
     required List<ChatMessage> newMessages,
     required AICharacter character,
@@ -2748,6 +2780,164 @@ $messageTexts
       return existingSummary ?? '';
     }
   }
+
+  Future<String?> generateGroupRollingSummary({
+    String? existingSummary,
+    required List<ChatMessage> newMessages,
+  }) async {
+    final messageTexts = newMessages
+        .map((m) =>
+            '${m.isUser ? '用户' : (m.senderName.isEmpty ? '群成员' : m.senderName)}：${m.content}')
+        .join('\n');
+    final prompt = existingSummary != null && existingSummary.isNotEmpty
+        ? '''维护一份群聊的长期公共记忆档案。
+旧档案：
+$existingSummary
+
+新增消息：
+$messageTexts
+
+请输出更新后的完整档案。保留重要事实、人物关系、约定、冲突、计划和未完成话题，明确区分用户和每个角色。不要编造，不要只总结新增消息。'''
+        : '''为以下群聊创建长期公共记忆档案：
+$messageTexts
+
+只保留重要事实、人物关系、约定、冲突、计划和未完成话题，明确区分用户和每个角色。不要编造，不要写寒暄。''';
+    final config = await _storage.getActiveAIConfig();
+    if (config == null) return null;
+    try {
+      final response = await _callAPI(
+        baseUrl: config.baseUrl,
+        apiKey: config.apiKey,
+        model: config.modelName,
+        messages: [
+          {
+            'role': 'system',
+            'content': '你是群聊长期记忆档案管理器，只输出准确的中文公共记忆档案。',
+          },
+          {'role': 'user', 'content': prompt},
+        ],
+        maxTokens: 2000,
+        config: config,
+      );
+      final trimmed = response.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    } catch (e) {
+      debugPrint('generateGroupRollingSummary error: $e');
+      return null;
+    }
+  }
+
+  Future<List<GroupPublicEventExtraction>> extractGroupPublicEvents({
+    required String groupName,
+    required List<ChatMessage> messages,
+    String? existingSummary,
+  }) async {
+    final config = await _storage.getActiveAIConfig();
+    if (config == null || messages.isEmpty) return const [];
+    final transcript = messages
+        .map((m) =>
+            '[${m.id}] ${m.isUser ? '用户' : (m.senderName.isEmpty ? '群成员' : m.senderName)}：${m.content}')
+        .join('\n');
+    final prompt = '''群名：$groupName
+已有总结：${existingSummary ?? ''}
+消息：
+$transcript
+
+只输出 JSON 数组，提取可供群外单聊回忆的公开事件，不要记录寒暄。每项格式：{"content":"事件摘要","keywords":["关键词"],"sourceMessageIds":["消息id"],"speakerNames":["发言人"],"importance":"normal 或 important","pinned":false}''';
+    try {
+      final raw = await _callAPI(
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          model: config.modelName,
+          messages: [
+            {'role': 'system', 'content': '你是严格的群聊事件抽取器，只输出合法 JSON。'},
+            {'role': 'user', 'content': prompt}
+          ],
+          maxTokens: 1200,
+          config: config);
+      final trimmed = raw.trim();
+      final start = trimmed.indexOf('[');
+      if (start < 0) return const [];
+      var depth = 0;
+      var end = -1;
+      var inString = false;
+      var escaped = false;
+      for (var i = start; i < trimmed.length; i++) {
+        final char = trimmed[i];
+        if (inString) {
+          if (escaped) {
+            escaped = false;
+          } else if (char == '\\') {
+            escaped = true;
+          } else if (char == '"') {
+            inString = false;
+          }
+          continue;
+        }
+        if (char == '"') inString = true;
+        if (char == '[') depth++;
+        if (char == ']') {
+          depth--;
+          if (depth == 0) {
+            end = i + 1;
+            break;
+          }
+        }
+      }
+      if (end < 0) return const [];
+      final decoded = jsonDecode(trimmed.substring(start, end));
+      if (decoded is! List) return const [];
+      final messageIds = messages.map((m) => m.id).toSet();
+      final speakerNames = messages
+          .map((m) =>
+              m.isUser ? '用户' : (m.senderName.isEmpty ? '群成员' : m.senderName))
+          .toSet();
+      final result = <GroupPublicEventExtraction>[];
+      for (final item in decoded) {
+        try {
+          if (item is! Map) continue;
+          final map = Map<String, dynamic>.from(item);
+          final content = map['content']?.toString().trim() ?? '';
+          if (content.isEmpty) continue;
+            final validSourceMessageIds = _stringList(map['sourceMessageIds'])
+                .where(messageIds.contains)
+                .toList();
+            final validSpeakerNames = _stringList(map['speakerNames'])
+                .where(speakerNames.contains)
+                .toList();
+            // Every event needs a validated source so single-message
+            // deletion can remove it through the same cleanup path.
+            if (validSourceMessageIds.isEmpty) {
+              continue;
+            }
+            result.add(GroupPublicEventExtraction(
+              content: content,
+              keywords: _stringList(map['keywords']),
+              sourceMessageIds: validSourceMessageIds,
+              speakerNames: validSpeakerNames,
+            importance:
+                map['importance']?.toString().toLowerCase() == 'important'
+                    ? GroupEventImportance.important
+                    : GroupEventImportance.normal,
+            pinned: map['pinned'] == true || map['pinned'] == 1,
+          ));
+        } catch (e) {
+          debugPrint('extractGroupPublicEvents item error: $e');
+        }
+      }
+      return result;
+    } catch (e) {
+      debugPrint('extractGroupPublicEvents error: $e');
+      return const [];
+    }
+  }
+
+  static List<String> _stringList(Object? value) => value is List
+      ? value
+          .map((v) => v.toString())
+          .where((v) => v.trim().isNotEmpty)
+          .toList()
+      : const [];
 
   // ==================== 回忆场景 · 青岛夏夜 叙事引擎 ====================
 

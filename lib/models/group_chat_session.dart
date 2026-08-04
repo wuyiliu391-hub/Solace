@@ -81,6 +81,12 @@ class GroupChatSession extends Equatable {
   /// 自动接话总开关
   final bool autoModeEnabled;
 
+  /// 每个角色的自动接话间隔（秒）。未配置的角色回退到 autoModeDelay。
+  final Map<String, int> autoModeDelaysByCharacter;
+
+  /// 从消息页移除但保留在联系人中的软删除标记。
+  final bool isHidden;
+
   /// APPEND 合并角色卡字段前缀模板
   final String joinPrefix;
 
@@ -112,6 +118,8 @@ class GroupChatSession extends Equatable {
     this.disabledMemberIds = const [],
     this.autoModeDelay = 5,
     this.autoModeEnabled = false,
+    this.autoModeDelaysByCharacter = const {},
+    this.isHidden = false,
     this.joinPrefix = '',
     this.joinSuffix = '',
   }) : chatId = chatId ?? id;
@@ -141,6 +149,8 @@ class GroupChatSession extends Equatable {
     List<String>? disabledMemberIds,
     int? autoModeDelay,
     bool? autoModeEnabled,
+    bool? isHidden,
+    Map<String, int>? autoModeDelaysByCharacter,
     String? joinPrefix,
     String? joinSuffix,
   }) {
@@ -169,6 +179,9 @@ class GroupChatSession extends Equatable {
       disabledMemberIds: disabledMemberIds ?? this.disabledMemberIds,
       autoModeDelay: autoModeDelay ?? this.autoModeDelay,
       autoModeEnabled: autoModeEnabled ?? this.autoModeEnabled,
+      isHidden: isHidden ?? this.isHidden,
+      autoModeDelaysByCharacter:
+          autoModeDelaysByCharacter ?? this.autoModeDelaysByCharacter,
       joinPrefix: joinPrefix ?? this.joinPrefix,
       joinSuffix: joinSuffix ?? this.joinSuffix,
     );
@@ -200,6 +213,8 @@ class GroupChatSession extends Equatable {
       'disabledMemberIds': jsonEncode(disabledMemberIds),
       'autoModeDelay': autoModeDelay,
       'autoModeEnabled': autoModeEnabled ? 1 : 0,
+      'isHidden': isHidden ? 1 : 0,
+      'autoModeDelaysByCharacter': jsonEncode(autoModeDelaysByCharacter),
       'joinPrefix': joinPrefix,
       'joinSuffix': joinSuffix,
     };
@@ -243,22 +258,37 @@ class GroupChatSession extends Equatable {
       return [];
     }
 
-    final chatIdVal =
-        map['chatId']?.toString() ?? map['id']?.toString() ?? '';
+    final chatIdVal = map['chatId']?.toString() ?? map['id']?.toString() ?? '';
     final asVal = map['activationStrategy'];
-    final asEnum = asVal is int && asVal >= 0 && asVal < GroupActivationStrategy.values.length
+    final asEnum = asVal is int &&
+            asVal >= 0 &&
+            asVal < GroupActivationStrategy.values.length
         ? GroupActivationStrategy.values[asVal]
         : GroupActivationStrategy.natural;
     final gmVal = map['generationMode'];
-    final gmEnum = gmVal is int && gmVal >= 0 && gmVal < GroupGenerationMode.values.length
-        ? GroupGenerationMode.values[gmVal]
-        : GroupGenerationMode.swap;
+    final gmEnum =
+        gmVal is int && gmVal >= 0 && gmVal < GroupGenerationMode.values.length
+            ? GroupGenerationMode.values[gmVal]
+            : GroupGenerationMode.swap;
     final rawDisabled = map['disabledMemberIds'];
     List<String> disabled = [];
     if (rawDisabled is String && rawDisabled.isNotEmpty) {
       try {
         final decoded = jsonDecode(rawDisabled);
         if (decoded is List) disabled = decoded.cast<String>();
+      } catch (_) {}
+    }
+    final rawDelays = map['autoModeDelaysByCharacter'];
+    final delays = <String, int>{};
+    if (rawDelays is String && rawDelays.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawDelays);
+        if (decoded is Map) {
+          decoded.forEach((key, value) {
+            final delay = value is num ? value.toInt() : int.tryParse('$value');
+            if (delay != null && delay > 0) delays['$key'] = delay;
+          });
+        }
       } catch (_) {}
     }
 
@@ -289,6 +319,8 @@ class GroupChatSession extends Equatable {
       autoModeDelay: (map['autoModeDelay'] as int?) ?? 5,
       autoModeEnabled:
           map['autoModeEnabled'] == 1 || map['autoModeEnabled'] == true,
+      isHidden: map['isHidden'] == 1 || map['isHidden'] == true,
+      autoModeDelaysByCharacter: delays,
       joinPrefix: map['joinPrefix']?.toString() ?? '',
       joinSuffix: map['joinSuffix']?.toString() ?? '',
     );
@@ -320,21 +352,27 @@ class GroupChatSession extends Equatable {
       'disabledMemberIds': disabledMemberIds,
       'autoModeDelay': autoModeDelay,
       'autoModeEnabled': autoModeEnabled,
+      'isHidden': isHidden,
+      'autoModeDelaysByCharacter': autoModeDelaysByCharacter,
       'joinPrefix': joinPrefix,
       'joinSuffix': joinSuffix,
     };
   }
 
   factory GroupChatSession.fromJson(Map<String, dynamic> json) {
-    final chatIdVal = json['chatId']?.toString() ?? json['id']?.toString() ?? '';
+    final chatIdVal =
+        json['chatId']?.toString() ?? json['id']?.toString() ?? '';
     final asVal = json['activationStrategy'];
-    final asEnum = asVal is int && asVal >= 0 && asVal < GroupActivationStrategy.values.length
+    final asEnum = asVal is int &&
+            asVal >= 0 &&
+            asVal < GroupActivationStrategy.values.length
         ? GroupActivationStrategy.values[asVal]
         : GroupActivationStrategy.natural;
     final gmVal = json['generationMode'];
-    final gmEnum = gmVal is int && gmVal >= 0 && gmVal < GroupGenerationMode.values.length
-        ? GroupGenerationMode.values[gmVal]
-        : GroupGenerationMode.swap;
+    final gmEnum =
+        gmVal is int && gmVal >= 0 && gmVal < GroupGenerationMode.values.length
+            ? GroupGenerationMode.values[gmVal]
+            : GroupGenerationMode.swap;
     return GroupChatSession(
       id: json['id'] as String? ?? '',
       userId: json['userId']?.toString() ?? '',
@@ -368,6 +406,12 @@ class GroupChatSession extends Equatable {
           (json['disabledMemberIds'] as List<dynamic>?)?.cast<String>() ?? [],
       autoModeDelay: json['autoModeDelay'] as int? ?? 5,
       autoModeEnabled: json['autoModeEnabled'] as bool? ?? false,
+      isHidden: json['isHidden'] as bool? ?? false,
+      autoModeDelaysByCharacter:
+          (json['autoModeDelaysByCharacter'] as Map<dynamic, dynamic>?)?.map(
+                (key, value) => MapEntry('$key', (value as num).toInt()),
+              ) ??
+              const {},
       joinPrefix: json['joinPrefix'] as String? ?? '',
       joinSuffix: json['joinSuffix'] as String? ?? '',
     );

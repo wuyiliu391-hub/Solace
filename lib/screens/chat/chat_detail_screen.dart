@@ -25,7 +25,6 @@ import '../../services/virtual_phone_generator.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../utils/vision_image_encoder.dart';
 
-
 import '../../services/builtin_sticker_service.dart';
 import '../../services/sticker_pack_service.dart';
 import '../../models/sticker_pack.dart';
@@ -56,12 +55,10 @@ import 'package:record/record.dart';
 import 'chat_settings_screen.dart';
 import 'voice_call_screen.dart';
 
-
 class ChatDetailScreen extends StatefulWidget {
   final ChatSession session;
   final String? initialMessage; // 从塔罗牌等活动预填的消息
-  final ChatMessage?
-      initialJumpToMessage; // 打开后自动定位并高亮的目标消息（收藏/搜索跳转）
+  final ChatMessage? initialJumpToMessage; // 打开后自动定位并高亮的目标消息（收藏/搜索跳转）
 
   const ChatDetailScreen(
       {super.key,
@@ -125,7 +122,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _pureAiPanelExpanded = false;
   VoidCallback? _onModeSettingsChanged;
   LocalStorageRepository? _modeSettingsStorage;
-  
+
   Offset? _pureAiOrbOffset;
   final ValueNotifier<bool> _isAiTypingNotifier = ValueNotifier<bool>(false);
   bool get _isAiTyping => _isAiTypingNotifier.value;
@@ -139,6 +136,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final ValueNotifier<bool> _canSendNotifier = ValueNotifier<bool>(false);
   bool get _canSend => _canSendNotifier.value;
   bool _webSearchEnabled = false;
+
   /// 待发送附图：选图后先挂在输入区，可配文字再点发送
   final List<String> _pendingImagePaths = [];
 
@@ -247,8 +245,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('已收藏 $n 条消息'),
-            duration: const Duration(seconds: 1)),
+            content: Text('已收藏 $n 条消息'), duration: const Duration(seconds: 1)),
       );
     }
   }
@@ -465,7 +462,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
           tooltip: '更多',
           offset: const Offset(0, 50),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           itemBuilder: (context) => [
             PopupMenuItem(
               value: 'call',
@@ -839,7 +837,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
-
   /// 角色状态栏 — 在聊天区域上方固定展示（与设置页状态栏同款文案）
   Widget _buildStatusBar(ColorScheme colorScheme, bool isDark) {
     if (_isSearching || _isJumpedToMessage) return const SizedBox.shrink();
@@ -1161,8 +1158,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         ? state.messages
                         : _cachedMessages;
                     return _buildMessageList(context, baseMsgs,
-                        showTyping: true,
-                        typingStatusText: state.statusText);
+                        showTyping: true, typingStatusText: state.statusText);
                   }
 
                   // 优先级：AI正在输入 - 显示已有消息 + 输入指示器
@@ -1624,13 +1620,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         // 已就绪：不重建，改为「生活推进」——像真人一样，手机内容跟着最近发生的事缓慢生长。
         // 仅当自上次更新以来又聊了足够多、且过了冷却期，才后台静默追加少量新内容。
         if (phone != null && phone.isReady) {
-          const advanceMsgThreshold = 20; // 新增可见消息阈值
-          const advanceCooldown = Duration(hours: 6); // 冷却，避免频繁增量
-          final nowMsgCount =
-              await storage.countVisibleChatMessages(characterId, user?.id ?? '');
+          const advanceMsgThreshold = 8; // 新增可见消息阈值
+          const advanceCooldown = Duration(hours: 1); // 冷却，避免频繁增量
+          final nowMsgCount = await storage.countVisibleChatMessages(
+              characterId, user?.id ?? '');
           final delta = nowMsgCount - phone.lastAdvanceMsgCount;
           final cooledDown = phone.lastAdvanceAt == null ||
-              DateTime.now().difference(phone.lastAdvanceAt!) >= advanceCooldown;
+              DateTime.now().difference(phone.lastAdvanceAt!) >=
+                  advanceCooldown;
           if (delta >= advanceMsgThreshold && cooledDown) {
             await generator.advanceLife(
               phone: phone,
@@ -1826,8 +1823,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _showNewMessageBannerNotifier.dispose();
 
     // 移除模式切换监听
-    if (_onModeSettingsChanged != null &&
-        _modeSettingsStorage != null) {
+    if (_onModeSettingsChanged != null && _modeSettingsStorage != null) {
       _modeSettingsStorage!.modeSettingsNotifier
           .removeListener(_onModeSettingsChanged!);
     }
@@ -2167,8 +2163,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _syncCanSend() {
-    final canSend =
-        _messageController.text.trim().isNotEmpty || _pendingImagePaths.isNotEmpty;
+    final canSend = _messageController.text.trim().isNotEmpty ||
+        _pendingImagePaths.isNotEmpty;
     if (canSend != _canSend) {
       _canSendNotifier.value = canSend;
     }
@@ -2216,15 +2212,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               img.compositeImage(flat, out);
               out = flat;
             }
-            final dest =
-                '${chatImgDir.path}/chat_${const Uuid().v4()}.jpg';
+            final dest = '${chatImgDir.path}/chat_${const Uuid().v4()}.jpg';
             await File(dest).writeAsBytes(img.encodeJpg(out, quality: 85));
             kept.add(dest);
           } else {
             final ext =
                 p.contains('.') ? p.substring(p.lastIndexOf('.')) : '.jpg';
-            final dest =
-                '${chatImgDir.path}/chat_${const Uuid().v4()}$ext';
+            final dest = '${chatImgDir.path}/chat_${const Uuid().v4()}$ext';
             await File(p).copy(dest);
             kept.add(dest);
           }
@@ -2653,7 +2647,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-
   void _checkPendingReply() async {
     final prefs = await SharedPreferences.getInstance();
     final pending = prefs.getString(PrefKeys.pendingReply(widget.session.id));
@@ -2804,6 +2797,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ? (_scrollController.position.maxScrollExtent / (messages.length - 1))
             .clamp(80.0, 260.0)
         : 80.0;
+    // reverse:true means index 0 is the newest item. Estimate from the target
+    // position, then let ensureVisible correct the final offset after layout.
     final estimatedOffset = itemsAfterTarget * averageItemHeight;
     final clampedOffset = estimatedOffset.clamp(
       0.0,
@@ -2823,6 +2818,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           retryContext,
           duration: const Duration(milliseconds: 450),
           curve: Curves.easeInOut,
+          alignment: 0.5,
+        );
+      }
+    });
+    Timer(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      final retryContext = _messageKeys[target.id]?.currentContext;
+      if (retryContext != null) {
+        Scrollable.ensureVisible(
+          retryContext,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
           alignment: 0.5,
         );
       }
@@ -3120,7 +3127,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 },
               ),
             ListTile(
-              leading: Icon(Icons.bookmark_border, color: Colors.amber.shade700),
+              leading:
+                  Icon(Icons.bookmark_border, color: Colors.amber.shade700),
               title: Text(message.isBookmark ? '取消收藏' : '收藏'),
               subtitle: Text(message.isBookmark ? '从收藏夹移除' : '收藏此消息到发现页'),
               onTap: () {
@@ -3403,8 +3411,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           final reversedIndex = messages.length - 1 - msgIndex;
           final message = messages[reversedIndex];
           final isHighlighted = message.id == _highlightedMessageId;
-          final selected =
-              _selectionMode && _selectedIds.contains(message.id);
+          final selected = _selectionMode && _selectedIds.contains(message.id);
           final showTime = reversedIndex == messages.length - 1 ||
               messages[reversedIndex + 1]
                       .createdAt
@@ -3431,9 +3438,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               child: Column(
                 children: [
                   GestureDetector(
-                    onTap: _selectionMode
-                        ? () => _toggleSelect(message.id)
-                        : null,
+                    onTap:
+                        _selectionMode ? () => _toggleSelect(message.id) : null,
                     onLongPress: _selectionMode
                         ? null
                         : () {
@@ -3446,12 +3452,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       userAvatarUrl: userAvatarUrl,
                       aiName: currentName,
                       novelMode: _isNovelModeEnabled(),
-                      dialogueColorLight: RepositoryProvider.of<
-                              LocalStorageRepository>(context)
-                          .getNovelDialogueColor(),
-                      dialogueColorDark: RepositoryProvider.of<
-                              LocalStorageRepository>(context)
-                          .getNovelDialogueColor(),
+                      dialogueColorLight:
+                          RepositoryProvider.of<LocalStorageRepository>(context)
+                              .getNovelDialogueColor(),
+                      dialogueColorDark:
+                          RepositoryProvider.of<LocalStorageRepository>(context)
+                              .getNovelDialogueColor(),
                       hasBackgroundImage:
                           _currentSession?.backgroundImage != null &&
                               _currentSession!.backgroundImage!.isNotEmpty,
@@ -3750,35 +3756,40 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         Tooltip(
                           message: '输入括号（语C动作描写）',
                           child: GestureDetector(
-                          onTap: () {
-                            final text = _messageController.text;
-                            final selection = _messageController.selection;
-                            final start = selection.start < 0 ? text.length : selection.start;
-                            final newText = '${text.substring(0, start)}（）${text.substring(start)}';
-                            _messageController.text = newText;
-                            // 光标定位到括号中间
-                            _messageController.selection = TextSelection.collapsed(offset: start + 1);
-                            _messageFocusNode.requestFocus();
-                            // 更新发送按钮状态
-                            _syncCanSend();
-                          },
-                          child: Container(
-                            width: 36,
-                            height: 40,
-                            margin: const EdgeInsets.only(right: 4, bottom: 2),
-                            alignment: Alignment.center,
-                            child: Text(
-                              '()',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.6)
-                                    : Colors.black.withOpacity(0.5),
+                            onTap: () {
+                              final text = _messageController.text;
+                              final selection = _messageController.selection;
+                              final start = selection.start < 0
+                                  ? text.length
+                                  : selection.start;
+                              final newText =
+                                  '${text.substring(0, start)}（）${text.substring(start)}';
+                              _messageController.text = newText;
+                              // 光标定位到括号中间
+                              _messageController.selection =
+                                  TextSelection.collapsed(offset: start + 1);
+                              _messageFocusNode.requestFocus();
+                              // 更新发送按钮状态
+                              _syncCanSend();
+                            },
+                            child: Container(
+                              width: 36,
+                              height: 40,
+                              margin:
+                                  const EdgeInsets.only(right: 4, bottom: 2),
+                              alignment: Alignment.center,
+                              child: Text(
+                                '()',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark
+                                      ? Colors.white.withOpacity(0.6)
+                                      : Colors.black.withOpacity(0.5),
+                                ),
                               ),
                             ),
                           ),
-                        ),
                         ),
                         // 输入框
                         Expanded(
@@ -4116,7 +4127,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               avatarUrl: currentAvatar,
               name: currentName,
               novelMode: _isNovelModeEnabled(),
-              hasActionBracket: RegExp(r'[（(]([^（)()]+)[）)]').hasMatch(streamingText),
+              hasActionBracket:
+                  RegExp(r'[（(]([^（)()]+)[）)]').hasMatch(streamingText),
             );
           }
           final msgIndex = index - 1;
@@ -4125,8 +4137,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             return const SizedBox();
           final message = messages[reversedIndex];
           final isHighlighted = message.id == _highlightedMessageId;
-          final selected =
-              _selectionMode && _selectedIds.contains(message.id);
+          final selected = _selectionMode && _selectedIds.contains(message.id);
 
           return Container(
             key: ValueKey(message.id),
@@ -4142,8 +4153,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             padding:
                 isHighlighted ? const EdgeInsets.symmetric(vertical: 4) : null,
             child: GestureDetector(
-              onTap:
-                  _selectionMode ? () => _toggleSelect(message.id) : null,
+              onTap: _selectionMode ? () => _toggleSelect(message.id) : null,
               child: _MessageBubble(
                 message: message,
                 aiAvatarUrl: currentAvatar,
@@ -4422,8 +4432,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 child: currentAvatar != null && currentAvatar.isNotEmpty
                     ? (AvatarResolver.imageWidget(currentAvatar,
                             fit: BoxFit.cover,
-                            onError: () =>
-                                _buildAvatarPlaceholder(currentName, colorScheme)) ??
+                            onError: () => _buildAvatarPlaceholder(
+                                currentName, colorScheme)) ??
                         _buildAvatarPlaceholder(currentName, colorScheme))
                     : _buildAvatarPlaceholder(currentName, colorScheme),
               ),
@@ -5008,12 +5018,10 @@ class _MessageBubble extends StatelessWidget {
 
   /// 匹配对白：中文弯引号「”…”」、直角引号「」/『』。
   /// 故意不匹配英文直双引号 “...”——AI 日常回复中引用/强调也会用它，误判率高。
-  static final RegExp _dialogueRe =
-      RegExp(r'”[^”]*”|「[^」]*」|『[^』]*』');
+  static final RegExp _dialogueRe = RegExp(r'”[^”]*”|「[^」]*」|『[^』]*』');
 
   /// 匹配动作/神态描写括号：（...）或 (...)
-  static final RegExp _actionBracketRe =
-      RegExp(r'[（(]([^（)()]+)[）)]');
+  static final RegExp _actionBracketRe = RegExp(r'[（(]([^（)()]+)[）)]');
 
   /// 将文本按动作括号拆分为富文本片段，括号内文字用斜体+灰色渲染
   static List<InlineSpan>? _buildActionBracketSpans(
@@ -5030,8 +5038,8 @@ class _MessageBubble extends StatelessWidget {
     );
     for (final m in matches) {
       if (m.start > cursor) {
-        spans.add(TextSpan(
-            text: text.substring(cursor, m.start), style: baseStyle));
+        spans.add(
+            TextSpan(text: text.substring(cursor, m.start), style: baseStyle));
       }
       // 保留括号符号 + 内部文字，整体用斜体灰色
       spans.add(TextSpan(text: m.group(0), style: bracketStyle));
@@ -5049,18 +5057,18 @@ class _MessageBubble extends StatelessWidget {
   static const int _maxDialogueLen = 30;
 
   /// 身体感受/内心体感关键词，命中表示引号内内容大概率是内心感受而非口头台词
-  static final RegExp _bodySensationRe = RegExp(
-    r'身体|体内|脊椎|神经|四肢|胸口|腹部|皮肤|肌肉|骨骼|喉咙|眼眶|鼻腔|舌尖|指尖|掌心|脚底|'
-    r'异物感|发麻|酸麻|酸痛|酥麻|刺痒|痉挛|颤抖|发烫|发热|发冷|冷汗|燥热|'
-    r'生理|私密|深处|内部|器官|分泌|'
-    r'心跳|呼吸急促|呼吸紊乱|呼吸困难|窒息|眩晕|发软|乏力|瘫软|'
-    r'感觉.*蠕动|感觉.*触感|感觉.*电流|感觉.*划过|感觉.*侵入|感觉.*进入|感觉.*涌入|'
-    r'蔓延|肿胀|抽搐|收缩|扩张|紧绷|松弛|湿润|干燥|黏腻|'
-    r'脑子|大脑|意识|神经末梢|敏感|滚烫|冰凉');
+  static final RegExp _bodySensationRe =
+      RegExp(r'身体|体内|脊椎|神经|四肢|胸口|腹部|皮肤|肌肉|骨骼|喉咙|眼眶|鼻腔|舌尖|指尖|掌心|脚底|'
+          r'异物感|发麻|酸麻|酸痛|酥麻|刺痒|痉挛|颤抖|发烫|发热|发冷|冷汗|燥热|'
+          r'生理|私密|深处|内部|器官|分泌|'
+          r'心跳|呼吸急促|呼吸紊乱|呼吸困难|窒息|眩晕|发软|乏力|瘫软|'
+          r'感觉.*蠕动|感觉.*触感|感觉.*电流|感觉.*划过|感觉.*侵入|感觉.*进入|感觉.*涌入|'
+          r'蔓延|肿胀|抽搐|收缩|扩张|紧绷|松弛|湿润|干燥|黏腻|'
+          r'脑子|大脑|意识|神经末梢|敏感|滚烫|冰凉');
 
   /// 典型对话标记：短句 + 口语语气词，大概率是口头台词
-  static final RegExp _dialogueMarkerRe = RegExp(
-    r'[？！?！～~]|[啦吧呢吗啊呀哦嗯嘿哈呵哎哟]|^.{1,8}$');
+  static final RegExp _dialogueMarkerRe =
+      RegExp(r'[？！?！～~]|[啦吧呢吗啊呀哦嗯嘿哈呵哎哟]|^.{1,8}$');
 
   static List<InlineSpan>? _buildDialogueSpans(
       String text, TextStyle baseStyle, Color dialogueColor) {
@@ -5070,8 +5078,8 @@ class _MessageBubble extends StatelessWidget {
     var cursor = 0;
     for (final m in matches) {
       if (m.start > cursor) {
-        spans.add(TextSpan(
-            text: text.substring(cursor, m.start), style: baseStyle));
+        spans.add(
+            TextSpan(text: text.substring(cursor, m.start), style: baseStyle));
       }
       final inner = text.substring(m.start, m.end);
       final isDialogue = _isSpokenDialogue(inner);
@@ -5273,15 +5281,15 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 ],
                 // 图片描述/配文
-                if (((message.metadata?['caption'] ??
-                            message.metadata?['text'])
+                if (((message.metadata?['caption'] ?? message.metadata?['text'])
                         ?.toString()
                         .isNotEmpty ??
                     false))
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      (message.metadata?['caption'] ?? message.metadata?['text'])
+                      (message.metadata?['caption'] ??
+                              message.metadata?['text'])
                           .toString(),
                       style: TextStyle(
                         color: colorScheme.onSurface.withOpacity(0.6),
@@ -5350,7 +5358,8 @@ class _MessageBubble extends StatelessWidget {
                 ] else if (isAI && message.metadata?['actionType'] == 'system')
                   Flexible(
                     child: ToolResultCard(
-                      toolName: message.metadata?['actionLabel'] as String? ?? '工具操作',
+                      toolName:
+                          message.metadata?['actionLabel'] as String? ?? '工具操作',
                       summary: displayText,
                       isSuccess: message.metadata?['success'] == true,
                       detail: message.reasoning,
@@ -5457,12 +5466,15 @@ class _MessageBubble extends StatelessWidget {
                               _WebSearchSection(trace: webSearchTrace),
                             if (isAI &&
                                 message.metadata?['toolTrace'] is List &&
-                                (message.metadata?['toolTrace'] as List).isNotEmpty)
+                                (message.metadata?['toolTrace'] as List)
+                                    .isNotEmpty)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: ToolTraceCard(
-                                  traces: (message.metadata!['toolTrace'] as List)
-                                      .map((e) => Map<String, dynamic>.from(e as Map))
+                                  traces: (message.metadata!['toolTrace']
+                                          as List)
+                                      .map((e) =>
+                                          Map<String, dynamic>.from(e as Map))
                                       .toList(),
                                 ),
                               ),
@@ -5507,8 +5519,8 @@ class _MessageBubble extends StatelessWidget {
                               if (!isRecalled &&
                                   message.metadata?['hasActionBracket'] ==
                                       true) {
-                                final bracketSpans =
-                                    _buildActionBracketSpans(displayText, baseStyle);
+                                final bracketSpans = _buildActionBracketSpans(
+                                    displayText, baseStyle);
                                 if (bracketSpans != null) {
                                   return Text.rich(
                                       TextSpan(children: bracketSpans));
@@ -5603,9 +5615,8 @@ class _MessageBubble extends StatelessWidget {
 
   /// AI 消息上的情绪小图标（从 metadata 读取持久化情绪）
   Widget _buildEmotionChip(BuildContext context, String emotionName) {
-    final emotion = EmotionType.values
-        .where((e) => e.name == emotionName)
-        .firstOrNull;
+    final emotion =
+        EmotionType.values.where((e) => e.name == emotionName).firstOrNull;
     if (emotion == null || emotion == EmotionType.calm) {
       return const SizedBox.shrink();
     }
@@ -6193,7 +6204,8 @@ class _StreamingBubble extends StatelessWidget {
                       // 动作括号渲染（流式气泡）
                       if (hasActionBracket) {
                         final bracketSpans =
-                            _MessageBubble._buildActionBracketSpans(cleanText, baseStyle);
+                            _MessageBubble._buildActionBracketSpans(
+                                cleanText, baseStyle);
                         if (bracketSpans != null) {
                           return Text.rich(TextSpan(children: bracketSpans));
                         }
@@ -6201,7 +6213,8 @@ class _StreamingBubble extends StatelessWidget {
                       return SelectableText(cleanText, style: baseStyle);
                     }),
                   ],
-                  if (!hasReasoning && text.isEmpty) TypingIndicator(statusText: '等待中...'),
+                  if (!hasReasoning && text.isEmpty)
+                    TypingIndicator(statusText: '等待中...'),
                 ],
               ),
             ),
