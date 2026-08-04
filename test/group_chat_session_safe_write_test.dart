@@ -17,7 +17,8 @@ void main() {
     sqfliteFfiInit();
   });
 
-  test('遗留表上 saveGroupChatSession 流程不再触发 NOT NULL 崩溃，且 participantIds 被回填', () async {
+  test('遗留表上 saveGroupChatSession 流程不再触发 NOT NULL 崩溃，且 participantIds 被回填',
+      () async {
     final db = await databaseFactoryFfi.openDatabase(':memory:');
 
     // —— 复现遗留 schema（v65 用户机实测列，截选与崩相关的列）——
@@ -46,8 +47,8 @@ void main() {
     );
 
     // —— 复现 saveGroupChatSession 的「按真实列过滤」逻辑 ——
-    final cols = await LocalStorageRepository.getTableColumns(
-        db, 'group_chat_sessions');
+    final cols =
+        await LocalStorageRepository.getTableColumns(db, 'group_chat_sessions');
     final safe = <String, dynamic>{};
     for (final e in session.toMap().entries) {
       if (cols.contains(e.key)) safe[e.key] = e.value;
@@ -72,8 +73,8 @@ void main() {
     // —— 再插入应成功 ——
     await db.insert('group_chat_sessions', safe,
         conflictAlgorithm: ConflictAlgorithm.replace);
-    final rows = await db.query('group_chat_sessions',
-        where: 'id = ?', whereArgs: ['g1']);
+    final rows = await db
+        .query('group_chat_sessions', where: 'id = ?', whereArgs: ['g1']);
     expect(rows.length, 1, reason: '插入应成功且仅一条');
     // participantIds 语义回填自 memberIds（均为 JSON 数组字符串）
     expect(rows.first['participantIds'], jsonEncode(session.memberIds));
@@ -98,6 +99,54 @@ void main() {
     expect(safe['aReal'], 0.0);
     await db.insert('t', safe, conflictAlgorithm: ConflictAlgorithm.replace);
     expect((await db.query('t')).length, 1);
+    await db.close();
+  });
+
+  test('旧版群聊表会自动重建并补齐新表结构', () async {
+    final db = await databaseFactoryFfi.openDatabase(':memory:');
+    await db.execute('''
+      CREATE TABLE group_chat_sessions (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        memberIds TEXT NOT NULL,
+        aiCharacterIds TEXT NOT NULL,
+        participantIds TEXT NOT NULL,
+        participantNames TEXT NOT NULL
+      )
+    ''');
+
+    await LocalStorageRepository.ensureGroupChatSchemaForTest(db);
+
+    final columns =
+        await LocalStorageRepository.getTableColumns(db, 'group_chat_sessions');
+    expect(
+        columns,
+        containsAll(<String>[
+          'id',
+          'userId',
+          'name',
+          'memberIds',
+          'aiCharacterIds',
+          'creatorId',
+          'autoModeDelay',
+          'autoModeEnabled',
+          'autoModeDelaysByCharacter',
+          'isHidden',
+        ]));
+    expect(columns, isNot(contains('participantIds')),
+        reason: '旧版无默认值列不应继续阻塞新模型写入');
+
+    await db.insert('group_chat_sessions', {
+      'id': 'g1',
+      'userId': 'u1',
+      'name': '测试群',
+      'memberIds': jsonEncode(['c1']),
+      'aiCharacterIds': jsonEncode(['c1']),
+      'creatorId': 'u1',
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+    expect((await db.query('group_chat_sessions')).length, 1);
     await db.close();
   });
 }

@@ -971,6 +971,9 @@ class LocalStorageRepository {
   /// 修复 isUser 字段：根据 senderId 修正因迁移导致的默认值错误
   static Future<void> reconcileSchema(Database db,
       {SharedPreferences? prefs}) async {
+    // user_version 可能已经升过但历史迁移中断，群聊表仍可能是旧脏结构。
+    // 每次启动都做一次幂等自愈，避免创建群聊时才暴露 NOT NULL/缺表问题。
+    await _ensureGroupChatSchema(db);
     bool needsIsUserRepair = false;
     for (final entry in expectedColumns.entries) {
       final table = entry.key;
@@ -1243,6 +1246,51 @@ class LocalStorageRepository {
             'CREATE INDEX IF NOT EXISTS idx_group_public_events_scope ON group_public_event_memories(characterId, groupId, chatId)');
         break;
     }
+  }
+
+  /// 群聊数据库自愈：兼容已升级但迁移未完整执行的旧库。
+  static Future<void> _ensureGroupChatSchema(Database db) async {
+    try {
+      if (await _groupChatSessionsNeedRebuild(db)) {
+        await _rebuildGroupChatSessionsTable(db);
+      }
+      await createMissingTable(db, 'group_chat_sessions');
+      await createMissingTable(db, 'group_chat_messages');
+      await createMissingTable(db, 'group_chat_branches');
+      await createMissingTable(db, 'group_chat_summaries');
+      await createMissingTable(db, 'group_public_event_memories');
+
+      await _addColumnIfNotExists(
+          db, 'group_chat_messages', 'chatId', 'TEXT NOT NULL DEFAULT ""');
+      await _addColumnIfNotExists(
+          db, 'group_chat_messages', 'sync_seq', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'group_chat_sessions', 'isHidden', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'group_chat_sessions',
+          'autoModeDelaysByCharacter', "TEXT NOT NULL DEFAULT '{}'");
+    } catch (e) {
+      debugPrint('[schema] group chat self-heal failed: $e');
+    }
+  }
+
+  /// 识别历史群聊表：旧版本存在无默认值的 NOT NULL 列，插入新模型会崩溃。
+  static Future<bool> _groupChatSessionsNeedRebuild(Database db) async {
+    final rows = await db.rawQuery('PRAGMA table_info(group_chat_sessions)');
+    if (rows.isEmpty) return false;
+    final names = rows.map((r) => r['name'] as String).toSet();
+    if (names.contains('participantIds') ||
+        names.contains('participantNames')) {
+      return true;
+    }
+    for (final row in rows) {
+      final name = row['name'];
+      if ((name == 'userId' || name == 'creatorId') &&
+          row['notnull'] == 1 &&
+          row['dflt_value'] == null) {
+        return true;
+      }
+    }
+    return !names.contains('id');
   }
 
   /// 安全添加列：先检查列是否已存在，避免重复添加报错
@@ -1544,6 +1592,11 @@ class LocalStorageRepository {
     Map<String, dynamic> map,
   ) =>
       _fillNotNullDefaults(db, table, map);
+
+  /// 仅供测试：验证旧版本群聊表能被自动检测并修复。
+  @visibleForTesting
+  static Future<void> ensureGroupChatSchemaForTest(Database db) =>
+      _ensureGroupChatSchema(db);
 
   Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
