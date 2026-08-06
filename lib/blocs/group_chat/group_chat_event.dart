@@ -116,6 +116,32 @@ class GroupChatRegenerateMessage extends GroupChatEvent {
   List<Object?> get props => [groupId, messageId];
 }
 
+class GroupChatSelectSwipe extends GroupChatEvent {
+  final String groupId;
+  final String messageId;
+  final int index;
+  const GroupChatSelectSwipe(
+      {required this.groupId, required this.messageId, required this.index});
+  @override
+  List<Object?> get props => [groupId, messageId, index];
+}
+
+class GroupChatSaveLorebookEntry extends GroupChatEvent {
+  final GroupChatLorebookEntry entry;
+  const GroupChatSaveLorebookEntry(this.entry);
+  @override
+  List<Object?> get props => [entry.id, entry.content, entry.keywords];
+}
+
+class GroupChatDeleteLorebookEntry extends GroupChatEvent {
+  final String groupId;
+  final String entryId;
+  const GroupChatDeleteLorebookEntry(
+      {required this.groupId, required this.entryId});
+  @override
+  List<Object?> get props => [groupId, entryId];
+}
+
 /// 撤回用户消息（2 分钟内，改为「已撤回」占位）
 class GroupChatRecallMessage extends GroupChatEvent {
   final String groupId;
@@ -248,9 +274,11 @@ class GroupChatUpdateConfig extends GroupChatEvent {
 class GroupChatCreateBranch extends GroupChatEvent {
   final String groupId;
   final String name;
-  const GroupChatCreateBranch({required this.groupId, required this.name});
+  final String? forkMessageId;
+  const GroupChatCreateBranch(
+      {required this.groupId, required this.name, this.forkMessageId});
   @override
-  List<Object?> get props => [groupId, name];
+  List<Object?> get props => [groupId, name, forkMessageId];
 }
 
 /// 切换聊天记录

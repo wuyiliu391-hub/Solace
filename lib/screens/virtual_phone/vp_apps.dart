@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../blocs/virtual_phone/virtual_phone_bloc.dart';
 import '../../models/virtual_phone/vp_chat.dart';
@@ -9,6 +10,8 @@ import '../../models/virtual_phone/vp_moment.dart';
 import '../../models/virtual_phone/vp_note.dart';
 import '../../config/phone_theme.dart';
 import '../../widgets/phone/phone_glass.dart';
+import '../../widgets/message_actions_sheet.dart';
+import '../../widgets/message_status_indicator.dart';
 
 enum VpAppKind { messages, contacts, notes, moments }
 
@@ -313,32 +316,70 @@ class _ChatThreadPage extends StatelessWidget {
         ? [bubble, const SizedBox(width: 8), avatar]
         : [avatar, const SizedBox(width: 8), bubble];
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment:
-                mine ? MainAxisAlignment.end : MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: rowChildren,
-          ),
-          if (m.timeLabel.isNotEmpty)
+    return GestureDetector(
+      onLongPress: () => _showMessageOptions(context, m),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Column(
+          crossAxisAlignment:
+              mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment:
+                  mine ? MainAxisAlignment.end : MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: rowChildren,
+            ),
+            if (m.timeLabel.isNotEmpty)
+              Padding(
+                padding: EdgeInsets.only(
+                    top: 3,
+                    left: mine ? 0 : _avatarSize + 8,
+                    right: mine ? _avatarSize + 8 : 0),
+                child: Text(m.timeLabel,
+                    style: TextStyle(
+                        color: isDark ? Colors.white38 : Colors.black38,
+                        fontSize: 10)),
+              ),
             Padding(
               padding: EdgeInsets.only(
-                  top: 3,
+                  top: 2,
                   left: mine ? 0 : _avatarSize + 8,
                   right: mine ? _avatarSize + 8 : 0),
-              child: Text(m.timeLabel,
-                  style: TextStyle(
-                      color: isDark ? Colors.white38 : Colors.black38,
-                      fontSize: 10)),
+              child: MessageStatusIndicator(
+                state: _messageDeliveryState(m),
+              ),
             ),
-        ],
+          ],
+        ),
       ),
     );
+  }
+
+  void _showMessageOptions(BuildContext context, VpChatMessage message) {
+    MessageActionsSheet.show(
+      context: context,
+      actions: [
+        MessageActionItem(
+          label: '复制',
+          icon: Icons.copy,
+          color: Colors.teal,
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: message.content));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('已复制到剪贴板'),
+              duration: Duration(seconds: 1),
+            ));
+          },
+        ),
+      ],
+    );
+  }
+
+  MessageDeliveryState _messageDeliveryState(VpChatMessage message) {
+    // 虚拟手机内容由生活生成器一次性落库，目前没有独立流式状态。
+    // 统一展示已发送，后续真实发送能力可直接复用同一组件。
+    return MessageDeliveryState.sent;
   }
 
   Widget _avatar(String? url, String name, {required bool isOwner}) {

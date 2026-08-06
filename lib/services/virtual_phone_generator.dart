@@ -47,7 +47,8 @@ class VirtualPhoneGenerator {
     required String userId,
   }) async {
     // 标记生成中
-    var current = phone.copyWith(status: 'generating', updatedAt: DateTime.now());
+    var current =
+        phone.copyWith(status: 'generating', updatedAt: DateTime.now());
     await _storage.saveVirtualPhone(current);
 
     try {
@@ -93,7 +94,6 @@ class VirtualPhoneGenerator {
       return current;
     }
   }
-
 
   // ============ 生活推进（增量追加，不清空）============
 
@@ -257,7 +257,13 @@ class VirtualPhoneGenerator {
   // ============ 记忆锚点上下文 ============
 
   static const List<String> _weekdayCn = [
-    '周一', '周二', '周三', '周四', '周五', '周六', '周日'
+    '周一',
+    '周二',
+    '周三',
+    '周四',
+    '周五',
+    '周六',
+    '周日'
   ];
 
   /// "今天"的口语提示（如"今天(6月3日)"），供各模块 prompt 复用。
@@ -300,7 +306,8 @@ class VirtualPhoneGenerator {
     b.writeln('“现在”是：$y年$mo月$d日 $wd $period $hh:$mm。');
     b.writeln('铁律（时间一致性）：');
     b.writeln('· 所有 time / date 字段都表示"过去发生"的时点，绝不能晚于上面的“现在”；');
-    b.writeln('· 用相对且贴近现实的口语标签，例如："今天 $hh:$mm 前的某刻"、"昨天晚上"、"$wd上午"、"三天前"、"上周六"、"$mo月${(now.day - 2).clamp(1, 28)}日"；');
+    b.writeln(
+        '· 用相对且贴近现实的口语标签，例如："今天 $hh:$mm 前的某刻"、"昨天晚上"、"$wd上午"、"三天前"、"上周六"、"$mo月${(now.day - 2).clamp(1, 28)}日"；');
     b.writeln('· 越近期的内容排在越前面，时间要连贯、符合剧情推进顺序，不要出现未来时间或自相矛盾的先后关系；');
     b.writeln('· 如果记忆/对话里提到了具体的相对时间（如"明天考试"），要换算成相对"现在"的正确说法后再写。');
     b.writeln();
@@ -330,7 +337,8 @@ class VirtualPhoneGenerator {
       b.writeln('背景故事：${c.backgroundStory}');
     }
     if ((c.worldSetting ?? '').isNotEmpty) b.writeln('世界观：${c.worldSetting}');
-    if ((c.languageStyle ?? '').isNotEmpty) b.writeln('语言风格：${c.languageStyle}');
+    if ((c.languageStyle ?? '').isNotEmpty)
+      b.writeln('语言风格：${c.languageStyle}');
     if ((c.catchphrases ?? '').isNotEmpty) b.writeln('口头禅：${c.catchphrases}');
     final nick = userNickname.isEmpty ? '亲爱的' : userNickname;
     b.writeln('TA 对「我」（用户）的称呼：$nick');
@@ -433,7 +441,8 @@ class VirtualPhoneGenerator {
         .where((m) => m.content.trim().isNotEmpty)
         .toList();
     if (visible.isEmpty) return '';
-    final tail = visible.length > 24 ? visible.sublist(visible.length - 24) : visible;
+    final tail =
+        visible.length > 24 ? visible.sublist(visible.length - 24) : visible;
     final now = DateTime.now();
     final b = StringBuffer();
     for (final m in tail) {
@@ -469,8 +478,7 @@ class VirtualPhoneGenerator {
 
   // ============ 分模块生成 ============
 
-  static const String _systemPrompt =
-      '你是一名擅长角色塑造的编剧，正在为一个虚构角色设计「TA 私人手机里的内容」。'
+  static const String _systemPrompt = '你是一名擅长角色塑造的编剧，正在为一个虚构角色设计「TA 私人手机里的内容」。'
       '这是纯粹的虚构创作，所有内容都出自你的想象，不涉及任何真实的人或设备。'
       '铁律一（素材约束）：你所写的一切都必须从我提供的【角色人设 + 记忆库 + 真实单聊摘录】中衍生，'
       '严禁脱离这些材料凭空捏造无关的人、事、喜好或经历；'
@@ -483,7 +491,7 @@ class VirtualPhoneGenerator {
   /// 统一的一次性 LLM 调用 + JSON 解析。
   Future<Map<String, dynamic>?> _callJson(String userPrompt,
       {int maxTokens = 1600}) async {
-    final raw = await _ai.sendStoryMessage(
+    final raw = await _ai.sendPromptMessage(
       messages: [
         {'role': 'system', 'content': _systemPrompt},
         {'role': 'user', 'content': userPrompt},

@@ -10,15 +10,15 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
-        // 官方源优先（经 7897 代理直连）
-        google()
-        mavenCentral()
-        gradlePluginPortal()
+        // 国内镜像优先，避免 Gradle 访问原厂仓库。
         maven { url 'https://maven.aliyun.com/repository/google' }
         maven { url 'https://maven.aliyun.com/repository/public' }
         maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
-        maven { url 'https://jitpack.io' }
-        maven { url 'https://dl.bintray.com/rikkaw/Shizuku' }
+        maven { url 'https://mirrors.cloud.tencent.com/repository/maven/google' }
+        maven { url 'https://mirrors.cloud.tencent.com/repository/maven/central' }
+        maven { url 'https://mirrors.cloud.tencent.com/repository/maven/gradle-plugin' }
+        maven { url 'https://maven.aliyun.com/repository/jitpack' }
+        maven { url 'https://storage.flutter-io.cn/download.flutter.io' }
     }
 }
 

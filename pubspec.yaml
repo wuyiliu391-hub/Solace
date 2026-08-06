@@ -58,9 +58,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/live2d/
     - assets/live2d/_frame_previews_doubao/
-    - assets/live2d/variants/
     - assets/stickers/default_pack/
     - assets/stickers/default_pack/metadata.json
     - assets/sky.mp3

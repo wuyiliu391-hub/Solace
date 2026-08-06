@@ -736,17 +736,15 @@ class PromptBuilder {
 
     buffer.writeln('- 你的"状态"不是功能报告，而是像朋友圈心情签名一样的东西');
 
-    buffer.writeln('- 每次回复时，如果你想改变状态，在回复末尾添加标记：');
-
-    buffer.writeln('  [STATUS]你此刻的心境或状态文字[/STATUS]');
-
-    buffer.writeln('- 例如："刚忙完，看到你的消息好开心~ [STATUS]有点累但很开心[/STATUS]"');
-
-    buffer.writeln('- 例如："被你暖到了 [STATUS]被治愈了[/STATUS]"');
-
-    buffer.writeln('- 例如："困困的但还想和你聊天 [STATUS]困困的但想陪你[/STATUS]"');
-
-    buffer.writeln('- 如果不加标记，保持上次状态不变');
+    buffer.writeln('【最高优先级：每轮心理状态闭环】');
+    buffer.writeln('- 每次回复都必须在可见正文之后输出一次 TURN_STATE，禁止省略，禁止沿用旧值。');
+    buffer.writeln('- 必须严格使用以下格式，JSON 只能包含 emotion、intensity、thought：');
+    buffer.writeln(
+        '  [TURN_STATE]{"emotion":"简短情绪","intensity":0.0,"thought":"此刻没有说出口的一句话"}[/TURN_STATE]');
+    buffer.writeln(
+        '- emotion 必须反映本轮对话后的最新情绪；intensity 是 0 到 1 的数字；thought 必须是本轮新生成的内心想法。');
+    buffer.writeln('- 无论消息长短、话题氛围、普通闲聊、重复话题或激烈剧情，每轮都必须重新生成这三个字段。');
+    buffer.writeln('- TURN_STATE 是内部状态协议，不要解释协议，不要向用户说明标签。旧版 STATUS 标签不再使用。');
 
     buffer.writeln('- 深夜（23:00-7:00）可以体现困意和慵懒，但不要消失不理人');
 

@@ -26,6 +26,7 @@ import 'screens/profile/profile_screen.dart';
 import 'screens/discover/growth_track_screen.dart';
 import 'screens/discover/ai_activity_feed_screen.dart';
 import 'screens/discover/relationship_dashboard.dart';
+import 'screens/discover/character_psychology_screen.dart';
 import 'screens/discover/ai_mailbox_screen.dart';
 import 'screens/discover/ai_diary_screen.dart';
 import 'screens/discover/entertainment_screen.dart';
@@ -37,7 +38,6 @@ import 'screens/profile/settings_screen.dart';
 import 'screens/tarot/tarot_screen.dart';
 import 'screens/games/lucky_wheel_screen.dart';
 import 'screens/games/music_companion_screen.dart';
-import 'screens/story/story_shelf_screen.dart';
 import 'screens/novel/novel_shelf_screen.dart';
 import 'screens/phone/phone_home_shell.dart';
 import 'screens/shop/shop_screen.dart';
@@ -80,7 +80,8 @@ void main() async {
         .e('FlutterError', '${details.exception}\n${details.stack}');
   };
   ErrorWidget.builder = (FlutterErrorDetails details) {
-    LogService.instance.e('ErrorWidget', '${details.exception}\n${details.stack}');
+    LogService.instance
+        .e('ErrorWidget', '${details.exception}\n${details.stack}');
     // debug 模式显示错误详情，release 模式显示极简占位
     if (kDebugMode) {
       return Material(
@@ -376,7 +377,10 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
       _initChatBloc();
       await _loadShellPref();
       try {
-        context.read<LocalStorageRepository>().modeSettingsNotifier.addListener(_loadShellPref);
+        context
+            .read<LocalStorageRepository>()
+            .modeSettingsNotifier
+            .addListener(_loadShellPref);
       } catch (_) {}
 
       // 强制模式确认 — 必须在所有其他提示之前，阻塞直到用户确认
@@ -417,13 +421,13 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
       });
     }
   }
-  
+
   /// 初始化 ChatBloc，确保 userId 正确获取
   void _initChatBloc() {
     final storage = context.read<LocalStorageRepository>();
     _aiService ??= context.read<AIService>();
     final aiAdapter = AIServiceAdapter(storage: storage);
-    
+
     // 从 AuthBloc 状态获取 userId，而不是直接从 storage 读取
     // 这样可以确保用户登录状态正确同步
     final authState = context.read<AuthBloc>().state;
@@ -434,10 +438,10 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
       // 回退到 storage 获取，但确保不为空
       userId = storage.getString(PrefKeys.currentUserId) ?? 'local_user';
     }
-    
+
     // 复用已存在的 ChatBloc，只在首次创建
     _chatBloc ??= ChatBloc(storage, _aiService!, aiAdapter: aiAdapter);
-    
+
     // 如果 ChatBloc 还未加载会话，则触发加载
     if (_chatBloc!.state is ChatInitial) {
       _chatBloc!.add(ChatLoadSessions(userId));
@@ -455,7 +459,10 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     try {
-      context.read<LocalStorageRepository>().modeSettingsNotifier.removeListener(_loadShellPref);
+      context
+          .read<LocalStorageRepository>()
+          .modeSettingsNotifier
+          .removeListener(_loadShellPref);
     } catch (_) {}
     // 修复：释放 ChatBloc 实例
     _chatBloc?.close();
@@ -505,10 +512,10 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
-                _modeCheckRow('恋人模式', '开启亲密互动', 'lover', modeStates,
-                    setStateDialog),
-                _modeCheckRow('开放模式', '解锁更多内容', 'open', modeStates,
-                    setStateDialog),
+                _modeCheckRow(
+                    '恋人模式', '开启亲密互动', 'lover', modeStates, setStateDialog),
+                _modeCheckRow(
+                    '开放模式', '解锁更多内容', 'open', modeStates, setStateDialog),
                 _modeCheckRow(
                     'FA 模式', '解除内容限制', 'fa', modeStates, setStateDialog),
                 _modeCheckRow(
@@ -524,8 +531,7 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
                   prefs.setBool(PrefKeys.forceModeConfirmV14, true);
                   Navigator.pop(ctx2);
                 },
-                child: const Text('暂时跳过',
-                    style: TextStyle(color: Colors.grey)),
+                child: const Text('暂时跳过', style: TextStyle(color: Colors.grey)),
               ),
               ElevatedButton(
                 onPressed: () async {
@@ -536,15 +542,15 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(ctx2).colorScheme.primary,
                   foregroundColor: Theme.of(ctx2).colorScheme.onPrimary,
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 10, horizontal: 20),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: const Text('确认开启',
-                    style: TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w600)),
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
               ),
             ],
           ),
@@ -555,14 +561,15 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _ensureRequiredModesAndBtPermissions(
-      SharedPreferences prefs, {bool onlyMissing = false}) async {
+  Future<void> _ensureRequiredModesAndBtPermissions(SharedPreferences prefs,
+      {bool onlyMissing = false}) async {
     // onlyMissing=true: 已确认过的后续启动只补全从未写过的键，不覆盖用户修改
     void maybeSet(String key) {
       if (!onlyMissing || prefs.getBool(key) == null) {
         prefs.setBool(key, true);
       }
     }
+
     maybeSet(PrefKeys.loverModeEnabled);
     maybeSet(PrefKeys.openModeEnabled);
     maybeSet(PrefKeys.faModeEnabled);
@@ -588,8 +595,7 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
       onChanged: (v) => setStateDialog(() => states[key] = v ?? false),
       title: Text(title,
           style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
-      subtitle:
-          Text(subtitle, style: const TextStyle(fontSize: 12)),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
       controlAffinity: ListTileControlAffinity.leading,
       contentPadding: EdgeInsets.zero,
       dense: true,
@@ -720,7 +726,7 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
       _initChatBloc();
     }
     debugPrint('[MainShell] _buildPage index=$index');
-    
+
     switch (index) {
       case 0:
         // 修复：复用已存在的 ChatBloc 实例，避免状态丢失
@@ -826,10 +832,10 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
         return const AIActivityFeedScreen();
       case '/relationship':
         return const RelationshipDashboard();
+      case '/psychology':
+        return const CharacterPsychologyScreen();
       case '/tarot':
         return TarotScreen(storage: storage);
-      case '/story':
-        return const StoryShelfScreen();
       case '/novel':
         return const NovelShelfScreen();
       case '/shop':
@@ -946,37 +952,37 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
               selectedFontSize: 10,
               unselectedFontSize: 10,
               elevation: 0,
-          items: [
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.chat_bubble_outline),
-              activeIcon: const Icon(Icons.chat_bubble),
-              label: '消息',
-            ),
-            const BottomNavigationBarItem(
-                icon: Icon(Icons.contacts_outlined),
-                activeIcon: Icon(Icons.contacts),
-                label: '通讯录'),
-            const BottomNavigationBarItem(
-                icon: Icon(Icons.explore_outlined),
-                activeIcon: Icon(Icons.explore),
-                label: '发现'),
-            const BottomNavigationBarItem(
-                icon: Icon(Icons.person_outline),
-                activeIcon: Icon(Icons.person),
-                label: '我'),
-            const BottomNavigationBarItem(
-                icon: Icon(Icons.menu_book_outlined),
-                activeIcon: Icon(Icons.menu_book),
-                label: '小说'),
-            const BottomNavigationBarItem(
-                icon: Icon(Icons.donut_large_outlined),
-                activeIcon: Icon(Icons.donut_large),
-                label: '用量'),
-            const BottomNavigationBarItem(
-                icon: Icon(Icons.phone_android_outlined),
-                activeIcon: Icon(Icons.phone_android),
-                label: 'Operit'),
-          ],
+              items: [
+                BottomNavigationBarItem(
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  activeIcon: const Icon(Icons.chat_bubble),
+                  label: '消息',
+                ),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.contacts_outlined),
+                    activeIcon: Icon(Icons.contacts),
+                    label: '通讯录'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.explore_outlined),
+                    activeIcon: Icon(Icons.explore),
+                    label: '发现'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.person_outline),
+                    activeIcon: Icon(Icons.person),
+                    label: '我'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.menu_book_outlined),
+                    activeIcon: Icon(Icons.menu_book),
+                    label: '小说'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.donut_large_outlined),
+                    activeIcon: Icon(Icons.donut_large),
+                    label: '用量'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.phone_android_outlined),
+                    activeIcon: Icon(Icons.phone_android),
+                    label: 'Operit'),
+              ],
             ),
           );
         },
@@ -1032,7 +1038,8 @@ class _DiscoverPageState extends State<_DiscoverPage>
           unselectedLabelColor: cs.onSurfaceVariant,
           indicatorColor: cs.primary,
           indicatorSize: TabBarIndicatorSize.label,
-          labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          labelStyle:
+              const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           unselectedLabelStyle: const TextStyle(fontSize: 16),
           dividerHeight: 0,
           tabs: const [
@@ -1057,17 +1064,14 @@ class _DiscoverPageState extends State<_DiscoverPage>
   Widget _buildFeaturesTab(ColorScheme cs) {
     final tt = Theme.of(context).textTheme;
     return ListView(children: [
-      _tile(context, Icons.photo_library, '朋友圈', '查看 AI 的动态', '/moments', cs,
-          tt),
+      _tile(
+          context, Icons.photo_library, '朋友圈', '查看 AI 的动态', '/moments', cs, tt),
       _tile(context, Icons.psychology, '记忆库', '回顾你们的回忆', '/memory', cs, tt),
       _tile(context, Icons.mark_email_unread_outlined, '信箱', '查看 AI 写给你的来信',
           '/mailbox', cs, tt),
-      _tile(context, Icons.book_rounded, '角色日记', 'TA 的内心独白',
-          '/diary', cs, tt),
-      _tile(context, Icons.bookmark_rounded, '收藏消息', '回顾收藏的聊天记录',
-          '/bookmarks', cs, tt),
-      _tile(context, Icons.auto_stories, '故事书', '与 AI 共创互动故事', '/story', cs,
-          tt),
+      _tile(context, Icons.book_rounded, '角色日记', 'TA 的内心独白', '/diary', cs, tt),
+      _tile(context, Icons.bookmark_rounded, '收藏消息', '回顾收藏的聊天记录', '/bookmarks',
+          cs, tt),
       _tile(context, Icons.casino, '幸运转盘', '试试手气', '/lucky_wheel', cs, tt),
       _tile(context, Icons.auto_fix_high, '塔罗牌', '每日占卜', '/tarot', cs, tt),
       _tile(context, Icons.trending_up, '成长轨迹', '查看成长记录', '/growth', cs, tt),
@@ -1075,6 +1079,8 @@ class _DiscoverPageState extends State<_DiscoverPage>
           cs, tt),
       _tile(context, Icons.thermostat, '关系温度', '查看关系仪表盘', '/relationship', cs,
           tt),
+      _tile(context, Icons.psychology_alt, '角色心理', '看看 TA 现在在想什么',
+          '/psychology', cs, tt),
     ]);
   }
 
@@ -1323,8 +1329,9 @@ class SolaceApp extends StatelessWidget {
         child: BlocBuilder<ThemeBloc, ThemeState>(
           builder: (context, themeState) {
             final isModernist = themeState.isModernist;
-            final lightScheme =
-                isModernist ? modernistLightColorScheme : defaultLightColorScheme;
+            final lightScheme = isModernist
+                ? modernistLightColorScheme
+                : defaultLightColorScheme;
             final darkScheme =
                 isModernist ? modernistDarkColorScheme : defaultDarkColorScheme;
 
@@ -1479,7 +1486,6 @@ class SolaceApp extends StatelessWidget {
                 '/create_character': (context) => const CreateCharacterScreen(),
                 '/ai_config': (context) => const AIConfigScreen(),
                 '/lucky_wheel': (context) => const LuckyWheelScreen(),
-                '/story': (context) => const StoryShelfScreen(),
               },
               initialRoute: '/',
             );

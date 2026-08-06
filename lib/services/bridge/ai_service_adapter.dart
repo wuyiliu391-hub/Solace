@@ -7,6 +7,7 @@ import 'dart:async';
 import '../../config/constants.dart';
 import '../../models/app_config_data.dart';
 import '../../models/ai_character.dart';
+import '../../models/ai_turn_state.dart';
 import '../../models/ai_config.dart';
 import '../../models/chat_message.dart';
 import '../../models/memory.dart';
@@ -31,7 +32,9 @@ import '../../repositories/local_storage_repository.dart';
 /// 内部委托给新 LlmService + 新 MemoryRepository
 class AIServiceAdapter {
   String? _lastParsedStatus;
+  AiTurnState? _lastTurnState;
   String? get lastParsedStatus => _lastParsedStatus;
+  AiTurnState? get lastTurnState => _lastTurnState;
   Map<String, dynamic>? _lastWebSearchTrace;
   Map<String, dynamic>? get lastWebSearchTrace => _lastWebSearchTrace;
 
@@ -99,6 +102,8 @@ class AIServiceAdapter {
     bool enableWebSearch = false,
     String? internalSystemContext,
   }) async {
+    _lastTurnState = null;
+    _lastParsedStatus = null;
     // 构建系统提示词（从角色卡 + 记忆 + 情绪）
     final systemPrompt = _buildSystemPrompt(
       character: character,
@@ -127,8 +132,7 @@ class AIServiceAdapter {
       });
     }
     _lastWebSearchTrace = null;
-    final shouldUseWebSearch = enableWebSearch &&
-        _shouldSearchWeb(userMessage);
+    final shouldUseWebSearch = enableWebSearch && _shouldSearchWeb(userMessage);
     if (shouldUseWebSearch) {
       extraContext.addAll(await _buildBingSearchContext(userMessage));
       extraContext.add({
@@ -151,9 +155,7 @@ class AIServiceAdapter {
 
     // 多模态看图：LlmService 目前只吃纯文本。若本轮带图，优先走主 AIService，
     // 否则 imagePaths 会被静默丢弃，模型完全看不到图。
-    if (imagePaths != null &&
-        imagePaths.isNotEmpty &&
-        _storage != null) {
+    if (imagePaths != null && imagePaths.isNotEmpty && _storage != null) {
       return AIService(_storage!).sendMessage(
         character: character,
         userId: userId,
@@ -189,7 +191,10 @@ class AIServiceAdapter {
     }
 
     // 解析状态标记
-    _lastParsedStatus = _extractStatus(response.content);
+    _lastTurnState = AiTurnState.parse(response.content);
+    _lastParsedStatus = _lastTurnState?.emotion ??
+        AiTurnState.parseLegacyStatus(response.content) ??
+        _extractStatus(response.content);
 
     // 清理响应
     return _cleanResponse(response.content);
@@ -213,9 +218,7 @@ class AIServiceAdapter {
     String? internalSystemContext,
   }) async* {
     // 带图时委托主 AIService 流式（含 OpenAI vision content 数组）
-    if (imagePaths != null &&
-        imagePaths.isNotEmpty &&
-        _storage != null) {
+    if (imagePaths != null && imagePaths.isNotEmpty && _storage != null) {
       yield* AIService(_storage!).sendMessageStream(
         character: character,
         userId: userId,
@@ -402,10 +405,9 @@ class AIServiceAdapter {
       final isNewline = text[j] == '\n';
 
       // 引号内部不分割，确保对白完整性
-      final shouldSplit =
-          (isEndPunctuation || isEllipsis || isNewline) &&
-              currentSentence.length >= 5 &&
-              !insideQuote;
+      final shouldSplit = (isEndPunctuation || isEllipsis || isNewline) &&
+          currentSentence.length >= 5 &&
+          !insideQuote;
 
       if (shouldSplit && j + 1 < text.length) {
         final next = text[j + 1];
@@ -630,6 +632,12 @@ class AIServiceAdapter {
       addClean('用户当前状态：', userStatus);
     }
 
+    parts.add('''
+【最高优先级：每轮心理状态闭环】
+每次回复都必须在可见正文之后输出一次 TURN_STATE，禁止省略，禁止沿用旧值。
+严格格式： [TURN_STATE]{"emotion":"简短情绪","intensity":0.0,"thought":"此刻没有说出口的一句话"}[/TURN_STATE]
+JSON 只能包含 emotion、intensity、thought。无论消息长短、话题氛围或剧情强度，每轮必须重新生成这三个字段。TURN_STATE 是内部协议，不要解释协议或标签；旧版 STATUS 标签不再使用。''');
+
     return parts.join('\n');
   }
 
@@ -734,8 +742,8 @@ class AIServiceAdapter {
       request.write(jsonEncode({'query': userMessage}));
 
       final response = await request.close().timeout(
-        const Duration(seconds: 30),
-      );
+            const Duration(seconds: 30),
+          );
 
       if (response.statusCode != 200) {
         client.close();
@@ -749,14 +757,14 @@ class AIServiceAdapter {
       }
 
       final bytes = await response.fold<List<int>>(
-        <int>[], (prev, chunk) => [...prev, ...chunk],
+        <int>[],
+        (prev, chunk) => [...prev, ...chunk],
       );
       client.close();
 
       final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
       // UAPI Pro 返回格式为 {"data": {"results": [...]}}，兼容两种格式
-      final responseData =
-          (data['data'] as Map<String, dynamic>?) ?? data;
+      final responseData = (data['data'] as Map<String, dynamic>?) ?? data;
       final results = (responseData['results'] as List<dynamic>?)
               ?.map((r) => {
                     'title': r['title'] ?? '',
@@ -825,6 +833,10 @@ class AIServiceAdapter {
   String _cleanResponse(String text) {
     // 移除状态标记
     text = text.replaceAll(RegExp(r'\[状态[:：].+?\]'), '');
+    text = text.replaceAll(
+        RegExp(r'\[TURN_STATE\].*?\[/TURN_STATE\]',
+            caseSensitive: false, dotAll: true),
+        '');
     // 移除多余空行
     text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
     return MessageSanitizer.sanitizeFinal(text).trim();

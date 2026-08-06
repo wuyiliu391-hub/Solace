@@ -11,6 +11,7 @@ import '../../blocs/group_chat/group_chat_bloc.dart';
 import '../../models/group_chat_session.dart';
 import '../../models/group_chat_message.dart';
 import '../../models/group_chat_branch.dart';
+import '../../models/group_chat_lorebook_entry.dart';
 import '../../models/ai_character.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../repositories/local_storage_repository.dart';
@@ -21,6 +22,7 @@ import '../../widgets/avatar_picker.dart';
 import '../../widgets/group_chat/group_top_bar.dart';
 import '../../widgets/group_chat/member_activation_bar.dart';
 import '../../widgets/group_chat/group_message_bubble.dart';
+import '../../widgets/message_actions_sheet.dart';
 import '../../widgets/group_chat/group_member_drawer.dart';
 
 class GroupChatDetailScreen extends StatefulWidget {
@@ -225,6 +227,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     ),
                     const PopupMenuItem(value: 'settings', child: Text('群设置')),
                     const PopupMenuItem(value: 'branches', child: Text('聊天记录')),
+                    const PopupMenuItem(value: 'lorebook', child: Text('世界书')),
                     const PopupMenuItem(value: 'delete', child: Text('删除群聊')),
                   ],
                 ),
@@ -439,9 +442,14 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 : null);
         final sender = _memberById(senderId);
         // 用户头像：AuthUser 自定义头像（与单聊一致）
-        final authState = context.read<AuthBloc>().state;
-        final userAvatarUrl =
-            authState is AuthAuthenticated ? authState.user.avatarUrl : null;
+        String? userAvatarUrl;
+        try {
+          final authState = context.read<AuthBloc>().state;
+          userAvatarUrl =
+              authState is AuthAuthenticated ? authState.user.avatarUrl : null;
+        } catch (_) {
+          // Standalone previews/tests may not install the app-level AuthBloc.
+        }
         return GroupMessageBubble(
           message: msg,
           showAvatar: showAvatar,
@@ -450,6 +458,18 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           avatarUrl: msg.isUser ? userAvatarUrl : sender?.avatarUrl,
           isSelected: _selectionMode && _selectedIds.contains(msg.id),
           onTap: _selectionMode ? () => _toggleSelect(msg.id) : null,
+          onSwipeChanged: !_selectionMode && msg.swipeHistory.length > 1
+              ? (index) => context.read<GroupChatBloc>().add(
+                  GroupChatSelectSwipe(
+                      groupId: _groupId, messageId: msg.id, index: index))
+              : null,
+          onRetry: msg.isUser && msg.status == GroupChatMessageStatus.failed
+              ? () => context.read<GroupChatBloc>().add(GroupChatSendMessage(
+                    groupId: _groupId,
+                    userId: msg.senderId,
+                    content: msg.content,
+                  ))
+              : null,
           onLongPress: _selectionMode
               ? null
               : isStreamingMsg
@@ -816,6 +836,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       case 'branches':
         _showBranchManager();
         break;
+      case 'lorebook':
+        _showLorebookDialog();
+        break;
       case 'delete':
         _confirmDelete();
         break;
@@ -963,121 +986,308 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   }
 
   void _showMessageOptions(GroupChatMessage message) {
+    final isText =
+        !message.isRecalled && message.type == GroupChatMessageType.text;
     final isAIMessage = !message.isUser && !message.isSystem;
     final canRecall = message.isUser &&
         DateTime.now().difference(message.timestamp).inMinutes <= 2 &&
         !message.isRecalled;
-    final canEditAI = isAIMessage &&
-        !message.isRecalled &&
-        message.type == GroupChatMessageType.text;
-    final canRegenerate = isAIMessage && !message.isRecalled;
-
-    showModalBottomSheet(
+    MessageActionsSheet.show(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      actions: [
+        MessageActionItem(
+          label: '回复',
+          icon: Icons.reply,
+          color: Colors.blue,
+          onPressed: () => _setReplyTo(message),
+        ),
+        if (isText)
+          MessageActionItem(
+            label: '复制',
+            icon: Icons.copy,
+            color: Colors.teal,
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: message.content));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('已复制到剪贴板'),
+                duration: Duration(seconds: 1),
+              ));
+            },
+          ),
+        if (isAIMessage && isText)
+          MessageActionItem(
+            label: '编辑',
+            icon: Icons.edit,
+            color: Colors.green,
+            subtitle: '修改AI的回复内容',
+            onPressed: () => _showEditAIReplyDialog(message),
+          ),
+        if (isAIMessage && !message.isRecalled)
+          MessageActionItem(
+            label: '重新生成',
+            icon: Icons.refresh,
+            color: Colors.purple,
+            subtitle: '让AI重新回复，覆盖当前内容',
+            onPressed: () => _showRegenerateConfirm(message),
+          ),
+        if (message.swipeHistory.length > 1)
+          MessageActionItem(
+            label: '切换候选回复',
+            icon: Icons.swap_horiz,
+            color: Colors.indigo,
+            subtitle:
+                '${message.swipeHistory.length} 个候选，当前第 ${message.swipeIndex + 1} 个',
+            onPressed: () => _showSwipePicker(message),
+          ),
+        if (isAIMessage)
+          MessageActionItem(
+            label: '从此处创建分支',
+            icon: Icons.account_tree_outlined,
+            color: Colors.deepPurple,
+            subtitle: '复制当前消息之前的聊天历史',
+            onPressed: () => _showCreateBranchFromMessage(message),
+          ),
+        if (canRecall)
+          MessageActionItem(
+            label: '撤回',
+            icon: Icons.undo,
+            color: Colors.orange,
+            subtitle: '2分钟内可撤回',
+            onPressed: () => context.read<GroupChatBloc>().add(
+                  GroupChatRecallMessage(
+                    groupId: _groupId,
+                    messageId: message.id,
+                  ),
+                ),
+          ),
+        MessageActionItem(
+          label: message.isBookmarked ? '取消收藏' : '收藏',
+          icon: Icons.bookmark_border,
+          color: Colors.amber.shade700,
+          onPressed: () => context.read<GroupChatBloc>().add(
+                GroupChatToggleBookmark(
+                  groupId: _groupId,
+                  messageId: message.id,
+                ),
+              ),
+        ),
+        MessageActionItem(
+          label: '删除',
+          icon: Icons.delete_outline,
+          color: Colors.red[400],
+          onPressed: () => _showDeleteConfirm(message),
+        ),
+      ],
+    );
+  }
+
+  void _showSwipePicker(GroupChatMessage message) {
+    showModalBottomSheet<void>(
+      context: context,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: message.swipeHistory.length,
+          itemBuilder: (_, index) => ListTile(
+            leading: CircleAvatar(child: Text('${index + 1}')),
+            title: Text(
+              message.swipeHistory[index],
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
             ),
-            ListTile(
-              leading: const Icon(Icons.reply, color: Colors.blue),
-              title: const Text('回复'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _setReplyTo(message);
-              },
-            ),
-            if (!message.isRecalled &&
-                message.type == GroupChatMessageType.text)
-              ListTile(
-                leading: const Icon(Icons.copy, color: Colors.teal),
-                title: const Text('复制'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  Clipboard.setData(ClipboardData(text: message.content));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('已复制到剪贴板'),
-                      duration: Duration(seconds: 1),
+            trailing: index == message.swipeIndex
+                ? const Icon(Icons.check, color: Colors.green)
+                : null,
+            onTap: () {
+              Navigator.pop(ctx);
+              context.read<GroupChatBloc>().add(GroupChatSelectSwipe(
+                    groupId: _groupId,
+                    messageId: message.id,
+                    index: index,
+                  ));
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showCreateBranchFromMessage(GroupChatMessage message) {
+    final controller =
+        TextEditingController(text: '从 ${message.senderName} 分支');
+    showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('从消息创建分支'),
+        content: TextField(controller: controller, autofocus: true),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    ).then((name) {
+      if (name == null || name.isEmpty) return;
+      context.read<GroupChatBloc>().add(GroupChatCreateBranch(
+            groupId: _groupId,
+            name: name,
+            forkMessageId: message.id,
+          ));
+    });
+  }
+
+  Future<void> _showLorebookDialog() async {
+    final repository = RepositoryProvider.of<LocalStorageRepository>(context);
+    final entries = await repository.getGroupChatLorebookEntries(_groupId,
+        chatId: _session.chatId);
+    if (!mounted) return;
+    final content = TextEditingController();
+    final keywords = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('世界书（${entries.length} 条）'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...entries.map((entry) => ListTile(
+                    dense: true,
+                    title: Text(entry.name.isEmpty ? entry.id : entry.name),
+                    subtitle:
+                        Text('${entry.keywords.join('、')}\n${entry.content}'),
+                    isThreeLine: true,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showLorebookEditor(entry);
+                    },
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () async {
+                        await repository.deleteGroupChatLorebookEntry(entry.id);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        _showLorebookDialog();
+                      },
                     ),
-                  );
-                },
+                  )),
+              const Divider(),
+              TextField(
+                controller: keywords,
+                decoration: const InputDecoration(labelText: '触发关键词（逗号分隔）'),
               ),
-            if (canEditAI)
-              ListTile(
-                leading: const Icon(Icons.edit, color: Colors.green),
-                title: const Text('编辑'),
-                subtitle: const Text('修改AI的回复内容'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showEditAIReplyDialog(message);
-                },
+              TextField(
+                controller: content,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: '触发后注入的世界设定'),
               ),
-            if (canRegenerate)
-              ListTile(
-                leading: const Icon(Icons.refresh, color: Colors.purple),
-                title: const Text('重新生成'),
-                subtitle: const Text('让AI重新回复，覆盖当前内容'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showRegenerateConfirm(message);
-                },
-              ),
-            if (canRecall)
-              ListTile(
-                leading: const Icon(Icons.undo, color: Colors.orange),
-                title: const Text('撤回'),
-                subtitle: const Text('2分钟内可撤回'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  context.read<GroupChatBloc>().add(GroupChatRecallMessage(
-                        groupId: _groupId,
-                        messageId: message.id,
-                      ));
-                },
-              ),
-            ListTile(
-              leading:
-                  Icon(Icons.bookmark_border, color: Colors.amber.shade700),
-              title: Text(message.isBookmarked ? '取消收藏' : '收藏'),
-              subtitle: Text(message.isBookmarked ? '从收藏夹移除' : '收藏此消息'),
-              onTap: () {
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
+          FilledButton(
+            onPressed: () async {
+              final text = content.text.trim();
+              final keys = keywords.text
+                  .split(RegExp(r'[,，]'))
+                  .map((e) => e.trim())
+                  .where((e) => e.isNotEmpty)
+                  .toList();
+              if (text.isEmpty || keys.isEmpty) return;
+              await repository.saveGroupChatLorebookEntry(
+                GroupChatLorebookEntry(
+                  id: 'lore_${DateTime.now().microsecondsSinceEpoch}',
+                  groupId: _groupId,
+                  chatId: _session.chatId,
+                  name: keys.first,
+                  content: text,
+                  keywords: keys,
+                  priority: 10,
+                ),
+              );
+              if (ctx.mounted) Navigator.pop(ctx);
+              _showLorebookDialog();
+            },
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showLorebookEditor(GroupChatLorebookEntry entry) async {
+    final name = TextEditingController(text: entry.name);
+    final keywords = TextEditingController(text: entry.keywords.join(', '));
+    final content = TextEditingController(text: entry.content);
+    final priority = TextEditingController(text: entry.priority.toString());
+    final depth = TextEditingController(text: entry.depth.toString());
+    var enabled = entry.enabled;
+    var recursive = entry.recursive;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('编辑世界书条目'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(
+                  controller: name,
+                  decoration: const InputDecoration(labelText: '名称')),
+              TextField(
+                  controller: keywords,
+                  decoration: const InputDecoration(labelText: '关键词（逗号分隔）')),
+              TextField(
+                  controller: content,
+                  maxLines: 4,
+                  decoration: const InputDecoration(labelText: '内容')),
+              TextField(
+                  controller: priority,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: '优先级')),
+              TextField(
+                  controller: depth,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: '插入深度')),
+              SwitchListTile(
+                  title: const Text('启用'),
+                  value: enabled,
+                  onChanged: (v) => setDialogState(() => enabled = v)),
+              SwitchListTile(
+                  title: const Text('允许递归触发'),
+                  value: recursive,
+                  onChanged: (v) => setDialogState(() => recursive = v)),
+            ]),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            FilledButton(
+              onPressed: () {
+                final keys = keywords.text
+                    .split(RegExp(r'[,，]'))
+                    .map((e) => e.trim())
+                    .where((e) => e.isNotEmpty)
+                    .toList();
+                if (content.text.trim().isEmpty || keys.isEmpty) return;
+                context
+                    .read<GroupChatBloc>()
+                    .add(GroupChatSaveLorebookEntry(entry.copyWith(
+                      name: name.text.trim(),
+                      content: content.text.trim(),
+                      keywords: keys,
+                      priority: int.tryParse(priority.text) ?? entry.priority,
+                      depth: int.tryParse(depth.text) ?? entry.depth,
+                      enabled: enabled,
+                      recursive: recursive,
+                    )));
                 Navigator.pop(ctx);
-                context.read<GroupChatBloc>().add(GroupChatToggleBookmark(
-                      groupId: _groupId,
-                      messageId: message.id,
-                    ));
               },
+              child: const Text('保存'),
             ),
-            ListTile(
-              leading: Icon(Icons.delete_outline, color: Colors.red[400]),
-              title: const Text('删除'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showDeleteConfirm(message);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.checklist_rtl, color: Colors.blueGrey),
-              title: const Text('多选'),
-              subtitle: const Text('批量删除 / 收藏消息'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _enterSelection(message.id);
-              },
-            ),
-            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -1128,7 +1338,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('重新生成'),
-        content: const Text('AI将重新回复，当前回复会被覆盖。确定吗？'),
+        content: const Text('AI 将生成一个新的候选回复，当前回复会保留在候选列表中。确定吗？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -1264,6 +1474,40 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     onTap: () {
                       Navigator.pop(ctx);
                       _showInviteDialog();
+                    },
+                  ),
+                  const Divider(height: 24),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '聊天内容',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.account_tree_outlined),
+                    title: const Text('聊天记录与分支'),
+                    subtitle: const Text('切换记录，或从消息节点继续另一条时间线'),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showBranchManager();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.menu_book_outlined),
+                    title: const Text('世界书'),
+                    subtitle: const Text('按关键词把群聊设定自动注入 AI 上下文'),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showLorebookDialog();
                     },
                   ),
                   // ─── SillyTavern 引擎配置 ───

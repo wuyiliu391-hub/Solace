@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import '../models/ai_character.dart';
+import '../models/ai_turn_state.dart';
 import '../models/ai_config.dart';
 import '../models/ai_stream_chunk.dart';
 import '../models/chat_message.dart';
@@ -145,6 +146,7 @@ class AIService {
   }
 
   String? _lastParsedStatus;
+  AiTurnState? _lastTurnState;
   Map<String, dynamic>? _lastWebSearchTrace;
 
   AIService(this._storage, {http.Client? httpClient})
@@ -156,6 +158,7 @@ class AIService {
   }
 
   String? get lastParsedStatus => _lastParsedStatus;
+  AiTurnState? get lastTurnState => _lastTurnState;
   Map<String, dynamic>? get lastWebSearchTrace => _lastWebSearchTrace;
 
   /// 为内置 GLM-Z1-9B 注入模式专属参数（top_p, top_k, frequency_penalty, thinking_budget, max_tokens）
@@ -301,6 +304,8 @@ class AIService {
     String? internalSystemContext,
     int? overrideMaxTokens,
   }) async {
+    _lastTurnState = null;
+    _lastParsedStatus = null;
     debugPrint('===== AIService.sendMessage: ENTRY =====');
     debugPrint('character: ${character.name}, userId: $userId');
     debugPrint(
@@ -403,7 +408,9 @@ class AIService {
           if (MessageSanitizer.isGatewayError(rawContent)) {
             throw Exception('Gateway error in response: $rawContent');
           }
-          _lastParsedStatus = _extractStatus(rawContent);
+          _lastTurnState = AiTurnState.parse(rawContent);
+          _lastParsedStatus = _lastTurnState?.emotion ??
+              AiTurnState.parseLegacyStatus(rawContent);
           final cleaned = _cleanResponse(rawContent);
           debugPrint('===== AIService.sendMessage: SUCCESS =====');
           debugPrint(
@@ -536,6 +543,8 @@ class AIService {
     bool enableWebSearch = false,
     String? internalSystemContext,
   }) async* {
+    _lastTurnState = null;
+    _lastParsedStatus = null;
     final config = await _storage.getActiveAIConfig();
     if (config == null) throw Exception('No active configuration found');
 
@@ -735,7 +744,8 @@ class AIService {
                     accumulatedContent += delta['text'] as String;
                     yield AIStreamChunk(
                         reasoning: accumulatedReasoning,
-                        content: accumulatedContent);
+                        content: accumulatedContent,
+                        usage: chunkUsage);
                   }
                   continue;
                 }
@@ -755,7 +765,8 @@ class AIService {
                       accumulatedContent += ResponseDecoder.repairText(delta);
                       yield AIStreamChunk(
                           reasoning: accumulatedReasoning,
-                          content: accumulatedContent);
+                          content: accumulatedContent,
+                          usage: chunkUsage);
                     }
                   } else if (type == 'response.reasoning.delta') {
                     final delta = json['delta'] as String?;
@@ -763,7 +774,8 @@ class AIService {
                       accumulatedReasoning += ResponseDecoder.repairText(delta);
                       yield AIStreamChunk(
                           reasoning: accumulatedReasoning,
-                          content: accumulatedContent);
+                          content: accumulatedContent,
+                          usage: chunkUsage);
                     }
                   } else if (type == 'response.completed') {
                     final response = json['response'] as Map<String, dynamic>?;
@@ -822,6 +834,7 @@ class AIService {
                       reasoning: accumulatedReasoning,
                       content: accumulatedContent,
                       finishReason: finishReason,
+                      usage: chunkUsage,
                     );
                   }
                 }
@@ -917,6 +930,14 @@ class AIService {
         '');
     cleaned = cleaned.replaceAll(
         RegExp(r'\[/?\s*STATUS\s*\]', caseSensitive: false), '');
+    cleaned = cleaned.replaceAll(
+        RegExp(r'\[TURN_STATE\].*?\[/TURN_STATE\]',
+            caseSensitive: false, dotAll: true),
+        '');
+    cleaned = cleaned.replaceAll(
+        RegExp(r'\[TURN_STATE\].*?\[/TURN_STATE\]',
+            caseSensitive: false, dotAll: true),
+        '');
     cleaned = cleaned.replaceAll(
         RegExp(r'\[STICK\w*[^\]]*\]', caseSensitive: false), '');
     // 过滤内部上下文标签泄漏 — 某些模型会把 <internal_context> 当正文输出
@@ -2529,6 +2550,23 @@ $conversation
   }
 
   /// 备用模型兜底：当主模型返回空白时，尝试其他模型非流式生成
+  /// Sends a caller-provided prompt without applying a character chat template.
+  Future<String> sendPromptMessage({
+    required List<Map<String, dynamic>> messages,
+    int? overrideMaxTokens,
+  }) async {
+    final config = await _storage.getActiveAIConfig();
+    if (config == null) throw Exception('No active configuration found');
+    return _callAPI(
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.modelName,
+      messages: messages,
+      maxTokens: overrideMaxTokens,
+      config: config,
+    );
+  }
+
   Future<String?> fallbackGenerate({
     required List<Map<String, dynamic>> messages,
     required String excludeConfigId,
@@ -2572,45 +2610,6 @@ $conversation
     }
     debugPrint('===== fallbackGenerate: 所有备用模型均失败 =====');
     return null;
-  }
-
-  /// 故事书专用：以预构造的 messages 数组发起流式请求
-  ///
-  /// 故事书自行拼装 system prompt（世界观/剧情态/结构化输出协议）与历史段落，
-  /// 复用通用 HTTP 与 SSE 解析能力，与单聊人设 prompt 完全解耦。
-  Stream<AIStreamChunk> sendStoryMessageStream({
-    required List<Map<String, dynamic>> messages,
-    int? overrideMaxTokens,
-  }) async* {
-    final config = await _storage.getActiveAIConfig();
-    if (config == null) throw Exception('No active configuration found');
-    yield* _streamCallAPI(
-      baseUrl: config.baseUrl,
-      apiKey: config.apiKey,
-      model: config.modelName,
-      messages: messages,
-      // overrideMaxTokens 为 null 时不传 max_tokens，交由上游决定
-      maxTokens: overrideMaxTokens,
-      config: config,
-    );
-  }
-
-  /// 故事书专用：非流式请求
-  Future<String> sendStoryMessage({
-    required List<Map<String, dynamic>> messages,
-    int? overrideMaxTokens,
-  }) async {
-    final config = await _storage.getActiveAIConfig();
-    if (config == null) throw Exception('No active configuration found');
-    return _callAPI(
-      baseUrl: config.baseUrl,
-      apiKey: config.apiKey,
-      model: config.modelName,
-      messages: messages,
-      // overrideMaxTokens 为 null 时不传 max_tokens，完全由上游模型决定输出长度
-      maxTokens: overrideMaxTokens,
-      config: config,
-    );
   }
 
   /// 通用流式API调用 — 群聊/回忆等共享方法使用
@@ -2899,22 +2898,22 @@ $transcript
           final map = Map<String, dynamic>.from(item);
           final content = map['content']?.toString().trim() ?? '';
           if (content.isEmpty) continue;
-            final validSourceMessageIds = _stringList(map['sourceMessageIds'])
-                .where(messageIds.contains)
-                .toList();
-            final validSpeakerNames = _stringList(map['speakerNames'])
-                .where(speakerNames.contains)
-                .toList();
-            // Every event needs a validated source so single-message
-            // deletion can remove it through the same cleanup path.
-            if (validSourceMessageIds.isEmpty) {
-              continue;
-            }
-            result.add(GroupPublicEventExtraction(
-              content: content,
-              keywords: _stringList(map['keywords']),
-              sourceMessageIds: validSourceMessageIds,
-              speakerNames: validSpeakerNames,
+          final validSourceMessageIds = _stringList(map['sourceMessageIds'])
+              .where(messageIds.contains)
+              .toList();
+          final validSpeakerNames = _stringList(map['speakerNames'])
+              .where(speakerNames.contains)
+              .toList();
+          // Every event needs a validated source so single-message
+          // deletion can remove it through the same cleanup path.
+          if (validSourceMessageIds.isEmpty) {
+            continue;
+          }
+          result.add(GroupPublicEventExtraction(
+            content: content,
+            keywords: _stringList(map['keywords']),
+            sourceMessageIds: validSourceMessageIds,
+            speakerNames: validSpeakerNames,
             importance:
                 map['importance']?.toString().toLowerCase() == 'important'
                     ? GroupEventImportance.important

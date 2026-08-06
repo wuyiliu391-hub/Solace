@@ -22,9 +22,11 @@ class AppDurations {
   // ─── AI Typing Delays ───
   static const instantReplyDelay = Duration(milliseconds: 300);
   static const multiMessageDelay = Duration(milliseconds: 400);
+
   /// normal 模式拟人延迟上限（过大会被当成「卡住」）
   static const typingDelayMinMs = 200;
   static const typingDelayMaxMs = 1800;
+
   /// 流式 UI 刷新最小间隔，避免每 token 全量重建
   static const streamUiThrottle = Duration(milliseconds: 80);
 }
@@ -100,16 +102,22 @@ class PrefKeys {
   static const String pureAiModeEnabled = 'pure_ai_mode_enabled';
   static const String idCardChangeCount = 'id_card_change_count';
   static const String lastCheckInDate = 'last_check_in_date';
+
   /// 每日首次登录奖励发放日期（yyyy-MM-dd），与签到独立可叠
   static const String lastLoginBonusDate = 'last_login_bonus_date';
+
   /// 金币经济：是否启用消耗（false=免费模式，扣款恒成功不减币）
   static const String coinEconomyEnabled = 'coin_economy_enabled';
+
   /// 自定义：发消息消耗（null 用默认 CoinRules）
   static const String coinMessageCost = 'coin_message_cost';
+
   /// 自定义：朋友圈互动消耗
   static const String coinMomentCost = 'coin_moment_cost';
+
   /// 自定义：每日登录奖励
   static const String coinLoginBonus = 'coin_login_bonus';
+
   /// 自定义：每日签到奖励
   static const String coinCheckInReward = 'coin_check_in_reward';
   static const String latestAvailableBuild = 'latest_available_build';
@@ -121,9 +129,11 @@ class PrefKeys {
   static const String lastSeenAnnouncementId = 'last_seen_announcement_id';
   static const String themeMode = 'app_theme_mode';
   static const String visualStyle = 'app_visual_style';
+
   /// 是否使用虚拟手机桌面壳作为主界面（false=经典底部导航）
   /// 默认 false：未设置时走经典底部导航，用户可在设置中开启小手机
   static const String phoneDesktopShell = 'phone_desktop_shell_enabled';
+
   /// 小手机壁纸主题：dawn / dusk / night
   static const String phoneWallpaperTheme = 'phone_wallpaper_theme';
   static const String lockTextColor = 'lock_screen_text_color';
@@ -177,6 +187,7 @@ class PrefKeys {
   static const String devicePermissionUi = 'device_permission_ui';
   static const String devicePermissionShell = 'device_permission_shell';
   static const String deviceAgentAuditLog = 'device_agent_audit_log';
+
   /// 小说/法模式下是否仍允许 Device Agent（默认关，防叙事混乱）
   static const String deviceAgentAllowInNarrative =
       'device_agent_allow_in_narrative';
@@ -280,10 +291,13 @@ class Limit {
   static const int memoryFetch = 40;
   static const int profileMemory = 50;
   static const int similarMemory = 30;
+
   /// 发给模型的最近对话条数（过小会表现为“失忆”）
   static const int chatHistoryContext = 60;
+
   /// 精简模型的历史条数（小模型也需足够连贯）
   static const int chatHistoryContextCompact = 28;
+
   /// 读库时为 AI 准备的消息上限（应 ≥ chatHistoryContext）
   static const int chatHistoryLoadForAI = 120;
   static const int relevantMemoriesPrompt = 12;
@@ -316,7 +330,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 66;
+  static const int dbVersion = 68;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;
@@ -335,10 +349,6 @@ class DbDefaults {
     'shop_items',
     'shop_orders',
     'social_memories',
-    'story_books',
-    'story_segments',
-    'story_scenes',
-    'story_saves',
     // v26+ 模块
     'ai_wallets',
     'pure_ai_sessions',

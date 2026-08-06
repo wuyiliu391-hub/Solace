@@ -102,6 +102,26 @@ class ChatEmotionChanged extends ChatState {
   List<Object?> get props => [chatId, emotionLabel, emotionType];
 }
 
+/// 每轮 AI 回复完成后更新的结构化心理状态。
+class ChatTurnStateUpdated extends ChatState {
+  final String chatId;
+  final String emotion;
+  final double intensity;
+  final String thought;
+  final DateTime updatedAt;
+
+  const ChatTurnStateUpdated({
+    required this.chatId,
+    required this.emotion,
+    required this.intensity,
+    required this.thought,
+    required this.updatedAt,
+  });
+
+  @override
+  List<Object?> get props => [chatId, emotion, intensity, thought, updatedAt];
+}
+
 class ChatTransferStatusUpdated extends ChatState {
   final String messageId;
   final String transferStatus;
@@ -161,7 +181,8 @@ class ChatAIProcessing extends ChatState {
   });
 
   @override
-  List<Object?> get props => [messages, statusText, characterName, processingState];
+  List<Object?> get props =>
+      [messages, statusText, characterName, processingState];
 }
 
 class ChatBlockedByAI extends ChatState {
@@ -349,7 +370,8 @@ class ChatAutoGlmRunning extends ChatState {
   });
 
   @override
-  List<Object?> get props => [messages, currentStep, maxSteps, currentAction, thinking];
+  List<Object?> get props =>
+      [messages, currentStep, maxSteps, currentAction, thinking];
 }
 
 /// AutoGLM 执行完成

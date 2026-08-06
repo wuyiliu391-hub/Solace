@@ -13,6 +13,7 @@ import '../../models/ai_character.dart';
 import '../../models/memory.dart';
 import '../../models/intimacy_event.dart';
 import '../../models/ai_stream_chunk.dart';
+import '../../models/ai_turn_state.dart';
 import '../../repositories/local_storage_repository.dart';
 
 import '../../services/ai_service.dart';
@@ -82,6 +83,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   final Map<String, List<String>> _pendingBlockMessages = {};
   final Map<String, DateTime> _lastObservationTrigger = {};
   final Map<String, int> _lastMemoryExtractionUserCount = {};
+  final Map<String, AiTurnState?> _completedTurnStates = {};
 
   /// 微记忆冷却时间戳，按 chatId 跟踪，避免同会话短时刷入多条
   final Map<String, DateTime> _lastMicroTime = {};
@@ -955,6 +957,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     return _aiService.lastParsedStatus;
   }
 
+  AiTurnState? get _bridgeLastTurnState {
+    if (_useAdapter) return _aiAdapter!.lastTurnState;
+    return _aiService.lastTurnState;
+  }
+
   Map<String, dynamic>? get _bridgeLastWebSearchTrace {
     if (_useAdapter) return _aiAdapter!.lastWebSearchTrace;
     return _aiService.lastWebSearchTrace;
@@ -1053,6 +1060,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
             .replaceAll(
                 RegExp(r'<BT_ACTION>.*?</BT_ACTION>',
                     caseSensitive: false, dotAll: true),
+                '')
+            .replaceAll(
+                RegExp(r'\[TURN_STATE\].*?(\[/TURN_STATE\]|$)',
+                    caseSensitive: false, dotAll: true),
                 '');
         final streamReasoning = _mergeStreamReasoning(chunk);
         if (streamText.isNotEmpty || streamReasoning.isNotEmpty) {
@@ -1064,6 +1075,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         final streamText = MessageSanitizer.sanitizeStream(finalContent)
             .replaceAll(
                 RegExp(r'<BT_ACTION>.*?</BT_ACTION>',
+                    caseSensitive: false, dotAll: true),
+                '')
+            .replaceAll(
+                RegExp(r'\[TURN_STATE\].*?(\[/TURN_STATE\]|$)',
                     caseSensitive: false, dotAll: true),
                 '');
         emitStreamUi(streamText, finalReasoning, force: true);
@@ -1109,6 +1124,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         final streamText = MessageSanitizer.sanitizeStream(chunk.content)
             .replaceAll(
                 RegExp(r'<BT_ACTION>.*?</BT_ACTION>',
+                    caseSensitive: false, dotAll: true),
+                '')
+            .replaceAll(
+                RegExp(r'\[TURN_STATE\].*?(\[/TURN_STATE\]|$)',
                     caseSensitive: false, dotAll: true),
                 '');
         final streamReasoning = _mergeStreamReasoning(chunk);
@@ -1278,7 +1297,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         .reversed
         .take(3);
     var cleanText = MessageSanitizer.removeRepeatedContent(
-      responseTextWithoutReasoning.replaceAll(_stickerTagRe, '').trim(),
+      responseTextWithoutReasoning
+          .replaceAll(
+              RegExp(r'\[TURN_STATE\].*?\[/TURN_STATE\]',
+                  caseSensitive: false, dotAll: true),
+              '')
+          .replaceAll(_stickerTagRe, '')
+          .trim(),
       previousMessages: recentAiTexts,
       fallback: MessageSanitizer.failureFallbackText(),
     );
@@ -1291,11 +1316,71 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     cleanText =
         MessageSanitizer.filterForbiddenPhrases(cleanText, forbiddenPhrases);
 
+    // 流式链路不经过 AIService.sendMessage 的最终解析，必须在完整流结束后自行提取。
+    _completedTurnStates[chatId] =
+        AiTurnState.parse(finalContent) ?? _bridgeLastTurnState;
+
     return (
       cleanText: cleanText,
       reasoning: finalReasoning,
       stickerMatches: stickerMatches
     );
+  }
+
+  Future<void> _persistTurnState({
+    required String chatId,
+    required AICharacter character,
+    required String userId,
+    required Emitter<ChatState> emit,
+  }) async {
+    final state = _completedTurnStates.remove(chatId) ?? _bridgeLastTurnState;
+    final now = DateTime.now();
+    if (state == null || !state.isValid) {
+      await _storage.setString(
+          'turn_state_$chatId',
+          jsonEncode({
+            'emotion': '状态同步失败',
+            'intensity': 0.0,
+            'thought': '本轮回复未返回有效的心理状态协议。',
+            'updatedAt': now.toIso8601String(),
+          }));
+      emit(ChatTurnStateUpdated(
+        chatId: chatId,
+        emotion: '状态同步失败',
+        intensity: 0,
+        thought: '本轮回复未返回有效的心理状态协议。',
+        updatedAt: now,
+      ));
+      return;
+    }
+
+    // 每轮均写入独立记录，不覆盖旧内心状态，也不把用户可见回复混入内部状态。
+    await _storage.saveInnerThought({
+      'id': _uuid.v4(),
+      'characterId': character.id,
+      'userId': userId,
+      'content': state.thought,
+      'type': 1,
+      'emotionValence': 0.0,
+      'emotionArousal': state.intensity,
+      'isRead': 0,
+      'createdAt': now.toIso8601String(),
+    });
+    await _storage.setString(
+        'turn_state_$chatId',
+        jsonEncode({
+          'emotion': state.emotion,
+          'intensity': state.intensity,
+          'thought': state.thought,
+          'updatedAt': now.toIso8601String(),
+        }));
+    emit(ChatTurnStateUpdated(
+      chatId: chatId,
+      emotion: state.emotion,
+      intensity: state.intensity,
+      thought: state.thought,
+      updatedAt: now,
+    ));
   }
 
   String? _stripBtJsonLeak(String text) {
@@ -2724,6 +2809,13 @@ $tail
             chatId: event.chatId);
       }
 
+      await _persistTurnState(
+        chatId: event.chatId,
+        character: character,
+        userId: event.userId,
+        emit: emit,
+      );
+
       // AI 回复中带贴纸标签 → 追加保存为独立的贴纸消息（此前提取后从未消费，贴纸丢失）
       if (_isStickerReplyEnabled(character) && aiStickerMatches.isNotEmpty) {
         await BuiltinStickerService.loadDefaultPack();
@@ -3666,6 +3758,12 @@ $tail
       emit(ChatMessagesLoaded(readUpdated));
 
       _updateAIStatus(character, chatId: event.chatId);
+      await _persistTurnState(
+        chatId: event.chatId,
+        character: character,
+        userId: event.userId,
+        emit: emit,
+      );
       _errorSessions.remove(event.chatId);
 
       await _applyIntimacyAfterReply(

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../models/group_chat_message.dart';
 import '../../utils/avatar_resolver.dart';
+import '../message_status_indicator.dart';
 
 /// ST 风格群聊消息气泡：
 /// AI = 左侧角色色（头像/名字/淡色气泡），用户 = 右对齐主色气泡（Solace 原样式）
@@ -23,6 +24,11 @@ class GroupMessageBubble extends StatelessWidget {
   /// 多选模式下是否被选中（高亮背景）
   final bool isSelected;
 
+  final ValueChanged<int>? onSwipeChanged;
+
+  /// 用户消息失败时的统一重试入口。
+  final VoidCallback? onRetry;
+
   const GroupMessageBubble({
     super.key,
     required this.message,
@@ -33,6 +39,8 @@ class GroupMessageBubble extends StatelessWidget {
     this.onLongPress,
     this.onTap,
     this.isSelected = false,
+    this.onSwipeChanged,
+    this.onRetry,
   });
 
   @override
@@ -67,30 +75,40 @@ class GroupMessageBubble extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  _contentBubble(cs, isMe: true, isDark: isDark),
-                  const SizedBox(height: 2),
-                  Text(
-                    _formatTime(message.timestamp),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: cs.onSurface.withValues(alpha: 0.35),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _contentBubble(cs, isMe: true, isDark: isDark),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _formatTime(message.timestamp),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: cs.onSurface.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        MessageStatusIndicator(
+                          state: _deliveryState,
+                          onRetry: onRetry,
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            _avatar('我', cs.primaryContainer, cs.primary,
-                avatarUrl: avatarUrl),
-          ],
-        ),
+              const SizedBox(width: 8),
+              _avatar('我', cs.primaryContainer, cs.primary,
+                  avatarUrl: avatarUrl),
+            ],
+          ),
         ),
       );
     }
@@ -127,7 +145,10 @@ class GroupMessageBubble extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   _contentBubble(cs,
-                      isMe: false, aiColor: color, bg: bubbleBg, isDark: isDark),
+                      isMe: false,
+                      aiColor: color,
+                      bg: bubbleBg,
+                      isDark: isDark),
                 ],
               ),
             ),
@@ -135,6 +156,22 @@ class GroupMessageBubble extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  MessageDeliveryState get _deliveryState {
+    switch (message.status) {
+      case GroupChatMessageStatus.sending:
+        return MessageDeliveryState.sending;
+      case GroupChatMessageStatus.read:
+        return MessageDeliveryState.read;
+      case GroupChatMessageStatus.failed:
+        return MessageDeliveryState.failed;
+      case GroupChatMessageStatus.delivered:
+      case GroupChatMessageStatus.sent:
+        return MessageDeliveryState.sent;
+      case GroupChatMessageStatus.error:
+        return MessageDeliveryState.failed;
+    }
   }
 
   /// 多选模式下选中态高亮背景
@@ -177,6 +214,7 @@ class GroupMessageBubble extends StatelessWidget {
           if (replyTo != null)
             _replyPreview(cs, isMe: isMe, replyTo: replyTo, isDark: isDark),
           _bubbleBody(cs, isMe: isMe, bg: bg, recalled: recalled),
+          if (message.swipeHistory.length > 1) _swipeControls(cs, isMe),
           if (message.isBookmarked || edited)
             Padding(
               padding: const EdgeInsets.only(top: 3),
@@ -194,6 +232,34 @@ class GroupMessageBubble extends StatelessWidget {
                 ],
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _swipeControls(ColorScheme cs, bool isMe) {
+    final index = message.swipeIndex.clamp(0, message.swipeHistory.length - 1);
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: '上一个候选',
+            icon: const Icon(Icons.chevron_left, size: 18),
+            onPressed: index > 0 ? () => onSwipeChanged?.call(index - 1) : null,
+          ),
+          Text('${index + 1}/${message.swipeHistory.length}',
+              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: '下一个候选',
+            icon: const Icon(Icons.chevron_right, size: 18),
+            onPressed: index < message.swipeHistory.length - 1
+                ? () => onSwipeChanged?.call(index + 1)
+                : null,
+          ),
         ],
       ),
     );
@@ -297,7 +363,9 @@ class GroupMessageBubble extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border(
           left: BorderSide(
-            color: isMe ? Colors.white.withValues(alpha: 0.5) : cs.primary.withValues(alpha: 0.5),
+            color: isMe
+                ? Colors.white.withValues(alpha: 0.5)
+                : cs.primary.withValues(alpha: 0.5),
             width: 3,
           ),
         ),

@@ -408,7 +408,14 @@ export default {
 
       if (isCacheableAsset(path)) {
         const resp = new Response(assetRes.body, assetRes);
-        resp.headers.set('Cache-Control', 'public, max-age=86400, immutable');
+        // HTML references versioned CSS, but keep direct CSS requests refreshable
+        // so a deploy can never leave the browser on an old stylesheet.
+        resp.headers.set(
+          'Cache-Control',
+          path.endsWith('.css')
+              ? 'public, max-age=300, must-revalidate'
+              : 'public, max-age=86400, immutable',
+        );
         return resp;
       }
 

@@ -31,11 +31,7 @@ import '../models/ai_wallet.dart';
 import '../models/shop_item.dart';
 import '../models/shop_order.dart';
 import '../models/pure_ai_session.dart';
-import '../models/story_book.dart';
-import '../models/story_segment.dart';
 import '../data/builtin_characters.dart';
-import '../models/story_scene.dart';
-import '../models/story_save.dart';
 import '../models/virtual_phone/virtual_phone.dart';
 import '../models/virtual_phone/vp_contact.dart';
 import '../models/virtual_phone/vp_chat.dart';
@@ -50,6 +46,7 @@ import '../models/group_chat_message.dart';
 import '../models/group_chat_summary.dart';
 import '../models/group_public_event_memory.dart';
 import '../models/group_chat_branch.dart';
+import '../models/group_chat_lorebook_entry.dart';
 import '../services/bt_operation_lock_service.dart';
 import '../services/group_chat_rolling_summary.dart';
 import '../config/business_rules.dart';
@@ -570,57 +567,6 @@ class LocalStorageRepository {
       'isDefault': 'INTEGER NOT NULL DEFAULT 0',
       'sync_seq': 'INTEGER DEFAULT 0',
     },
-    'story_books': {
-      'id': 'TEXT PRIMARY KEY',
-      'userId': 'TEXT NOT NULL DEFAULT ""',
-      'title': 'TEXT NOT NULL DEFAULT ""',
-      'coverUrl': 'TEXT',
-      'synopsis': 'TEXT',
-      'worldSetting': 'TEXT',
-      'genre': 'INTEGER NOT NULL DEFAULT 3',
-      'narratorRole': 'INTEGER NOT NULL DEFAULT 0',
-      'participantCharacterIds': 'TEXT',
-      'currentSaveId': 'TEXT',
-      'isArchived': 'INTEGER NOT NULL DEFAULT 0',
-      'createdAt': 'TEXT NOT NULL DEFAULT ""',
-      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
-      'lastSegmentPreview': 'TEXT',
-    },
-    'story_segments': {
-      'id': 'TEXT PRIMARY KEY',
-      'storyId': 'TEXT NOT NULL DEFAULT ""',
-      'saveId': 'TEXT NOT NULL DEFAULT ""',
-      'role': 'TEXT NOT NULL DEFAULT "narration"',
-      'content': 'TEXT NOT NULL DEFAULT ""',
-      'narratorRole': 'INTEGER NOT NULL DEFAULT 0',
-      'branchOptions': 'TEXT',
-      'chosenBranch': 'TEXT',
-      'orderIndex': 'INTEGER NOT NULL DEFAULT 0',
-      'createdAt': 'TEXT NOT NULL DEFAULT ""',
-    },
-    'story_scenes': {
-      'storyId': 'TEXT NOT NULL DEFAULT ""',
-      'saveId': 'TEXT NOT NULL DEFAULT ""',
-      'affinity': 'INTEGER NOT NULL DEFAULT 50',
-      'emotionValue': 'INTEGER NOT NULL DEFAULT 50',
-      'emotionLabel': 'TEXT',
-      'bodyState': 'TEXT',
-      'psychState': 'TEXT',
-      'actionState': 'TEXT',
-      'location': 'TEXT',
-      'atmosphere': 'TEXT',
-      'presentCharacters': 'TEXT',
-      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
-    },
-    'story_saves': {
-      'id': 'TEXT PRIMARY KEY',
-      'storyId': 'TEXT NOT NULL DEFAULT ""',
-      'name': 'TEXT',
-      'segmentCount': 'INTEGER NOT NULL DEFAULT 0',
-      'narratorRole': 'INTEGER NOT NULL DEFAULT 0',
-      'createdAt': 'TEXT NOT NULL DEFAULT ""',
-      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
-    },
     'virtual_phones': {
       'id': 'TEXT PRIMARY KEY',
       'characterId': 'TEXT NOT NULL DEFAULT ""',
@@ -1032,12 +978,6 @@ class LocalStorageRepository {
 
   static Future<void> createMissingTable(Database db, String table) async {
     switch (table) {
-      case 'story_books':
-      case 'story_segments':
-      case 'story_scenes':
-      case 'story_saves':
-        await _createStoryTables(db);
-        break;
       case 'virtual_phones':
       case 'vp_contacts':
       case 'vp_chats':
@@ -1245,6 +1185,18 @@ class LocalStorageRepository {
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_group_public_events_scope ON group_public_event_memories(characterId, groupId, chatId)');
         break;
+      case 'group_chat_lorebook_entries':
+        await db
+            .execute('''CREATE TABLE IF NOT EXISTS group_chat_lorebook_entries (
+          id TEXT PRIMARY KEY, groupId TEXT NOT NULL DEFAULT '', chatId TEXT,
+          name TEXT NOT NULL DEFAULT '', content TEXT NOT NULL DEFAULT '',
+          keywords TEXT NOT NULL DEFAULT '[]', priority INTEGER NOT NULL DEFAULT 0,
+          depth INTEGER NOT NULL DEFAULT 2, enabled INTEGER NOT NULL DEFAULT 1,
+          recursive INTEGER NOT NULL DEFAULT 0
+        )''');
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_gc_lore_group ON group_chat_lorebook_entries(groupId)');
+        break;
     }
   }
 
@@ -1259,11 +1211,18 @@ class LocalStorageRepository {
       await createMissingTable(db, 'group_chat_branches');
       await createMissingTable(db, 'group_chat_summaries');
       await createMissingTable(db, 'group_public_event_memories');
+      await createMissingTable(db, 'group_chat_lorebook_entries');
 
       await _addColumnIfNotExists(
           db, 'group_chat_messages', 'chatId', 'TEXT NOT NULL DEFAULT ""');
       await _addColumnIfNotExists(
           db, 'group_chat_messages', 'sync_seq', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(db, 'group_chat_messages', 'swipeHistory',
+          "TEXT NOT NULL DEFAULT '[]'");
+      await _addColumnIfNotExists(db, 'group_chat_messages', 'swipeIndex',
+          'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'group_chat_messages', 'parentMessageId', 'TEXT');
       await _addColumnIfNotExists(
           db, 'group_chat_sessions', 'isHidden', 'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfNotExists(db, 'group_chat_sessions',
@@ -2008,10 +1967,6 @@ class LocalStorageRepository {
     if (oldVersion < 48) {
       // 预留
     }
-    if (oldVersion < 49) {
-      // 故事书模块
-      await _createStoryTables(db);
-    }
     if (oldVersion < 50) {
       // 虚拟手机模块（每个 AI 角色的专属虚构手机，纯本地生成内容）
       await _createVirtualPhoneTables(db);
@@ -2173,7 +2128,6 @@ class LocalStorageRepository {
       await createMissingTable(db, 'pure_ai_messages');
       await createMissingTable(db, 'novels');
       await createMissingTable(db, 'novel_chapters');
-      await createMissingTable(db, 'story_books');
       await createMissingTable(db, 'virtual_phones');
       debugPrint(' v59 迁移: 核心表补列 + 缺表兜底完成');
     }
@@ -2267,6 +2221,17 @@ class LocalStorageRepository {
       await _rebuildGroupChatSessionsTable(db);
       debugPrint(' v66 迁移: group_chat_sessions 强制重建完成');
     }
+    if (oldVersion < 68) {
+      for (final table in [
+        'story_books',
+        'story_segments',
+        'story_scenes',
+        'story_saves',
+      ]) {
+        await db.execute('DROP TABLE IF EXISTS $table');
+      }
+      debugPrint(' v68 迁移: 故事书模块数据表已移除');
+    }
   }
 
   /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
@@ -2307,22 +2272,6 @@ class LocalStorageRepository {
         ''' CREATE TABLE IF NOT EXISTS novel_chapters ( id TEXT PRIMARY KEY, novelId TEXT NOT NULL DEFAULT '', sortOrder INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', content TEXT NOT NULL DEFAULT '', wordCount INTEGER NOT NULL DEFAULT 0, isAiGenerated INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL DEFAULT '', updatedAt TEXT NOT NULL DEFAULT '' ) ''');
     await db.execute(
         ''' CREATE INDEX IF NOT EXISTS idx_novel_chapters_novel ON novel_chapters(novelId, sortOrder) ''');
-  }
-
-  /// 故事书四张表建表语句（_onCreate / 迁移 / createMissingTable 共用）
-  static Future<void> _createStoryTables(Database db) async {
-    await db.execute(
-        ''' CREATE TABLE IF NOT EXISTS story_books ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', coverUrl TEXT, synopsis TEXT, worldSetting TEXT, genre INTEGER NOT NULL DEFAULT 3, narratorRole INTEGER NOT NULL DEFAULT 0, participantCharacterIds TEXT, currentSaveId TEXT, isArchived INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, lastSegmentPreview TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
-    await db.execute(
-        ''' CREATE TABLE IF NOT EXISTS story_segments ( id TEXT PRIMARY KEY, storyId TEXT NOT NULL, saveId TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT 'narration', content TEXT NOT NULL DEFAULT '', narratorRole INTEGER NOT NULL DEFAULT 0, branchOptions TEXT, chosenBranch TEXT, orderIndex INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
-    await db.execute(
-        ''' CREATE TABLE IF NOT EXISTS story_scenes ( storyId TEXT NOT NULL, saveId TEXT NOT NULL DEFAULT '', affinity INTEGER NOT NULL DEFAULT 50, emotionValue INTEGER NOT NULL DEFAULT 50, emotionLabel TEXT, bodyState TEXT, psychState TEXT, actionState TEXT, location TEXT, atmosphere TEXT, presentCharacters TEXT, updatedAt TEXT NOT NULL, PRIMARY KEY (storyId, saveId) ) ''');
-    await db.execute(
-        ''' CREATE TABLE IF NOT EXISTS story_saves ( id TEXT PRIMARY KEY, storyId TEXT NOT NULL, name TEXT, segmentCount INTEGER NOT NULL DEFAULT 0, narratorRole INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
-    await db.execute(
-        ''' CREATE INDEX IF NOT EXISTS idx_story_segments_story ON story_segments(storyId, saveId, orderIndex) ''');
-    await db.execute(
-        ''' CREATE INDEX IF NOT EXISTS idx_story_saves_story ON story_saves(storyId) ''');
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -2370,7 +2319,6 @@ class LocalStorageRepository {
         ''' CREATE TABLE pure_ai_sessions ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, title TEXT NOT NULL DEFAULT 'AI', lastMessage TEXT, lastMessageTime TEXT, isPinned INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT ) ''');
     await db.execute(
         ''' CREATE TABLE pure_ai_messages ( id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, senderId TEXT NOT NULL, senderName TEXT, content TEXT NOT NULL, type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, metadata TEXT ) ''');
-    await _createStoryTables(db);
     await _createVirtualPhoneTables(db);
 
     // ─── 以下表在旧版本仅由 _onUpgrade 创建，新用户 _onCreate 缺失会导致崩溃 ───
@@ -5273,11 +5221,6 @@ class LocalStorageRepository {
         'moment_notifications',
         'trending_tags',
         'social_memories',
-        // 故事书模块
-        'story_books',
-        'story_segments',
-        'story_scenes',
-        'story_saves',
         // 虚拟手机模块
         'virtual_phones',
         'vp_contacts',
@@ -5334,11 +5277,6 @@ class LocalStorageRepository {
       'moment_notifications',
       'trending_tags',
       'social_memories',
-      // 故事书模块（DB v49）
-      'story_books',
-      'story_segments',
-      'story_scenes',
-      'story_saves',
       // 虚拟手机模块（DB v50）
       'virtual_phones',
       'vp_contacts',
@@ -5515,11 +5453,6 @@ class LocalStorageRepository {
       'moment_notifications',
       'trending_tags',
       'social_memories',
-      // 故事书模块（DB v49）
-      'story_books',
-      'story_segments',
-      'story_scenes',
-      'story_saves',
       // 虚拟手机模块（DB v50）
       'virtual_phones',
       'vp_contacts',
@@ -5756,151 +5689,6 @@ class LocalStorageRepository {
     } catch (e) {
       debugPrint('deleteStickerPack 失败: $e');
     }
-  }
-
-  // ==================== 故事书 Story Books ====================
-
-  Future<void> saveStoryBook(StoryBook book) async {
-    final db = await _ensureDb();
-    await db.insert('story_books', book.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<StoryBook?> getStoryBook(String id) async {
-    final db = await _ensureDb();
-    final maps =
-        await db.query('story_books', where: 'id = ?', whereArgs: [id]);
-    return maps.isNotEmpty ? StoryBook.fromMap(maps.first) : null;
-  }
-
-  Future<List<StoryBook>> getStoryBooks(String userId,
-      {bool includeArchived = false}) async {
-    final db = await _ensureDb();
-    final where =
-        includeArchived ? 'userId = ?' : 'userId = ? AND isArchived = 0';
-    final maps = await db.query('story_books',
-        where: where, whereArgs: [userId], orderBy: 'updatedAt DESC');
-    return maps.map((m) => StoryBook.fromMap(m)).toList();
-  }
-
-  Future<void> deleteStoryBook(String id) async {
-    final db = await _ensureDb();
-    await db.delete('story_books', where: 'id = ?', whereArgs: [id]);
-    await db.delete('story_segments', where: 'storyId = ?', whereArgs: [id]);
-    await db.delete('story_scenes', where: 'storyId = ?', whereArgs: [id]);
-    await db.delete('story_saves', where: 'storyId = ?', whereArgs: [id]);
-    // 记忆按 storyId 存在 memories 表（characterId 维度）
-    await db.delete('memories', where: 'characterId = ?', whereArgs: [id]);
-  }
-
-  // ==================== 故事书段落 Story Segments ====================
-
-  Future<void> saveStorySegment(StorySegment segment) async {
-    final db = await _ensureDb();
-    await db.insert('story_segments', segment.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<List<StorySegment>> getStorySegments(String storyId, String saveId,
-      {int? limit, int? offset}) async {
-    final db = await _ensureDb();
-    final maps = await db.query('story_segments',
-        where: 'storyId = ? AND saveId = ?',
-        whereArgs: [storyId, saveId],
-        orderBy: 'orderIndex ASC',
-        limit: limit,
-        offset: offset);
-    return maps.map((m) => StorySegment.fromMap(m)).toList();
-  }
-
-  Future<int> getStorySegmentCount(String storyId, String saveId) async {
-    final db = await _ensureDb();
-    final result = await db.rawQuery(
-        'SELECT COUNT(*) AS c FROM story_segments WHERE storyId = ? AND saveId = ?',
-        [storyId, saveId]);
-    return Sqflite.firstIntValue(result) ?? 0;
-  }
-
-  Future<void> deleteStorySegment(String id) async {
-    final db = await _ensureDb();
-    await db.delete('story_segments', where: 'id = ?', whereArgs: [id]);
-  }
-
-  /// 删除某存档下所有段落（读档覆盖/回退时用）
-  Future<void> deleteStorySegmentsAfter(
-      String storyId, String saveId, int orderIndex) async {
-    final db = await _ensureDb();
-    await db.delete('story_segments',
-        where: 'storyId = ? AND saveId = ? AND orderIndex >= ?',
-        whereArgs: [storyId, saveId, orderIndex]);
-  }
-
-  // ==================== 故事书场景快照 Story Scenes ====================
-
-  Future<void> saveStoryScene(StoryScene scene) async {
-    final db = await _ensureDb();
-    await db.insert('story_scenes', scene.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<StoryScene?> getStoryScene(String storyId, String saveId) async {
-    final db = await _ensureDb();
-    final maps = await db.query('story_scenes',
-        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, saveId]);
-    return maps.isNotEmpty ? StoryScene.fromMap(maps.first) : null;
-  }
-
-  // ==================== 故事书存档 Story Saves ====================
-
-  Future<void> saveStorySave(StorySave save) async {
-    final db = await _ensureDb();
-    await db.insert('story_saves', save.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<List<StorySave>> getStorySaves(String storyId) async {
-    final db = await _ensureDb();
-    final maps = await db.query('story_saves',
-        where: 'storyId = ?', whereArgs: [storyId], orderBy: 'updatedAt DESC');
-    return maps.map((m) => StorySave.fromMap(m)).toList();
-  }
-
-  Future<void> deleteStorySave(String id) async {
-    final db = await _ensureDb();
-    final saves =
-        await db.query('story_saves', where: 'id = ?', whereArgs: [id]);
-    if (saves.isEmpty) return;
-    final storyId = saves.first['storyId'] as String? ?? '';
-    await db.delete('story_saves', where: 'id = ?', whereArgs: [id]);
-    await db.delete('story_segments',
-        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, id]);
-    await db.delete('story_scenes',
-        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, id]);
-  }
-
-  /// 复制存档（含全部段落与场景）到新存档 id
-  Future<void> copyStorySaveContents(
-      String storyId, String fromSaveId, String toSaveId) async {
-    final db = await _ensureDb();
-    final segs = await db.query('story_segments',
-        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, fromSaveId]);
-    final batch = db.batch();
-    for (final s in segs) {
-      final m = Map<String, dynamic>.from(s);
-      m['saveId'] = toSaveId;
-      m['id'] = '${m['id']}_$toSaveId';
-      batch.insert('story_segments', m,
-          conflictAlgorithm: ConflictAlgorithm.replace);
-    }
-    final scene = await db.query('story_scenes',
-        where: 'storyId = ? AND saveId = ?', whereArgs: [storyId, fromSaveId]);
-    if (scene.isNotEmpty) {
-      final m = Map<String, dynamic>.from(scene.first);
-      m['saveId'] = toSaveId;
-      batch.insert('story_scenes', m,
-          conflictAlgorithm: ConflictAlgorithm.replace);
-    }
-    await batch.commit(noResult: true);
   }
 
   // ==================== Shop Orders ====================
@@ -7339,8 +7127,78 @@ class LocalStorageRepository {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  Future<List<GroupChatLorebookEntry>> getGroupChatLorebookEntries(
+      String groupId,
+      {String? chatId}) async {
+    if (_isWeb) {
+      final keys = _prefs?.getKeys().where((k) => k.startsWith('gc_lore_')) ??
+          const <String>[];
+      return keys
+          .map((key) {
+            final raw = _prefs?.getString(key);
+            if (raw == null) return null;
+            try {
+              final entry = GroupChatLorebookEntry.fromMap(jsonDecode(raw));
+              return entry.groupId == groupId &&
+                      (chatId == null ||
+                          entry.chatId == null ||
+                          entry.chatId == chatId)
+                  ? entry
+                  : null;
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<GroupChatLorebookEntry>()
+          .toList();
+    }
+    final db = await _ensureDb();
+    final rows = await db.query('group_chat_lorebook_entries',
+        where: 'groupId = ? AND (chatId IS NULL OR chatId = ?)',
+        whereArgs: [groupId, chatId]);
+    return rows.map(GroupChatLorebookEntry.fromMap).toList();
+  }
+
+  Future<void> saveGroupChatLorebookEntry(GroupChatLorebookEntry entry) async {
+    if (_isWeb) {
+      await _prefs?.setString('gc_lore_${entry.id}', jsonEncode(entry.toMap()));
+      return;
+    }
+    final db = await _ensureDb();
+    await db.insert('group_chat_lorebook_entries', entry.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> deleteGroupChatLorebookEntry(String id) async {
+    if (_isWeb) {
+      await _prefs?.remove('gc_lore_$id');
+      return;
+    }
+    final db = await _ensureDb();
+    await db.delete('group_chat_lorebook_entries',
+        where: 'id = ?', whereArgs: [id]);
+  }
+
   /// 获取群的全部聊天记录（分支）
   Future<List<GroupChatBranch>> getGroupChatBranches(String groupId) async {
+    if (_isWeb) {
+      final keys = _prefs
+              ?.getKeys()
+              .where((key) => key.startsWith('gc_branch_'))
+              .toList() ??
+          const <String>[];
+      final branches = <GroupChatBranch>[];
+      for (final key in keys) {
+        final raw = _prefs?.getString(key);
+        if (raw == null) continue;
+        try {
+          final branch = GroupChatBranch.fromMap(jsonDecode(raw));
+          if (branch.groupId == groupId) branches.add(branch);
+        } catch (_) {}
+      }
+      branches.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      return branches;
+    }
     final db = await _ensureDb();
     final maps = await db.query('group_chat_branches',
         where: 'groupId = ?', whereArgs: [groupId], orderBy: 'createdAt ASC');
@@ -7356,14 +7214,66 @@ class LocalStorageRepository {
       name: name,
       createdAt: DateTime.now(),
     );
-    final db = await _ensureDb();
-    await db.insert('group_chat_branches', branch.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    if (_isWeb) {
+      await _prefs?.setString(
+          'gc_branch_${branch.branchId}', jsonEncode(branch.toMap()));
+    } else {
+      final db = await _ensureDb();
+      await db.insert('group_chat_branches', branch.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    return branch;
+  }
+
+  /// Forks the current chat at a message and copies its visible prefix.
+  Future<GroupChatBranch> createGroupChatBranchFromMessage({
+    required String groupId,
+    required String sourceChatId,
+    required String forkMessageId,
+    String name = '分支',
+  }) async {
+    final branch = GroupChatBranch(
+      branchId: 'br_${DateTime.now().microsecondsSinceEpoch}',
+      groupId: groupId,
+      name: name,
+      createdAt: DateTime.now(),
+      parentBranchId: sourceChatId,
+      forkMessageId: forkMessageId,
+      checkpointMessageId: forkMessageId,
+    );
+    if (!_isWeb) {
+      final db = await _ensureDb();
+      await db.insert('group_chat_branches', branch.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    } else {
+      await _prefs?.setString(
+          'gc_branch_${branch.branchId}', jsonEncode(branch.toMap()));
+    }
+    final source = await getGroupChatMessages(groupId,
+        limit: 100000, chatId: sourceChatId);
+    for (final message in source) {
+      await saveGroupChatMessage(message.copyWith(
+        id: '${branch.branchId}_${message.id}',
+        chatId: branch.branchId,
+        parentMessageId: message.parentMessageId ?? message.id,
+      ));
+      if (message.id == forkMessageId) break;
+    }
     return branch;
   }
 
   /// 重命名聊天记录（分支）
   Future<void> renameGroupChatBranch(String branchId, String name) async {
+    if (_isWeb) {
+      final raw = _prefs?.getString('gc_branch_$branchId');
+      if (raw == null) return;
+      try {
+        final branch = GroupChatBranch.fromMap(jsonDecode(raw));
+        await _prefs?.setString('gc_branch_$branchId',
+            jsonEncode(branch.copyWith(name: name).toMap()));
+      } catch (_) {}
+      return;
+    }
     final db = await _ensureDb();
     await db.update('group_chat_branches', {'name': name},
         where: 'branchId = ?', whereArgs: [branchId]);
@@ -7372,6 +7282,7 @@ class LocalStorageRepository {
   /// 删除聊天记录（分支）及其中消息
   Future<void> deleteGroupChatBranch(String groupId, String branchId) async {
     if (_isWeb) {
+      await _prefs?.remove('gc_branch_$branchId');
       await deleteGroupChatSummary(groupId, branchId);
       await _deleteWebGroupPublicEvents(groupId: groupId, chatId: branchId);
       final messageKeys = _prefs
@@ -7389,6 +7300,21 @@ class LocalStorageRepository {
           }
         } catch (_) {}
       }
+      final loreKeys = _prefs
+              ?.getKeys()
+              .where((key) => key.startsWith('gc_lore_'))
+              .toList() ??
+          const <String>[];
+      for (final key in loreKeys) {
+        final raw = _prefs?.getString(key);
+        if (raw == null) continue;
+        try {
+          final entry = GroupChatLorebookEntry.fromMap(jsonDecode(raw));
+          if (entry.groupId == groupId && entry.chatId == branchId) {
+            await _prefs?.remove(key);
+          }
+        } catch (_) {}
+      }
       return;
     }
     final db = await _ensureDb();
@@ -7399,6 +7325,8 @@ class LocalStorageRepository {
     await db.delete('group_chat_summaries',
         where: 'groupId = ? AND chatId = ?', whereArgs: [groupId, branchId]);
     await db.delete('group_public_event_memories',
+        where: 'groupId = ? AND chatId = ?', whereArgs: [groupId, branchId]);
+    await db.delete('group_chat_lorebook_entries',
         where: 'groupId = ? AND chatId = ?', whereArgs: [groupId, branchId]);
   }
 
@@ -7416,7 +7344,10 @@ class LocalStorageRepository {
           try {
             final msg = GroupChatMessage.fromJson(jsonDecode(data));
             if (msg.groupId == groupId &&
-                (chatId == null || chatId.isEmpty || msg.chatId == chatId)) {
+                (chatId == null ||
+                    chatId.isEmpty ||
+                    msg.chatId == chatId ||
+                    (chatId == groupId && msg.chatId.isEmpty))) {
               messages.add(msg);
             }
           } catch (_) {}

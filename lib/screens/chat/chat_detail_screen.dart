@@ -1,5 +1,6 @@
 // 性能优化 -- 耗电与老手机兼容
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -39,6 +40,8 @@ import '../../blocs/shop/shop_bloc.dart';
 import '../../widgets/animated_list_item.dart';
 import '../../widgets/typing_indicator.dart';
 import '../../widgets/voice_message_bubble.dart';
+import '../../widgets/message_status_indicator.dart';
+import '../../widgets/message_actions_sheet.dart';
 import '../../utils/ui_utils.dart';
 import '../../utils/avatar_resolver.dart';
 import '../../config/constants.dart';
@@ -87,6 +90,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _aiBrokeSilence = false;
   String? _aiPersonality;
   String? _displayName;
+  String _turnEmotion = '等待互动';
+  String _turnThought = '下一轮对话结束后，这里会显示 TA 的最新想法。';
+  double _turnIntensity = 0;
   ReplyMode? _replyMode;
   bool _enableProactiveMessage = true;
   bool _isSearching = false;
@@ -327,10 +333,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final currentName = _displayName ??
         _currentSession?.aiCharacterName ??
         widget.session.aiCharacterName;
-    final session = _currentSession ?? widget.session;
-    final isOnline = AIStatusService.isOnlineFromSession(session);
-    final statusLine = AIStatusService.displayStatusFromSession(session);
-
     return AppBar(
       backgroundColor: Colors.transparent,
       elevation: 0,
@@ -346,38 +348,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       title: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // AI 头像（圆形）+ 在线绿点
+          // AI 头像。在线/离线 Presence 不再作为聊天状态展示。
           SizedBox(
             width: 36,
             height: 36,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned.fill(
-                  child: ClipOval(
-                    child: _buildAppBarAvatar(currentAvatar, isDark),
-                  ),
-                ),
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: isOnline
-                          ? const Color(0xFF4CAF50)
-                          : Colors.grey.shade500,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: isDark ? Colors.black : Colors.white,
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            child: ClipOval(child: _buildAppBarAvatar(currentAvatar, isDark)),
           ),
           const SizedBox(width: 8),
           Flexible(
@@ -420,24 +395,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   ],
                 ),
                 const SizedBox(height: 2),
-                // 与设置页一致的状态栏文案：在线 · 自定义状态
-                Text(
-                  statusLine,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w400,
-                    color: isOnline
-                        ? (isDark
-                            ? const Color(0xFF81C784)
-                            : const Color(0xFF2E7D32))
-                        : (isDark
-                            ? Colors.white.withOpacity(0.45)
-                            : Colors.black.withOpacity(0.45)),
-                    height: 1.1,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                Text('$_turnEmotion · $_turnThought',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: isDark ? Colors.white70 : colorScheme.primary,
+                        height: 1.1),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
@@ -840,10 +804,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   /// 角色状态栏 — 在聊天区域上方固定展示（与设置页状态栏同款文案）
   Widget _buildStatusBar(ColorScheme colorScheme, bool isDark) {
     if (_isSearching || _isJumpedToMessage) return const SizedBox.shrink();
-    final session = _currentSession ?? widget.session;
-    final statusLabel = AIStatusService.displayStatusFromSession(session);
-    final isOnline = session.aiIsOnline;
-
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -855,31 +815,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ),
       child: Row(
         children: [
-          // 在线状态绿点
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              color: isOnline ? const Color(0xFF4CAF50) : Colors.grey,
-              shape: BoxShape.circle,
-            ),
-          ),
+          Icon(Icons.psychology_alt_rounded,
+              size: 16, color: colorScheme.primary),
           const SizedBox(width: 6),
-          // 状态文字（在线 · 自定义状态）
           Expanded(
             child: Text(
-              statusLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: isOnline
-                    ? (isDark
-                        ? const Color(0xFF81C784)
-                        : const Color(0xFF2E7D32))
-                    : colorScheme.onSurface.withOpacity(0.55),
-              ),
-            ),
+                '$_turnEmotion  ${_turnIntensity == 0 ? '' : '${(_turnIntensity * 100).round()}%'}\n$_turnThought',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 11,
+                    height: 1.35,
+                    color: isDark ? Colors.white70 : colorScheme.onSurface)),
           ),
           // AI 手机快捷入口
           GestureDetector(
@@ -1036,6 +983,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           .copyWith(intimacyLevel: state.newLevel);
                     });
                     _loadIntimacyEvents();
+                  }
+                  if (state is ChatTurnStateUpdated &&
+                      state.chatId == widget.session.id) {
+                    setState(() {
+                      _turnEmotion = state.emotion;
+                      _turnIntensity = state.intensity;
+                      _turnThought = state.thought;
+                    });
                   }
                   if (state is ChatMessagesLoaded) {
                     _hasMoreMessages = state.hasMore;
@@ -1502,6 +1457,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       RepositoryProvider.of<LocalStorageRepository>(context),
       AIService(RepositoryProvider.of<LocalStorageRepository>(context)),
     );
+    _loadTurnState();
     _scrollController.addListener(_onScroll);
     _initialize();
     unawaited(BuiltinStickerService.loadDefaultPack().catchError((_) {}));
@@ -1515,6 +1471,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     };
     _modeSettingsStorage!.modeSettingsNotifier
         .addListener(_onModeSettingsChanged!);
+  }
+
+  Future<void> _loadTurnState() async {
+    final raw = RepositoryProvider.of<LocalStorageRepository>(context)
+        .getString('turn_state_${widget.session.id}');
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final data = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      if (!mounted) return;
+      setState(() {
+        _turnEmotion = data['emotion']?.toString() ?? _turnEmotion;
+        _turnIntensity = (data['intensity'] as num?)?.toDouble() ?? 0;
+        _turnThought = data['thought']?.toString() ?? _turnThought;
+      });
+    } catch (_) {
+      // 旧版本没有结构化状态，保留首次进入时的明确空态。
+    }
   }
 
   void _startUsageReminderTimer() {
@@ -3055,112 +3028,64 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         isAIMessage && !isRecalled && message.type == MessageType.text;
     final canRegenerate = isAIMessage && !isRecalled;
 
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.reply, color: Colors.blue),
-              title: const Text('回复'),
-              onTap: () {
-                Navigator.pop(context);
-                _setReplyTo(message);
-              },
-            ),
-            if (!isRecalled && message.type == MessageType.text)
-              ListTile(
-                leading: const Icon(Icons.copy, color: Colors.teal),
-                title: const Text('复制'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Clipboard.setData(ClipboardData(text: message.content));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('已复制到剪贴板'),
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
-                },
-              ),
-            if (canEditAI)
-              ListTile(
-                leading: const Icon(Icons.edit, color: Colors.green),
-                title: const Text('编辑'),
-                subtitle: const Text('修改AI的回复内容'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showEditAIReplyDialog(message);
-                },
-              ),
-            if (canRegenerate)
-              ListTile(
-                leading: const Icon(Icons.refresh, color: Colors.purple),
-                title: const Text('重新生成'),
-                subtitle: const Text('让AI重新回复，覆盖当前内容'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showRegenerateConfirm(message);
-                },
-              ),
-            if (canRecall)
-              ListTile(
-                leading: const Icon(Icons.undo, color: Colors.orange),
-                title: const Text('撤回'),
-                subtitle: const Text('2分钟内可撤回'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _recallMessage(message);
-                },
-              ),
-            ListTile(
-              leading:
-                  Icon(Icons.bookmark_border, color: Colors.amber.shade700),
-              title: Text(message.isBookmark ? '取消收藏' : '收藏'),
-              subtitle: Text(message.isBookmark ? '从收藏夹移除' : '收藏此消息到发现页'),
-              onTap: () {
-                Navigator.pop(context);
-                _chatBloc.add(ChatToggleBookmark(
-                  chatId: widget.session.id,
-                  messageId: message.id,
-                ));
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.delete_outline, color: Colors.red[400]),
-              title: const Text('删除'),
-              onTap: () {
-                Navigator.pop(context);
-                _showDeleteConfirm(message);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.checklist_rtl, color: Colors.blueGrey),
-              title: const Text('多选'),
-              subtitle: const Text('批量删除 / 收藏消息'),
-              onTap: () {
-                Navigator.pop(context);
-                _enterSelection(message.id);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+    final actions = <MessageActionItem>[
+      MessageActionItem(
+          label: '回复',
+          icon: Icons.reply,
+          color: Colors.blue,
+          onPressed: () => _setReplyTo(message)),
+      if (!isRecalled && message.type == MessageType.text)
+        MessageActionItem(
+          label: '复制',
+          icon: Icons.copy,
+          color: Colors.teal,
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: message.content));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('已复制到剪贴板'), duration: Duration(seconds: 1)));
+          },
         ),
-      ),
-    );
+      if (canEditAI)
+        MessageActionItem(
+            label: '编辑',
+            icon: Icons.edit,
+            color: Colors.green,
+            subtitle: '修改AI的回复内容',
+            onPressed: () => _showEditAIReplyDialog(message)),
+      if (canRegenerate)
+        MessageActionItem(
+            label: '重新生成',
+            icon: Icons.refresh,
+            color: Colors.purple,
+            subtitle: '让AI重新回复，覆盖当前内容',
+            onPressed: () => _showRegenerateConfirm(message)),
+      if (canRecall)
+        MessageActionItem(
+            label: '撤回',
+            icon: Icons.undo,
+            color: Colors.orange,
+            subtitle: '2分钟内可撤回',
+            onPressed: () => _recallMessage(message)),
+      MessageActionItem(
+          label: message.isBookmark ? '取消收藏' : '收藏',
+          icon: Icons.bookmark_border,
+          color: Colors.amber.shade700,
+          subtitle: message.isBookmark ? '从收藏夹移除' : '收藏此消息到发现页',
+          onPressed: () => _chatBloc.add(ChatToggleBookmark(
+              chatId: widget.session.id, messageId: message.id))),
+      MessageActionItem(
+          label: '删除',
+          icon: Icons.delete_outline,
+          color: Colors.red[400],
+          onPressed: () => _showDeleteConfirm(message)),
+      MessageActionItem(
+          label: '多选',
+          icon: Icons.checklist_rtl,
+          color: Colors.blueGrey,
+          subtitle: '批量删除 / 收藏消息',
+          onPressed: () => _enterSelection(message.id)),
+    ];
+    MessageActionsSheet.show(context: context, actions: actions);
   }
 
   void _showEditAIReplyDialog(ChatMessage message) {
@@ -5568,7 +5493,16 @@ class _MessageBubble extends StatelessWidget {
                 ),
                 if (!isAI) ...[
                   const SizedBox(width: 4),
-                  _buildStatusIcon(message.status, colorScheme),
+                  MessageStatusIndicator(
+                    state: _deliveryState(message.status),
+                    onRetry: message.status == MessageStatus.failed
+                        ? () =>
+                            context.read<ChatBloc>().add(ChatRegenerateAIReply(
+                                  chatId: message.chatId,
+                                  messageId: message.id,
+                                ))
+                        : null,
+                  ),
                 ],
               ],
             ),
@@ -5610,6 +5544,23 @@ class _MessageBubble extends StatelessWidget {
         return Text('失败',
             style: TextStyle(
                 fontSize: 10, color: colorScheme.error.withOpacity(0.6)));
+    }
+  }
+
+  MessageDeliveryState _deliveryState(MessageStatus status) {
+    switch (status) {
+      case MessageStatus.sending:
+        return MessageDeliveryState.sending;
+      case MessageStatus.read:
+        return MessageDeliveryState.read;
+      case MessageStatus.failed:
+      case MessageStatus.error:
+        return MessageDeliveryState.failed;
+      case MessageStatus.cancelled:
+        return MessageDeliveryState.cancelled;
+      case MessageStatus.sent:
+      case MessageStatus.delivered:
+        return MessageDeliveryState.sent;
     }
   }
 

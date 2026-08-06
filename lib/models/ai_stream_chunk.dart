@@ -3,11 +3,13 @@ class AIStreamChunk {
   final String reasoning; // 深度思考内容（累积）
   final String content; // 正文回答（累积）
   final String? finishReason; // OpenAI兼容流式结束原因，例如 length/stop
+  final Map<String, dynamic>? usage;
 
   const AIStreamChunk({
     this.reasoning = '',
     this.content = '',
     this.finishReason,
+    this.usage,
   });
 
   bool get isEmpty => reasoning.isEmpty && content.isEmpty;
@@ -17,11 +19,13 @@ class AIStreamChunk {
     String? reasoning,
     String? content,
     String? finishReason,
+    Map<String, dynamic>? usage,
   }) {
     return AIStreamChunk(
       reasoning: reasoning ?? this.reasoning,
       content: content ?? this.content,
       finishReason: finishReason ?? this.finishReason,
+      usage: usage ?? this.usage,
     );
   }
 }

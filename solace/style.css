@@ -18,11 +18,13 @@
   --grid: rgba(16, 17, 20, .045);
 }
 
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; color: var(--ink); background-color: var(--paper); background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 48px 48px; font: 15px/1.7 var(--sans); overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
-button { font: inherit; cursor: pointer; }
+button, input, textarea, select { margin: 0; color: inherit; font: inherit; }
+button { appearance: none; -webkit-appearance: none; cursor: pointer; }
+button, input, textarea, select { border-radius: 0; }
 ::selection { color: var(--white); background: var(--blue); }
 
 .site-nav { position: relative; z-index: 10; display: flex; align-items: center; justify-content: space-between; max-width: var(--max); margin: auto; padding: 24px 28px; border-bottom: 1px solid var(--hairline); }
@@ -43,7 +45,7 @@ button { font: inherit; cursor: pointer; }
 .hero, .section, .page-head, .page-body { max-width: var(--max); margin: auto; padding-right: 28px; padding-left: 28px; }
 .hero { min-height: 680px; display: grid; grid-template-columns: 1.04fr .96fr; gap: 60px; align-items: center; position: relative; }
 .hero:after { content: 'SCROLL TO EXPLORE ↓'; position: absolute; bottom: 24px; left: 28px; color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; }
-.hero:before { content: 'SOLACE / 17.6'; position: absolute; top: 92px; right: 8%; color: var(--line); font: 12px var(--mono); letter-spacing: .12em; transform: rotate(90deg); }
+.hero:before { content: 'SOLACE / 17.7'; position: absolute; top: 92px; right: 8%; color: var(--line); font: 12px var(--mono); letter-spacing: .12em; transform: rotate(90deg); }
 .eyebrow { display: inline-flex; align-items: center; gap: 9px; color: var(--blue); font: 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .eyebrow:before { content: ''; width: 9px; height: 9px; background: var(--coral); border-radius: 50%; }
 h1, h2, h3, p { margin-top: 0; }

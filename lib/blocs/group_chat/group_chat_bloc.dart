@@ -9,8 +9,10 @@ import '../../models/group_chat_branch.dart';
 import '../../models/chat_message.dart';
 import '../../models/memory.dart';
 import '../../models/group_chat_summary.dart';
+import '../../models/group_chat_lorebook_entry.dart';
 import '../../models/group_public_event_memory.dart';
 import '../../models/ai_character.dart';
+import '../../models/ai_config.dart';
 import '../../models/ai_stream_chunk.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
@@ -21,6 +23,7 @@ import '../../utils/content_filter.dart';
 import 'group_chat_speaker.dart';
 import 'group_chat_prompts.dart';
 import '../../services/group_chat_rolling_summary.dart';
+import '../../services/group_chat_prompt_pipeline.dart';
 
 part 'group_chat_event.dart';
 part 'group_chat_state.dart';
@@ -59,6 +62,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
   /// 群聊记忆沉淀计数器：粗摘要降频（每5轮一条）+ LLM 事件提取每5轮一次
   final Map<String, int> _groupMemoryCounter = {};
   final _groupSummaryRefreshes = GroupSummaryRefreshCoordinator();
+  final _promptPipeline = const GroupChatPromptPipeline();
 
   GroupChatBloc(this._storage, this._aiService, {MemoryEngine? memoryEngine})
       : _memoryEngine = memoryEngine ?? MemoryEngine(_storage),
@@ -82,6 +86,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     on<GroupChatToggleBookmark>(_onToggleBookmark);
     on<GroupChatEditAIReply>(_onEditAIReply);
     on<GroupChatRegenerateMessage>(_onRegenerateMessage);
+    on<GroupChatSelectSwipe>(_onSelectSwipe);
+    on<GroupChatSaveLorebookEntry>(_onSaveLorebookEntry);
+    on<GroupChatDeleteLorebookEntry>(_onDeleteLorebookEntry);
     on<GroupChatRecallMessage>(_onRecallMessage);
   }
 
@@ -156,6 +163,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     GroupChatDelete event,
     Emitter<GroupChatState> emit,
   ) async {
+    GroupChatMessage? targetToRestore;
     try {
       await _storage.deleteGroupChatSession(event.groupId);
       _replyingGroups.remove(event.groupId);
@@ -286,7 +294,13 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     Emitter<GroupChatState> emit,
   ) async {
     try {
-      await _storage.deleteGroupChatMessage(event.messageId);
+      final messages = await _storage.getGroupChatMessages(event.groupId);
+      final msg = messages.cast<GroupChatMessage?>().firstWhere(
+            (m) => m!.id == event.messageId,
+            orElse: () => null,
+          );
+      if (msg == null) return;
+      await _storage.deleteGroupChatMessage(msg.id);
       await _reloadMessages(event.groupId, emit);
     } catch (e) {
       LogService.instance.e('GroupChat', '_onDeleteMessage failed: $e');
@@ -381,6 +395,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     GroupChatRegenerateMessage event,
     Emitter<GroupChatState> emit,
   ) async {
+    GroupChatMessage? targetToRestore;
     try {
       final session = await _storage.getGroupChatSession(event.groupId);
       if (session == null) return;
@@ -391,6 +406,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       final targetIndex = messages.indexWhere((m) => m.id == event.messageId);
       if (targetIndex == -1) return;
       final target = messages[targetIndex];
+      targetToRestore = target;
       if (target.isUser || target.isSystem || target.isRecalled) return;
       if (!target.senderId.startsWith('ai_')) return;
 
@@ -412,9 +428,47 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         imagePaths: null,
         isFollowUp: false,
       );
+      final generated = await _storage.getGroupChatMessages(event.groupId,
+          limit: 20, chatId: session.chatId);
+      final replacement = generated.cast<GroupChatMessage?>().firstWhere(
+            (m) => m!.senderId == target.senderId && m.id != target.id,
+            orElse: () => null,
+          );
+      if (replacement != null) {
+        await _storage.deleteGroupChatMessage(replacement.id);
+        final candidates = <String>[];
+        for (final candidate in [
+          ...target.swipeHistory,
+          target.content,
+          replacement.content,
+        ]) {
+          if (candidate.isNotEmpty && !candidates.contains(candidate)) {
+            candidates.add(candidate);
+          }
+        }
+        await _storage.saveGroupChatMessage(target.copyWith(
+          content: replacement.content,
+          swipeHistory: candidates,
+          swipeIndex: candidates.length - 1,
+          metadata: {
+            ...?target.metadata,
+            ...?replacement.metadata,
+            'swipeSourceMessageId': target.id,
+            'swipeIndex': candidates.length - 1,
+          },
+        ));
+      }
+      if (replacement == null) {
+        await _storage.saveGroupChatMessage(target);
+      }
       _replyingGroups[event.groupId] = false;
     } catch (e) {
       LogService.instance.e('GroupChat', '_onRegenerateMessage failed: $e');
+      if (targetToRestore != null) {
+        try {
+          await _storage.saveGroupChatMessage(targetToRestore);
+        } catch (_) {}
+      }
       _replyingGroups[event.groupId] = false;
       emit(GroupChatError(e.toString()));
     }
@@ -562,8 +616,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       return;
     }
 
-    final history = await _storage.getGroupChatMessages(groupId,
-        limit: 40, chatId: session.chatId);
+    final loadedHistory = await _storage.getGroupChatMessages(groupId,
+        limit: 120, chatId: session.chatId);
+    final history = _promptPipeline.trimHistory(loadedHistory);
     final members = await _loadMembers(session.aiCharacterIds);
     if (members.isEmpty) {
       _replyingGroups[groupId] = false;
@@ -689,15 +744,46 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       isNewChat: history.isEmpty,
     );
     // 群共享上下文：其他成员设定压缩 + 与用户记忆 + 群内社交记忆
-    final shared = await _memoryEngine.buildGroupSharedContext(
-      self: character,
-      members: members.where((m) => m.id != character.id).toList(),
-      userId: userId.isNotEmpty ? userId : 'local_user',
-      groupId: groupId,
-      chatId: session.chatId,
-    );
+    String shared;
+    try {
+      shared = await _memoryEngine.buildGroupSharedContext(
+        self: character,
+        members: members.where((m) => m.id != character.id).toList(),
+        userId: userId.isNotEmpty ? userId : 'local_user',
+        groupId: groupId,
+        chatId: session.chatId,
+      );
+    } catch (_) {
+      // Compatibility with older memory engines and test doubles that do not
+      // yet accept the optional branch scope.
+      shared = await _memoryEngine.buildGroupSharedContext(
+        self: character,
+        members: members.where((m) => m.id != character.id).toList(),
+        userId: userId.isNotEmpty ? userId : 'local_user',
+        groupId: groupId,
+      );
+    }
     final nudge = buildGroupNudge(character.name);
-    final internalContext = '$intro\n$shared\n$nudge';
+    // Keep generation compatible with older test doubles and migrated stores
+    // that do not yet expose the optional lorebook table.
+    List<GroupChatLorebookEntry> lore = const [];
+    try {
+      lore = await _storage.getGroupChatLorebookEntries(groupId,
+          chatId: session.chatId);
+    } catch (e) {
+      LogService.instance
+          .w('GroupChat', '读取 Lorebook 失败，跳过本轮注入: $e', chatId: groupId);
+    }
+    final internalContext = _promptPipeline.build(
+      segments: [
+        GroupPromptSegment(id: 'intro', content: intro, priority: 100),
+        GroupPromptSegment(id: 'shared_memory', content: shared, priority: 60),
+        GroupPromptSegment(id: 'nudge', content: nudge, priority: 90),
+      ],
+      lorebook: lore,
+      history: history,
+      tokenBudget: 1800,
+    );
 
     final chatHistory = _toChatHistory(history, character.id);
 
@@ -707,6 +793,11 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     _followUpCount++;
 
     String fullText = '';
+    String fullReasoning = '';
+    Map<String, dynamic>? usage;
+    String? finishReason;
+    final generationId = _uuid.v4();
+    final generationStartedAt = DateTime.now();
     try {
       await for (final chunk in _aiService.sendMessageStream(
         character: character,
@@ -720,6 +811,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         internalSystemContext: internalContext,
       )) {
         fullText = chunk.content;
+        fullReasoning = chunk.reasoning;
+        usage = chunk.usage ?? usage;
+        finishReason = chunk.finishReason ?? finishReason;
         // 思考阶段 content 为空、reasoning 非空也必须 emit，
         // 否则思考型模型表现为「无气泡但背后在准备回复」
         final streamText = MessageSanitizer.sanitizeStream(chunk.content);
@@ -743,6 +837,13 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       return;
     }
 
+    AIConfig? generationConfig;
+    try {
+      generationConfig = await _storage.getActiveAIConfig();
+    } catch (e) {
+      LogService.instance
+          .w('GroupChat', '读取生成配置失败，保存基础元数据: $e', chatId: groupId);
+    }
     final aiMsg = GroupChatMessage(
       id: _uuid.v4(),
       groupId: groupId,
@@ -754,6 +855,22 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       type: GroupChatMessageType.text,
       timestamp: DateTime.now(),
       status: GroupChatMessageStatus.sent,
+      metadata: {
+        'generationId': generationId,
+        'generationStartedAt': generationStartedAt.toIso8601String(),
+        'generationMode': 'swap',
+        'model': generationConfig?.modelName,
+        'temperature': generationConfig?.temperature,
+        'maxTokens': generationConfig?.maxTokens,
+        'finishReason': finishReason,
+        'generationDurationMs':
+            DateTime.now().difference(generationStartedAt).inMilliseconds,
+        'usage': usage,
+        'reasoning': fullReasoning,
+        'promptTokenCount': usage?['prompt_tokens'] ?? usage?['input_tokens'],
+        'completionTokenCount':
+            usage?['completion_tokens'] ?? usage?['output_tokens'],
+      },
     );
     await _storage.saveGroupChatMessage(aiMsg);
 
@@ -800,6 +917,40 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       characterId: characterId,
       content: cleanText,
     ));
+  }
+
+  Future<void> _onSelectSwipe(
+    GroupChatSelectSwipe event,
+    Emitter<GroupChatState> emit,
+  ) async {
+    final session = await _storage.getGroupChatSession(event.groupId);
+    final messages = await _storage.getGroupChatMessages(event.groupId,
+        limit: 100000, chatId: session?.chatId);
+    final message = messages.cast<GroupChatMessage?>().firstWhere(
+          (m) => m!.id == event.messageId,
+          orElse: () => null,
+        );
+    if (message == null ||
+        event.index < 0 ||
+        event.index >= message.swipeHistory.length) return;
+    await _storage.saveGroupChatMessage(message.copyWith(
+      content: message.swipeHistory[event.index],
+      swipeIndex: event.index,
+    ));
+    emit(GroupChatMessagesLoaded(
+        event.groupId,
+        await _storage.getGroupChatMessages(event.groupId,
+            chatId: session?.chatId)));
+  }
+
+  Future<void> _onSaveLorebookEntry(
+      GroupChatSaveLorebookEntry event, Emitter<GroupChatState> emit) async {
+    await _storage.saveGroupChatLorebookEntry(event.entry);
+  }
+
+  Future<void> _onDeleteLorebookEntry(
+      GroupChatDeleteLorebookEntry event, Emitter<GroupChatState> emit) async {
+    await _storage.deleteGroupChatLorebookEntry(event.entryId);
   }
 
   Future<void> _refreshGroupRollingSummary(
@@ -890,8 +1041,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       dialogueExamples: [],
     );
 
-    final history = await _storage.getGroupChatMessages(groupId,
-        limit: 40, chatId: session.chatId);
+    final loadedHistory = await _storage.getGroupChatMessages(groupId,
+        limit: 120, chatId: session.chatId);
+    final history = _promptPipeline.trimHistory(loadedHistory);
     // 全员记忆聚合（全共享），修复原先只取 members.first 的遗漏
     final memories = await _aggregateMemberMemories(
       memberIds: enabledIds,
@@ -919,6 +1071,11 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     _followUpCount++;
 
     String fullText = '';
+    String fullReasoning = '';
+    Map<String, dynamic>? usage;
+    String? finishReason;
+    final generationId = _uuid.v4();
+    final generationStartedAt = DateTime.now();
     try {
       await for (final chunk in _aiService.sendMessageStream(
         character: combo,
@@ -932,6 +1089,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         internalSystemContext: internalContext,
       )) {
         fullText = chunk.content;
+        fullReasoning = chunk.reasoning;
+        usage = chunk.usage ?? usage;
+        finishReason = chunk.finishReason ?? finishReason;
         // 思考阶段也 emit（对齐 SWAP 分支），避免「无气泡但背后在准备回复」
         final streamText = MessageSanitizer.sanitizeStream(chunk.content);
         final streamReasoning = _mergeStreamReasoning(chunk);
@@ -953,6 +1113,13 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       _replyingGroups[groupId] = false;
       return;
     }
+    AIConfig? generationConfig;
+    try {
+      generationConfig = await _storage.getActiveAIConfig();
+    } catch (e) {
+      LogService.instance
+          .w('GroupChat', '读取 APPEND 生成配置失败，保存基础元数据: $e', chatId: groupId);
+    }
     final aiMsg = GroupChatMessage(
       id: _uuid.v4(),
       groupId: groupId,
@@ -965,6 +1132,22 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       type: GroupChatMessageType.text,
       timestamp: DateTime.now(),
       status: GroupChatMessageStatus.sent,
+      metadata: {
+        'generationId': generationId,
+        'generationStartedAt': generationStartedAt.toIso8601String(),
+        'generationMode': session.generationMode.name,
+        'model': generationConfig?.modelName,
+        'temperature': generationConfig?.temperature,
+        'maxTokens': generationConfig?.maxTokens,
+        'finishReason': finishReason,
+        'generationDurationMs':
+            DateTime.now().difference(generationStartedAt).inMilliseconds,
+        'usage': usage,
+        'reasoning': fullReasoning,
+        'promptTokenCount': usage?['prompt_tokens'] ?? usage?['input_tokens'],
+        'completionTokenCount':
+            usage?['completion_tokens'] ?? usage?['output_tokens'],
+      },
     );
     await _storage.saveGroupChatMessage(aiMsg);
     unawaited(_refreshGroupRollingSummary(groupId, session));
@@ -1334,13 +1517,23 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
   ) async {
     try {
       final session = await _storage.getGroupChatSession(event.groupId);
-      final branch =
-          await _storage.createGroupChatBranch(event.groupId, event.name);
+      final branch = event.forkMessageId != null && session != null
+          ? await _storage.createGroupChatBranchFromMessage(
+              groupId: event.groupId,
+              sourceChatId: session.chatId,
+              forkMessageId: event.forkMessageId!,
+              name: event.name,
+            )
+          : await _storage.createGroupChatBranch(event.groupId, event.name);
       emit(GroupChatBranchesLoaded(
         groupId: event.groupId,
         branches: [branch],
         currentChatId: session?.chatId ?? '',
       ));
+      if (session != null && branch.branchId != session.chatId) {
+        add(GroupChatSwitchBranch(
+            groupId: event.groupId, chatId: branch.branchId));
+      }
     } catch (e) {
       LogService.instance.e('GroupChat', '_onCreateBranch failed: $e');
       emit(GroupChatError(e.toString()));

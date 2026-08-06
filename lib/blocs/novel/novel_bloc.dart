@@ -36,7 +36,8 @@ class NovelBloc extends Bloc<NovelEvent, NovelState> {
     emit(state.copyWith(isLoading: true, clearError: true));
     try {
       final novels = await _storage.getNovels(event.userId);
-      emit(state.copyWith(novels: novels, userId: event.userId, isLoading: false));
+      emit(state.copyWith(
+          novels: novels, userId: event.userId, isLoading: false));
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: '加载书架失败: $e'));
     }
@@ -144,7 +145,8 @@ class NovelBloc extends Bloc<NovelEvent, NovelState> {
   ) async {
     try {
       final wc = _countWords(event.chapter.content);
-      final updated = event.chapter.copyWith(wordCount: wc, updatedAt: DateTime.now());
+      final updated =
+          event.chapter.copyWith(wordCount: wc, updatedAt: DateTime.now());
       await _storage.saveNovelChapter(updated);
       await _refreshNovelMeta(event.chapter.novelId);
       add(NovelLoadChapters(event.chapter.novelId));
@@ -173,7 +175,8 @@ class NovelBloc extends Bloc<NovelEvent, NovelState> {
     try {
       final chapters = List<NovelChapter>.from(event.chapters);
       for (int i = 0; i < chapters.length; i++) {
-        final updated = chapters[i].copyWith(sortOrder: i, updatedAt: DateTime.now());
+        final updated =
+            chapters[i].copyWith(sortOrder: i, updatedAt: DateTime.now());
         await _storage.saveNovelChapter(updated);
       }
       add(NovelLoadChapters(event.novelId));
@@ -186,7 +189,10 @@ class NovelBloc extends Bloc<NovelEvent, NovelState> {
     NovelGenerateChapter event,
     Emitter<NovelState> emit,
   ) async {
-    emit(state.copyWith(isGenerating: true, generatingChapterId: event.chapterId, clearError: true));
+    emit(state.copyWith(
+        isGenerating: true,
+        generatingChapterId: event.chapterId,
+        clearError: true));
     try {
       final novel = state.currentNovel;
       if (novel == null) {
@@ -201,21 +207,29 @@ class NovelBloc extends Bloc<NovelEvent, NovelState> {
       // 构建上文摘要（最近3章正文前300字）
       final prevSummary = _buildContext(chapters, event.chapterId);
       // faMode 时对用户续写指令做高风险词汇替换（与单聊路径一致）
-      final safeInstruction = (faMode && !isThinking && event.instruction != null && event.instruction!.isNotEmpty)
+      final safeInstruction = (faMode &&
+              !isThinking &&
+              event.instruction != null &&
+              event.instruction!.isNotEmpty)
           ? const PromptRewriter().rewriteUserMessage(event.instruction!)
           : event.instruction;
       final systemPrompt = _buildGeneratePrompt(
-        novel, prevSummary, event.chapterTitle, safeInstruction, event.targetWords,
+        novel,
+        prevSummary,
+        event.chapterTitle,
+        safeInstruction,
+        event.targetWords,
         faMode: faMode,
       );
       // faMode + 非推理模型：对 system prompt 做语义伪装，降低安全分类器触发概率
       // characterName 用小说标题占位（续写路径无单独角色实体）
       final effectiveSystemPrompt = (faMode && !isThinking)
-          ? const PromptRewriter().rewriteFAPrompt(systemPrompt, characterName: novel.title)
+          ? const PromptRewriter()
+              .rewriteFAPrompt(systemPrompt, characterName: novel.title)
           : systemPrompt;
       // 中文 1字 ≈ 1.5~2 token，乘以 2.5 留足 buffer，确保不被截断
       final maxTokens = (event.targetWords * 2.5).ceil();
-      final result = await _aiService.sendStoryMessage(
+      final result = await _aiService.sendPromptMessage(
         messages: [
           {'role': 'system', 'content': effectiveSystemPrompt},
           {'role': 'user', 'content': '请开始续写。'},
@@ -226,7 +240,8 @@ class NovelBloc extends Bloc<NovelEvent, NovelState> {
       final now = DateTime.now();
       // 如果有指定章节ID则更新，否则新建
       if (event.chapterId != null) {
-        final existing = chapters.firstWhere((c) => c.id == event.chapterId, orElse: () => throw '章节不存在');
+        final existing = chapters.firstWhere((c) => c.id == event.chapterId,
+            orElse: () => throw '章节不存在');
         final updated = existing.copyWith(
           content: result,
           wordCount: wc,
@@ -252,7 +267,10 @@ class NovelBloc extends Bloc<NovelEvent, NovelState> {
       emit(state.copyWith(isGenerating: false, generatingChapterId: null));
       add(NovelLoadChapters(novel.id));
     } catch (e) {
-      emit(state.copyWith(isGenerating: false, generatingChapterId: null, error: 'AI 生成失败: $e'));
+      emit(state.copyWith(
+          isGenerating: false,
+          generatingChapterId: null,
+          error: 'AI 生成失败: $e'));
     }
   }
 
@@ -292,18 +310,22 @@ class NovelBloc extends Bloc<NovelEvent, NovelState> {
     if (recent.isEmpty) return '';
     final buf = StringBuffer();
     for (final c in recent) {
-      final snippet = c.content.length > 300 ? c.content.substring(0, 300) : c.content;
+      final snippet =
+          c.content.length > 300 ? c.content.substring(0, 300) : c.content;
       buf.write('【${c.title}】$snippet\n');
     }
     return buf.toString();
   }
 
-  String _buildGeneratePrompt(Novel novel, String prevContext, String? chapterTitle, String? instruction, int targetWords, {bool faMode = false}) {
+  String _buildGeneratePrompt(Novel novel, String prevContext,
+      String? chapterTitle, String? instruction, int targetWords,
+      {bool faMode = false}) {
     final buf = StringBuffer();
     buf.write('你是一位专业的小说创作者。请根据以下信息，续写小说的下一章内容。\n\n');
     buf.write('【小说标题】${novel.title}\n');
     if (novel.synopsis.isNotEmpty) buf.write('【简介】${novel.synopsis}\n');
-    if (novel.worldSetting.isNotEmpty) buf.write('【世界观设定】${novel.worldSetting}\n');
+    if (novel.worldSetting.isNotEmpty)
+      buf.write('【世界观设定】${novel.worldSetting}\n');
     if (novel.characters.isNotEmpty) buf.write('【主要人物】${novel.characters}\n');
     buf.write('【风格类型】${novel.genre.label}\n\n');
     if (prevContext.isNotEmpty) {

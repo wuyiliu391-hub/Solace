@@ -59,9 +59,16 @@ class GroupChatMessage {
   /// 消息状态
   final GroupChatMessageStatus status;
 
+  /// Alternative generations for this message position. The current content
+  /// is always the active candidate at [swipeIndex].
+  final List<String> swipeHistory;
+  final int swipeIndex;
+
+  /// Parent message used when a branch/checkpoint was created from this node.
+  final String? parentMessageId;
+
   /// 是否已撤回（对齐单聊 recalled 语义）
-  bool get isRecalled =>
-      metadata?['recalled'] == true || content == '已撤回';
+  bool get isRecalled => metadata?['recalled'] == true || content == '已撤回';
 
   /// 是否已收藏
   bool get isBookmarked => metadata?['bookmarked'] == true;
@@ -87,6 +94,9 @@ class GroupChatMessage {
     DateTime? timestamp,
     this.metadata,
     this.status = GroupChatMessageStatus.sent,
+    this.swipeHistory = const [],
+    this.swipeIndex = 0,
+    this.parentMessageId,
   }) : timestamp = timestamp ?? DateTime.now();
 
   /// 复制并修改
@@ -103,6 +113,9 @@ class GroupChatMessage {
     DateTime? timestamp,
     Map<String, dynamic>? metadata,
     GroupChatMessageStatus? status,
+    List<String>? swipeHistory,
+    int? swipeIndex,
+    String? parentMessageId,
   }) {
     return GroupChatMessage(
       id: id ?? this.id,
@@ -117,6 +130,9 @@ class GroupChatMessage {
       timestamp: timestamp ?? this.timestamp,
       metadata: metadata ?? this.metadata,
       status: status ?? this.status,
+      swipeHistory: swipeHistory ?? this.swipeHistory,
+      swipeIndex: swipeIndex ?? this.swipeIndex,
+      parentMessageId: parentMessageId ?? this.parentMessageId,
     );
   }
 
@@ -134,6 +150,9 @@ class GroupChatMessage {
         'createdAt': timestamp.toIso8601String(),
         'status': status.name,
         'metadata': metadata != null ? _encodeMetadata(metadata!) : null,
+        'swipeHistory': jsonEncode(swipeHistory),
+        'swipeIndex': swipeIndex,
+        'parentMessageId': parentMessageId,
       };
 
   factory GroupChatMessage.fromMap(Map<String, dynamic> map) {
@@ -172,6 +191,9 @@ class GroupChatMessage {
               orElse: () => GroupChatMessageStatus.sent,
             )
           : GroupChatMessageStatus.sent,
+      swipeHistory: _decodeList(map['swipeHistory']),
+      swipeIndex: int.tryParse(map['swipeIndex']?.toString() ?? '') ?? 0,
+      parentMessageId: map['parentMessageId']?.toString(),
     );
   }
 
@@ -218,6 +240,9 @@ class GroupChatMessage {
         'timestamp': timestamp.toIso8601String(),
         'status': status.name,
         'metadata': metadata,
+        'swipeHistory': swipeHistory,
+        'swipeIndex': swipeIndex,
+        'parentMessageId': parentMessageId,
       };
 
   factory GroupChatMessage.fromJson(Map<String, dynamic> json) {
@@ -240,6 +265,11 @@ class GroupChatMessage {
           ? DateTime.parse(json['timestamp'] as String)
           : DateTime.now(),
       metadata: json['metadata'] as Map<String, dynamic>?,
+      swipeHistory:
+          (json['swipeHistory'] as List?)?.map((e) => e.toString()).toList() ??
+              const [],
+      swipeIndex: json['swipeIndex'] as int? ?? 0,
+      parentMessageId: json['parentMessageId'] as String?,
       status: json['status'] != null
           ? GroupChatMessageStatus.values.firstWhere(
               (e) => e.name == json['status'],
@@ -247,5 +277,16 @@ class GroupChatMessage {
             )
           : GroupChatMessageStatus.sent,
     );
+  }
+
+  static List<String> _decodeList(dynamic value) {
+    if (value is List) return value.map((e) => e.toString()).toList();
+    if (value is String) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is List) return decoded.map((e) => e.toString()).toList();
+      } catch (_) {}
+    }
+    return const [];
   }
 }

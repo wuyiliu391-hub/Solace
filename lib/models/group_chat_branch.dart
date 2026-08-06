@@ -7,6 +7,9 @@ class GroupChatBranch extends Equatable {
   final String name;
   final DateTime createdAt;
   final DateTime? updatedAt;
+  final String? parentBranchId;
+  final String? forkMessageId;
+  final String? checkpointMessageId;
 
   const GroupChatBranch({
     required this.branchId,
@@ -14,6 +17,9 @@ class GroupChatBranch extends Equatable {
     this.name = '默认聊天',
     required this.createdAt,
     this.updatedAt,
+    this.parentBranchId,
+    this.forkMessageId,
+    this.checkpointMessageId,
   });
 
   GroupChatBranch copyWith({
@@ -22,6 +28,9 @@ class GroupChatBranch extends Equatable {
     String? name,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? parentBranchId,
+    String? forkMessageId,
+    String? checkpointMessageId,
   }) {
     return GroupChatBranch(
       branchId: branchId ?? this.branchId,
@@ -29,6 +38,9 @@ class GroupChatBranch extends Equatable {
       name: name ?? this.name,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      parentBranchId: parentBranchId ?? this.parentBranchId,
+      forkMessageId: forkMessageId ?? this.forkMessageId,
+      checkpointMessageId: checkpointMessageId ?? this.checkpointMessageId,
     );
   }
 
@@ -38,6 +50,9 @@ class GroupChatBranch extends Equatable {
         'name': name,
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt?.toIso8601String(),
+        'parentBranchId': parentBranchId,
+        'forkMessageId': forkMessageId,
+        'checkpointMessageId': checkpointMessageId,
       };
 
   factory GroupChatBranch.fromMap(Map<String, dynamic> map) {
@@ -51,9 +66,21 @@ class GroupChatBranch extends Equatable {
           ? (DateTime.tryParse(ca) ?? DateTime.now())
           : DateTime.now(),
       updatedAt: ua is String ? DateTime.tryParse(ua) : null,
+      parentBranchId: map['parentBranchId']?.toString(),
+      forkMessageId: map['forkMessageId']?.toString(),
+      checkpointMessageId: map['checkpointMessageId']?.toString(),
     );
   }
 
   @override
-  List<Object?> get props => [branchId, groupId, name, createdAt, updatedAt];
+  List<Object?> get props => [
+        branchId,
+        groupId,
+        name,
+        createdAt,
+        updatedAt,
+        parentBranchId,
+        forkMessageId,
+        checkpointMessageId
+      ];
 }
