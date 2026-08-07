@@ -61,7 +61,7 @@ class _OperitHomeScreenState extends State<OperitHomeScreen> {
           _a11yEnabled = a11y;
           _screenshotEnabled = screenshot;
           _shizukuOk = shizukuOk;
-          _notificationCount = notifCount;
+          _notificationCount = notifCount ?? 0;
           _currentApp = appInfo.displayName;
           _loading = false;
         });

@@ -10,6 +10,16 @@ void main() {
           DeviceIntentRouter.match('截个图').kind, DeviceIntentKind.deterministic);
       expect(DeviceIntentRouter.match('看看还有多少电').kind,
           DeviceIntentKind.deterministic);
+      expect(DeviceIntentRouter.match('电量还有多少').kind,
+          DeviceIntentKind.deterministic);
+      expect(DeviceIntentRouter.match('电量还有多少啊作者').kind,
+          DeviceIntentKind.deterministic);
+      expect(DeviceIntentRouter.match('通知数量').kind,
+          DeviceIntentKind.deterministic);
+      expect(DeviceIntentRouter.match('查看进程').kind,
+          DeviceIntentKind.deterministic);
+      expect(DeviceIntentRouter.match('运行中的进程').kind,
+          DeviceIntentKind.deterministic);
       expect(DeviceIntentRouter.match('当前应用').kind,
           DeviceIntentKind.deterministic);
     });

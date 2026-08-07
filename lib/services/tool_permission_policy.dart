@@ -33,6 +33,9 @@ class ToolPermissionPolicy {
         name.contains('lock') ||
         name.contains('input') ||
         name.contains('ui_') ||
+        name.contains('write') ||
+        name.contains('edit') ||
+        name.contains('command') ||
         name.contains('delete') ||
         name.contains('kill');
   }

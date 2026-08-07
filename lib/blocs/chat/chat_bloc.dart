@@ -54,6 +54,8 @@ import '../../services/device_service.dart';
 import '../../services/tools/tools.dart';
 import '../../services/tools/tool_registry.dart';
 import '../../services/tools/tool.dart';
+import '../../services/tools/tool_executor.dart';
+import '../../services/tools/conversation_turn.dart';
 import '../../services/tools/deterministic_device_router.dart';
 import '../../services/tools/device_intent_router.dart';
 import 'tool_aware_service.dart';
@@ -61,6 +63,9 @@ import 'chat_bloc_utils.dart';
 import 'chat_bloc_intimacy.dart';
 import '../../models/tool_task_state.dart';
 import '../../services/tool_permission_policy.dart';
+import '../../services/workspace_intent_router.dart';
+import '../../services/workspace_service.dart';
+import '../../services/tool_task_store.dart';
 
 part 'chat_event.dart';
 part 'chat_state.dart';
@@ -113,6 +118,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   late final DeviceAgentExecutionService _deviceAgentExecutionService;
   late final CharacterDesireEngine _desireEngine;
   late final ToolPermissionPolicy _toolPermissionPolicy;
+  late final ToolTaskStore _toolTaskStore;
   final Set<String> _cancelledToolTasks = {};
   final Map<String, Completer<bool>> _toolPermissionWaiters = {};
   final AIServiceAdapter? _aiAdapter;
@@ -153,6 +159,27 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   final WellbeingService _wellbeing = WellbeingService();
 
   bool _isAIRefusal(String content) => isAIRefusal(content);
+
+  String _toolStatusText(ToolProcessingState state) {
+    switch (state) {
+      case ToolProcessingState.preparing:
+        return '正在准备工作任务…';
+      case ToolProcessingState.connecting:
+        return '正在联系模型规划下一步…';
+      case ToolProcessingState.receiving:
+        return '正在理解任务计划…';
+      case ToolProcessingState.executingTool:
+        return '正在执行工作区操作…';
+      case ToolProcessingState.processingToolResult:
+        return '正在整理真实执行结果…';
+      case ToolProcessingState.completed:
+        return '工作任务已完成';
+      case ToolProcessingState.error:
+        return '工作任务遇到问题，可恢复';
+      case ToolProcessingState.idle:
+        return '等待开始工作任务…';
+    }
+  }
 
   bool get _isPureAIForced => _storage.isPureAiModeEnabled();
 
@@ -262,6 +289,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     _deviceAgentExecutionService =
         DeviceAgentExecutionService(_storage, registry: _toolRegistry);
     _toolPermissionPolicy = ToolPermissionPolicy(_storage);
+    _toolTaskStore = ToolTaskStore(_storage);
     _desireEngine = CharacterDesireEngine(_storage);
     _commitmentService = CharacterCommitmentService(_storage);
     _relationshipService = RelationshipContextService(_storage);
@@ -299,6 +327,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     on<ChatCancelAutoGlm>(_onCancelAutoGlm);
     on<ChatSetToolPermission>(_onSetToolPermission);
     on<ChatResolveToolPermission>(_onResolveToolPermission);
+    on<ChatResumeToolTask>(_onResumeToolTask);
     on<ChatEditAIReply>(_onEditAIReply);
     on<ChatRegenerateAIReply>(_onRegenerateAIReply);
   }
@@ -2481,9 +2510,21 @@ $tail
       bool agentHadTool = false;
       bool deviceRequestAttempted = false;
       List<ToolExecutionRecord> toolExecutions = [];
+      final toolTaskId = _uuid.v4();
+      var persistedTask = ToolTaskState(
+        taskId: toolTaskId,
+        chatId: event.chatId,
+        task: event.content,
+        status: ToolTaskStatus.running,
+      );
+      await _toolTaskStore.save(persistedTask);
 
       // 1) 确定性路由：与 Operit 快捷操作一致，明确设备指令直接执行，不依赖 LLM
       final deviceIntent = DeviceIntentRouter.match(event.content);
+      debugPrint(
+        '[DeviceIntent] kind=${deviceIntent.kind.name} reason=${deviceIntent.reason} '
+        'content="${event.content}"',
+      );
       final deterministicRoute = deviceIntent.usesDeterministicRoute
           ? DeterministicDeviceRouter.match(event.content)
           : null;
@@ -2587,8 +2628,10 @@ $tail
       // 2) 未命中确定性路由时，再尝试 LLM 工具路径
       // 工具请求走 ToolAwareService（纯工具助手，无角色人设干扰）
       // 普通聊天走 _streamAndProcessAIResponse（角色扮演，无工具干扰）
-      final bool isToolRequest =
-          !agentHadTool && deviceIntent.kind == DeviceIntentKind.agent;
+      final bool isWorkspaceRequest =
+          WorkspaceIntentRouter.isTask(event.content);
+      final bool isToolRequest = !agentHadTool &&
+          (deviceIntent.kind == DeviceIntentKind.agent || isWorkspaceRequest);
 
       if (isToolRequest) {
         deviceRequestAttempted = true;
@@ -2598,9 +2641,17 @@ $tail
 
         try {
           // 创建 ToolAwareService（使用数据库中的 AI 配置）
+          final toolLlm = LlmService(settings: await _loadLlmSettings());
+          final toolRegistry = isWorkspaceRequest
+              ? createWorkspaceToolRegistry(
+                  workspace: WorkspaceService(_storage),
+                  chatId: event.chatId,
+                  llm: toolLlm,
+                )
+              : _toolRegistry;
           final toolAwareService = ToolAwareService(
-            llmService: LlmService(settings: await _loadLlmSettings()),
-            registry: _toolRegistry,
+            llmService: toolLlm,
+            registry: toolRegistry,
             guardedExecute: (toolName, args) async {
               final mode = _toolPermissionPolicy.mode(toolName);
               if (mode == ToolPermissionMode.alwaysDeny) {
@@ -2647,6 +2698,9 @@ $tail
                     endedAt: DateTime.now(),
                   );
                 }
+              }
+              if (isWorkspaceRequest) {
+                return ToolExecutor(toolRegistry).execute(toolName, args);
               }
               final action = await _deviceAgentExecutionService.executeFromJson(
                 jsonEncode({
@@ -2755,6 +2809,21 @@ $tail
             maxSteps: 10,
             requireToolOnFirstStep: true,
             onStep: (step) {
+              final trace = [
+                ...persistedTask.trace,
+                {
+                  'step': step.step,
+                  'tool': step.toolName,
+                  'args': step.args,
+                  'status': step.status,
+                  'result': step.result,
+                },
+              ];
+              persistedTask = persistedTask.copyWith(
+                step: step.step,
+                trace: trace,
+              );
+              unawaited(_toolTaskStore.save(persistedTask));
               LogService.instance.i('ToolAware',
                   '步骤 ${step.step}: ${step.toolName}(${step.args}) -> ${step.status}',
                   chatId: event.chatId);
@@ -2767,7 +2836,29 @@ $tail
               ));
             },
             onStateChange: (state) {
-              // ToolProcessingState -> ChatProcessingState 映射
+              _chatProcessingState = switch (state) {
+                ToolProcessingState.preparing => ChatProcessingState.preparing,
+                ToolProcessingState.connecting =>
+                  ChatProcessingState.connecting,
+                ToolProcessingState.receiving => ChatProcessingState.receiving,
+                ToolProcessingState.executingTool =>
+                  ChatProcessingState.executingTool,
+                ToolProcessingState.processingToolResult =>
+                  ChatProcessingState.processingToolResult,
+                ToolProcessingState.completed => ChatProcessingState.completed,
+                ToolProcessingState.error => ChatProcessingState.error,
+                ToolProcessingState.idle => ChatProcessingState.idle,
+              };
+              emit(ChatAIProcessing(
+                chatMsgs,
+                _toolStatusText(state),
+                character?.name ?? '',
+                processingState: _chatProcessingState,
+              ));
+            },
+            onContextCompacted: (summary) {
+              persistedTask = persistedTask.copyWith(summary: summary);
+              unawaited(_toolTaskStore.save(persistedTask));
             },
           );
 
@@ -2832,6 +2923,15 @@ $tail
                   processingState: _chatProcessingState,
                 ));
               },
+              onStateChange: (processingState) {
+                final status = processingState == ToolProcessingState.error
+                    ? ToolTaskStatus.recoverable
+                    : processingState == ToolProcessingState.completed
+                        ? ToolTaskStatus.completed
+                        : ToolTaskStatus.running;
+                persistedTask = persistedTask.copyWith(status: status);
+                unawaited(_toolTaskStore.save(persistedTask));
+              },
             );
             final (retryContent, retryRecords, retryHadTools) = retryResult;
             if (retryHadTools) {
@@ -2848,6 +2948,13 @@ $tail
           }
 
           _chatProcessingState = ChatProcessingState.completed;
+          persistedTask = persistedTask.copyWith(
+            status: _cancelledToolTasks.contains(event.chatId)
+                ? ToolTaskStatus.cancelled
+                : ToolTaskStatus.completed,
+            trace: toolExecutions.map((e) => e.toTraceJson()).toList(),
+          );
+          await _toolTaskStore.save(persistedTask);
 
           LogService.instance.i('ToolAware',
               '工具路径完成: hadTools=$agentHadTool, 回复长度=${aiVisibleText.length}',
@@ -2856,6 +2963,12 @@ $tail
           LogService.instance
               .e('ToolAware', '工具路径异常: $e\n$stack', chatId: event.chatId);
           _chatProcessingState = ChatProcessingState.error;
+          persistedTask = persistedTask.copyWith(
+            status: ToolTaskStatus.recoverable,
+            error: e.toString(),
+            trace: toolExecutions.map((e) => e.toTraceJson()).toList(),
+          );
+          await _toolTaskStore.save(persistedTask);
 
           aiVisibleText = '设备请求未执行：工具服务异常，请检查模型配置和 Operit 权限后重试。';
         }
@@ -2936,22 +3049,49 @@ $tail
         }
       }
 
+      // 电量、通知数量等读操作的返回值来自设备 API，不是模型推断。
+      // 角色可以自然回应，但必须逐字保留事实结果，避免改写数值。
+      const authoritativeReadTools = {
+        'get_battery_info',
+        'get_notifications',
+        'get_notification_count',
+        'get_current_app',
+        'get_installed_apps',
+        'get_app_usage_time',
+        'get_processes',
+        'take_screenshot',
+      };
+      final hasAuthoritativeDeviceResult = toolExecutions.any(
+        (record) => authoritativeReadTools.contains(record.toolName),
+      );
+      ToolExecutionRecord? authoritativeRecord;
+      if (hasAuthoritativeDeviceResult) {
+        authoritativeRecord = toolExecutions.firstWhere(
+          (record) => authoritativeReadTools.contains(record.toolName),
+        );
+      }
+
       // 本地工具的执行记录是事实源；角色只负责把真实结果融入关系语境。
-      if (deterministicRoute != null && toolExecutions.isNotEmpty) {
-        final record = toolExecutions.first;
+      if ((deterministicRoute != null || isWorkspaceRequest) &&
+          toolExecutions.isNotEmpty) {
+        final record = authoritativeRecord ?? toolExecutions.first;
         final resultContext = '''
-【设备操作已完成】
+【工作任务真实结果】
 用户请求：${event.content}
 实际工具：${record.toolName}
 执行结果：${record.result.success ? '成功' : '失败'}
 结果详情：${record.result.message}
-回复规则：只用当前角色的人设和关系上下文自然反馈这一真实结果；不得再次调用工具，不得虚构成功或失败，不要解释系统提示。
+${isWorkspaceRequest ? '这是一个文件/代码工作任务。可以自然提到完成了什么、修改了哪个文件、测试或命令结果，以及下一步建议。' : '这是一个设备操作。'}
+回复规则：只用当前角色的人设、关系和当前故事语境自然反馈这一真实结果；不得再次调用工具，不得虚构成功或失败，不要解释系统提示。
+${hasAuthoritativeDeviceResult ? '这是设备 API 返回的硬事实。回复中必须完整、逐字包含“${record.result.message}”，可以在它前后加入角色的关心、互动或剧情语气，但绝不能改写其中的数值、状态或充电方式。' : ''}
 ''';
         try {
           final feedback = await _streamAndProcessAIResponse(
             character: character,
             userId: event.userId,
-            messageForAI: '请根据已经完成的设备操作结果回复用户。',
+            messageForAI: isWorkspaceRequest
+                ? '请根据已经完成的工作任务结果，用当前角色的自然口吻回复用户。'
+                : '请根据已经完成的设备操作结果回复用户。',
             messages: messages,
             memories: memories,
             session: session,
@@ -2966,9 +3106,17 @@ $tail
             internalSystemContext:
                 _mergeInternalSystemContext(sessionStateContext, resultContext),
           );
-          if (feedback.cleanText.trim().isNotEmpty) {
+          final feedbackText = feedback.cleanText.trim();
+          final containsAuthoritativeFact = !hasAuthoritativeDeviceResult ||
+              feedbackText.contains(record.result.message);
+          if (feedbackText.isNotEmpty && containsAuthoritativeFact) {
             aiVisibleText = feedback.cleanText;
             reasoningText = feedback.reasoning;
+          } else if (hasAuthoritativeDeviceResult) {
+            // A model that drops or changes a device fact must not become the
+            // final response. Keep a small in-character fallback instead.
+            aiVisibleText = '${character.name}刚替你看过了，${record.result.message}。'
+                '我会记着，别让自己撑得太累。';
           }
         } catch (e, stack) {
           LogService.instance.e(
@@ -5410,6 +5558,31 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
     if (waiter != null && !waiter.isCompleted) {
       waiter.complete(event.allow);
     }
+  }
+
+  Future<void> _onResumeToolTask(
+    ChatResumeToolTask event,
+    Emitter<ChatState> emit,
+  ) async {
+    final task = _toolTaskStore.load(event.taskId);
+    if (task == null || task.chatId.isEmpty) {
+      emit(const ChatError('找不到可恢复的工作任务。'));
+      return;
+    }
+    if (task.status == ToolTaskStatus.completed) {
+      emit(const ChatError('该任务已经完成，无需继续。'));
+      return;
+    }
+    _cancelledToolTasks.remove(task.chatId);
+    final context = task.trace
+        .map((entry) =>
+            '${entry['tool']}: ${entry['status']} ${entry['result'] ?? ''}')
+        .join('\n');
+    add(ChatSendMessage(
+      chatId: task.chatId,
+      userId: event.userId,
+      content: '继续之前的工作任务：${task.task}\n已执行步骤：\n$context',
+    ));
   }
 
   Future<LlmSettings> _loadLlmSettings() async {

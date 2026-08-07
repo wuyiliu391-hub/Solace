@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import '../tool.dart';
 import '../../device_notification_service.dart';
 
@@ -97,7 +96,22 @@ class _GetNotificationCountTool extends Tool {
 
   @override
   Future<ToolResult> execute(Map<String, dynamic> args) async {
+    final hasAccess = await _notificationService.hasAccess();
+    if (!hasAccess) {
+      return ToolResult.error(
+        '需要通知监听权限，请在系统设置中授予 Solace 通知使用权。',
+        errorCode: 'NOTIFICATION_ACCESS_REQUIRED',
+        needsPermission: true,
+        permissionName: '通知使用权',
+      );
+    }
     final count = await _notificationService.getCount();
+    if (count == null) {
+      return ToolResult.error(
+        '本次无法读取通知数量，未使用旧缓存结果。',
+        errorCode: 'NOTIFICATION_READ_FAILED',
+      );
+    }
     return ToolResult.success('当前有 $count 条通知');
   }
 }

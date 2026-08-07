@@ -18,8 +18,10 @@ import '../../data/builtin_characters.dart';
 import '../../services/voice_clone_service.dart';
 import '../../services/tts_service.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../services/permission_service.dart';
+import '../../services/workspace_service.dart';
 import '../../widgets/ai_wallet_card.dart';
 import 'interaction_settings_screen.dart';
 import '../../blocs/auth/auth_bloc.dart';
@@ -53,6 +55,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   TextEditingController? _statusController;
   late bool _isBlockedByUser;
   AIWallet? _aiWallet;
+  String? _workspacePath;
 
   bool get _isBuiltinCharacter =>
       BuiltinCharacters.isBuiltin(_localSession.aiCharacterId);
@@ -66,6 +69,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     _isMuted = _localSession.isMuted;
     _isPinned = _localSession.isPinned;
     _backgroundImage = _localSession.backgroundImage;
+    _workspacePath = RepositoryProvider.of<LocalStorageRepository>(context)
+        .getString('workspace_path_${_localSession.id}');
     _isBlockedByUser =
         _localSession.isBlocked && _localSession.blockedBy == BlockedBy.user;
     _loadAIStatus();
@@ -155,6 +160,29 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         debugPrint('自动保存失败: $e');
       }
     }
+  }
+
+  Future<void> _pickWorkspace() async {
+    final path = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '选择当前聊天的工作区',
+    );
+    if (path == null || path.trim().isEmpty || !mounted) return;
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    await WorkspaceService(storage).bind(_localSession.id, path);
+    setState(() {
+      _workspacePath = path;
+      _hasChanges = true;
+    });
+  }
+
+  Future<void> _clearWorkspace() async {
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    await storage.remove('workspace_path_${_localSession.id}');
+    if (!mounted) return;
+    setState(() {
+      _workspacePath = null;
+      _hasChanges = true;
+    });
   }
 
   bool _isLocalBackgroundPath(String path) {
@@ -1250,6 +1278,20 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             }
           },
         ),
+        _SettingsItem(
+          icon: Icons.folder_outlined,
+          title: '工作区与代码 Agent',
+          subtitle:
+              _workspacePath == null ? '未绑定项目目录，代码/文件任务不会执行' : _workspacePath,
+          onTap: _pickWorkspace,
+        ),
+        if (_workspacePath != null)
+          _SettingsItem(
+            icon: Icons.link_off_outlined,
+            title: '解除工作区绑定',
+            subtitle: '保留本地文件，不再让当前聊天访问该目录',
+            onTap: _clearWorkspace,
+          ),
         if (_character != null) ...[
           _SettingsItem(
             icon: Icons.badge_outlined,

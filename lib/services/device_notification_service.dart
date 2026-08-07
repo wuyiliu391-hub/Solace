@@ -51,13 +51,13 @@ class DeviceNotificationService {
   }
 
   /// 获取当前缓存的未读通知数
-  Future<int> getCount() async {
+  Future<int?> getCount() async {
     try {
       final result = await _channel.invokeMethod<int>('getNotificationCount');
-      return result ?? 0;
+      return result;
     } catch (e) {
       debugPrint('DeviceNotificationService.getCount error: $e');
-      return 0;
+      return null;
     }
   }
 }

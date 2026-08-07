@@ -322,7 +322,7 @@ class CharacterDesireEngine {
     var intimate = false;
     if (allowReadNotify) {
       try {
-        count = await _notifications.getCount();
+        count = await _notifications.getCount() ?? 0;
         final list = await _notifications.getNotifications(limit: 5);
         for (final n in list) {
           final line = n.toDisplayString();

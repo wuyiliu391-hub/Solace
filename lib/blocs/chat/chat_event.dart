@@ -521,3 +521,13 @@ class ChatResolveToolPermission extends ChatEvent {
   @override
   List<Object?> get props => [taskId, allow];
 }
+
+class ChatResumeToolTask extends ChatEvent {
+  final String taskId;
+  final String userId;
+
+  const ChatResumeToolTask({required this.taskId, required this.userId});
+
+  @override
+  List<Object?> get props => [taskId, userId];
+}

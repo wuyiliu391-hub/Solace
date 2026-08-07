@@ -948,6 +948,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     current is ChatAITyping ||
                     current is ChatError ||
                     current is ChatAIObserving ||
+                    current is ChatToolPermissionRequired ||
                     (current is ChatMessagesLoaded &&
                         previous is ChatMessagesLoaded &&
                         current.messages.length != previous.messages.length),
@@ -1007,6 +1008,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       _turnIntensity = state.intensity;
                       _turnThought = state.thought;
                     });
+                  }
+                  if (state is ChatToolPermissionRequired &&
+                      state.chatId == widget.session.id) {
+                    _showToolPermissionDialog(state);
                   }
                   if (state is ChatMessagesLoaded) {
                     _hasMoreMessages = state.hasMore;
@@ -1245,6 +1250,53 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       );
     }
     return content;
+  }
+
+  Future<void> _showToolPermissionDialog(
+      ChatToolPermissionRequired state) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('TA 想执行一个工作任务', style: Theme.of(ctx).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Text(state.toolName),
+              const SizedBox(height: 4),
+              Text('${state.args}',
+                  maxLines: 4, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, 'once'),
+                child: const Text('仅本次允许'),
+              ),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(ctx, 'always'),
+                child: const Text('始终允许此工具'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 'deny'),
+                child: const Text('拒绝'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'always') {
+      _chatBloc.add(
+          ChatSetToolPermission(toolName: state.toolName, mode: 'alwaysAllow'));
+    }
+    _chatBloc.add(ChatResolveToolPermission(
+      taskId: state.taskId,
+      allow: choice == 'once' || choice == 'always',
+    ));
   }
 
   Widget _buildPureAiModeSidebar(ColorScheme colorScheme) {

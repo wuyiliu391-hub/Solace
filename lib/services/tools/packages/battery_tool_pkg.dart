@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import '../tool.dart';
 import '../../battery_service.dart';
 
@@ -38,6 +37,12 @@ class _GetBatteryInfoTool extends Tool {
   @override
   Future<ToolResult> execute(Map<String, dynamic> args) async {
     final info = await BatteryService.refresh();
+    if (info == null) {
+      return ToolResult.error(
+        '本次无法读取设备电量，未使用上一次缓存结果。',
+        errorCode: 'BATTERY_READ_FAILED',
+      );
+    }
     final chargingStatus = info.isFull
         ? '已充满'
         : info.isCharging

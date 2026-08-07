@@ -10,6 +10,7 @@ void main() {
       'get_app_usage_time',
       'get_notifications',
       'get_notification_count',
+      'get_processes',
       'take_screenshot',
       'set_brightness',
       'adjust_volume',

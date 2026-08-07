@@ -159,8 +159,18 @@ class DeterministicDeviceRouter {
       );
     }
 
+    // ─── 进程 ───
+    if (RegExp(r'(查看|看看|查询|获取|列出).*(进程|运行中的进程)|^(进程|进程列表|运行中的进程)$')
+        .hasMatch(lower)) {
+      return const DeterministicDeviceRoute(
+        toolName: 'get_processes',
+        args: {'limit': 50},
+      );
+    }
+
     // ─── 通知 ───
-    if (RegExp(r'(通知数量|几个通知|有多少通知|通知.*多少)').hasMatch(lower)) {
+    if (RegExp(r'(通知数量|几个通知|有多少通知|通知.*多少|未读通知数|有几个通知)')
+        .hasMatch(lower)) {
       return const DeterministicDeviceRoute(
         toolName: 'get_notification_count',
         args: {},

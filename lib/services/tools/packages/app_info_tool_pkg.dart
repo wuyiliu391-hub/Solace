@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import '../tool.dart';
 import '../../device_service.dart';
 import '../../accessibility_service.dart';
@@ -21,6 +20,7 @@ class AppInfoToolPkg extends ToolPkg {
         _GetInstalledAppsTool(_device),
         _GetAppUsageTimeTool(_device),
         _GetCurrentAppTool(_a11y),
+        _GetProcessesTool(_device),
       ];
 }
 
@@ -238,8 +238,22 @@ class _GetCurrentAppTool extends Tool {
   @override
   Future<ToolResult> execute(Map<String, dynamic> args) async {
     try {
+      if (!await _a11y.isEnabled()) {
+        return ToolResult.error(
+          '需要开启 Solace 无障碍服务才能读取当前前台应用。',
+          errorCode: 'ACCESSIBILITY_REQUIRED',
+          needsPermission: true,
+          permissionName: '无障碍服务',
+        );
+      }
       final info = await _a11y.getCurrentApp();
       final name = info.displayName.isNotEmpty ? info.displayName : info.packageName;
+      if (name.isEmpty) {
+        return ToolResult.error(
+          '无障碍服务暂时没有提供前台应用信息，请稍后重试。',
+          errorCode: 'CURRENT_APP_UNAVAILABLE',
+        );
+      }
       return ToolResult.success(
         '当前应用: $name',
         data: {
@@ -250,5 +264,57 @@ class _GetCurrentAppTool extends Tool {
     } catch (e) {
       return ToolResult.error('获取前台应用失败: $e');
     }
+  }
+}
+
+/// 运行进程是只读查询，但必须经由受控命令而不是让模型自由拼接 Shell。
+class _GetProcessesTool extends Tool {
+  final DeviceService _device;
+
+  _GetProcessesTool(this._device);
+
+  @override
+  String get name => 'get_processes';
+
+  @override
+  String get description => '获取设备当前运行的进程列表，默认最多返回 50 条。';
+
+  @override
+  Map<String, dynamic> get parametersSchema => {
+        'type': 'object',
+        'properties': {
+          'limit': {'type': 'integer', 'description': '最大返回条数，1-100，默认 50'},
+        },
+      };
+
+  @override
+  Set<String> get requiredPermissions => {'shizuku'};
+
+  @override
+  bool get isDestructive => false;
+
+  @override
+  Future<ToolResult> execute(Map<String, dynamic> args) async {
+    final limit = ((args['limit'] as num?)?.toInt() ?? 50).clamp(1, 100);
+    final result = await _device.shellExec('ps -A');
+    if (!result.success) {
+      return ToolResult.error(
+        '读取运行进程失败 (exit=${result.exitCode}): ${result.stderr}',
+        errorCode: 'PROCESS_READ_FAILED',
+      );
+    }
+    final lines = result.stdout
+        .split(RegExp(r'\r?\n'))
+        .where((line) => line.trim().isNotEmpty)
+        .toList();
+    if (lines.isEmpty) {
+      return ToolResult.error('进程查询没有返回有效数据。', errorCode: 'PROCESS_READ_FAILED');
+    }
+    final visible = lines.take(limit + 1).join('\n');
+    final count = lines.length > 1 ? lines.length - 1 : 0;
+    return ToolResult.success(
+      '当前检测到约 $count 个进程，以下为前 $limit 条：\n$visible',
+      data: {'count': count, 'shown': (lines.length - 1).clamp(0, limit)},
+    );
   }
 }

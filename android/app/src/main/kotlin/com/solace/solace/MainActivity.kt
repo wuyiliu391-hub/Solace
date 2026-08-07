@@ -536,6 +536,10 @@ class MainActivity : FlutterActivity() {
                     result.success(notifications)
                 }
                 "getNotificationCount" -> {
+                    if (!hasNotificationAccess()) {
+                        result.error("NO_ACCESS", "通知使用权未授权", null)
+                        return
+                    }
                     result.success(NotificationStore.count())
                 }
                 else -> result.notImplemented()

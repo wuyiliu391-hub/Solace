@@ -403,6 +403,13 @@ class DeviceAgentExecutionService {
                 int.tryParse(params['limit']?.toString() ?? '') ??
                 20,
         };
+      case DeviceActionType.getProcesses:
+        return {
+          if (params['limit'] != null)
+            'limit': (params['limit'] as num?)?.toInt() ??
+                int.tryParse(params['limit']?.toString() ?? '') ??
+                50,
+        };
       case DeviceActionType.lockScreen:
       case DeviceActionType.getBatteryInfo:
       case DeviceActionType.getCurrentApp:

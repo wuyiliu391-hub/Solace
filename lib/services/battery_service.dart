@@ -52,21 +52,21 @@ class BatteryService {
   }
 
   /// 手动刷新一次
-  static Future<BatteryInfo> refresh() async {
+  static Future<BatteryInfo?> refresh() async {
     return await _refresh();
   }
 
-  static Future<BatteryInfo> _refresh() async {
+  static Future<BatteryInfo?> _refresh() async {
     try {
       final result = await _channel.invokeMethod('getBatteryInfo');
-      if (result != null) {
-        _cached = BatteryInfo.fromMap(result as Map<dynamic, dynamic>);
-        _controller.add(_cached);
-      }
+      if (result is! Map) return null;
+      _cached = BatteryInfo.fromMap(result);
+      _controller.add(_cached);
+      return _cached;
     } catch (e) {
       debugPrint('BatteryService: 读取电池信息失败 $e');
+      return null;
     }
-    return _cached;
   }
 
   /// 释放资源

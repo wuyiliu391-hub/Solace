@@ -67,6 +67,7 @@ class ToolAwareService {
     bool requireToolOnFirstStep = false,
     void Function(AgentStep)? onStep,
     void Function(ToolProcessingState)? onStateChange,
+    void Function(String summary)? onContextCompacted,
   }) async {
     final tools = registry.toOpenAIFormat();
     if (tools.isEmpty) {
@@ -256,6 +257,8 @@ class ToolAwareService {
         );
         mutableTurns.add(toolResultTurn);
         mutableMessages.add(toolResultTurn.toLlmMessage());
+        _compactContextIfNeeded(
+            mutableMessages, mutableTurns, onContextCompacted);
       }
 
       _setState(ToolProcessingState.processingToolResult);
@@ -371,6 +374,8 @@ class ToolAwareService {
           toolCallId: toolCallId,
         ));
         mutableMessages.add(mutableTurns.last.toLlmMessage());
+        _compactContextIfNeeded(
+            mutableMessages, mutableTurns, onContextCompacted);
       }
     }
 
@@ -385,6 +390,32 @@ class ToolAwareService {
   }
 
   // ── 辅助方法 ──
+
+  void _compactContextIfNeeded(
+    List<Map<String, dynamic>> messages,
+    List<ConversationTurn> turns,
+    void Function(String summary)? onSummary,
+  ) {
+    if (messages.length <= 24) return;
+    final start = messages.length > 10 ? messages.length - 10 : 0;
+    final removed = messages
+        .sublist(1, start)
+        .where((message) => message['role'] == 'tool')
+        .map((message) => message['content']?.toString() ?? '')
+        .where((content) => content.isNotEmpty)
+        .join('\n');
+    if (removed.isEmpty) return;
+    final summary = '已压缩早期工具结果：$removed';
+    messages.removeRange(1, start);
+    messages
+        .insert(1, {'role': 'system', 'content': '[AgentSummary] $summary'});
+    turns.add(ConversationTurn(
+      kind: ConversationTurnKind.summary,
+      content: summary,
+      createdAt: DateTime.now(),
+    ));
+    onSummary?.call(summary);
+  }
 
   Future<ToolExecutionRecord> _executeWithRetry(
       String name, Map<String, dynamic> args) async {
