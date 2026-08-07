@@ -188,8 +188,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         value: _chatBloc,
         child: Scaffold(
           backgroundColor: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFF000000)
-              : const Color(0xFFF5F5F5),
+              ? const Color(0xFF121315)
+              : const Color(0xFFF1EFEB),
           appBar: _selectionMode
               ? _buildSelectionAppBar(colorScheme)
               : _isSearching
@@ -328,13 +328,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   PreferredSizeWidget _buildModernAppBar(ColorScheme colorScheme) {
     final brightness = Theme.of(context).brightness;
     final isDark = brightness == Brightness.dark;
-    final currentAvatar =
-        _currentSession?.aiCharacterAvatar ?? widget.session.aiCharacterAvatar;
     final currentName = _displayName ??
         _currentSession?.aiCharacterName ??
         widget.session.aiCharacterName;
     return AppBar(
-      backgroundColor: Colors.transparent,
+      backgroundColor:
+          isDark ? const Color(0xFF121315) : const Color(0xFFF1EFEB),
       elevation: 0,
       scrolledUnderElevation: 0,
       leading: IconButton(
@@ -345,64 +344,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
         onPressed: () => Navigator.pop(context, _hasSettingsChanged),
       ),
-      title: Row(
+      title: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // AI 头像。在线/离线 Presence 不再作为聊天状态展示。
-          SizedBox(
-            width: 36,
-            height: 36,
-            child: ClipOval(child: _buildAppBarAvatar(currentAvatar, isDark)),
+          Text(
+            'OFFLINE STORY',
+            style: TextStyle(
+              color: isDark ? const Color(0xFFF0EAE2) : const Color(0xFF312B29),
+              fontFamily: 'serif',
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
           ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        currentName,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? Colors.white : Colors.black,
-                          height: 1.15,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: colorScheme.primary.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'AI',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text('$_turnEmotion · $_turnThought',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: isDark ? Colors.white70 : colorScheme.primary,
-                        height: 1.1),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-              ],
+          const SizedBox(height: 2),
+          Text(
+            currentName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: isDark ? Colors.white.withOpacity(0.52) : Colors.black54,
+              fontSize: 10,
+              letterSpacing: 0.6,
             ),
           ),
         ],
@@ -605,39 +568,58 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     final session = _currentSession ?? widget.session;
     final level = session.intimacyLevel.clamp(0, 999999);
-    final progress = (level % 100) / 100.0;
-    final todayGain = _intimacyEvents.fold<int>(
-      0,
-      (sum, event) => _isToday(event.createdAt) ? sum + event.delta : sum,
-    );
-    final lastEvent = _intimacyEvents.isNotEmpty ? _intimacyEvents.first : null;
-    final subtitle = lastEvent == null
-        ? '开始聊天提升默契吧'
-        : '${_eventSourceLabel(lastEvent.source)} ${lastEvent.delta >= 0 ? '+' : ''}${lastEvent.delta}';
+    final favor = (level / 5).clamp(0, 99).round();
+    final borderColor = isDark
+        ? Colors.white.withOpacity(0.10)
+        : Colors.black.withOpacity(0.10);
+    final muted = isDark ? Colors.white.withOpacity(0.52) : Colors.black54;
 
-    return GestureDetector(
-      onTap: () => setState(() => _isIntimacyExpanded = !_isIntimacyExpanded),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOutCubic,
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-        padding: EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: _isIntimacyExpanded ? 10 : 6,
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: borderColor),
+          bottom: BorderSide(color: borderColor),
         ),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withOpacity(0.06)
-              : Colors.white.withOpacity(0.86),
-          borderRadius: BorderRadius.circular(_isIntimacyExpanded ? 18 : 24),
-          border: Border.all(
-            color: colorScheme.primary.withOpacity(isDark ? 0.22 : 0.14),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              (_displayName ?? widget.session.aiCharacterName).toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color:
+                    isDark ? const Color(0xFFF0EAE2) : const Color(0xFF312B29),
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.1,
+              ),
+            ),
           ),
-        ),
-        child: _isIntimacyExpanded
-            ? _buildIntimacyExpanded(
-                colorScheme, level, progress, subtitle, todayGain)
-            : _buildIntimacyCollapsed(colorScheme, level),
+          Text(
+            'FAVOR: $favor%',
+            style: const TextStyle(
+              color: Color(0xFFC88383),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Icon(Icons.location_on_outlined, color: muted, size: 14),
+          const SizedBox(width: 3),
+          Flexible(
+            child: Text(
+              _turnEmotion,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: muted, fontSize: 11),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -828,6 +810,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     height: 1.35,
                     color: isDark ? Colors.white70 : colorScheme.onSurface)),
           ),
+          Icon(Icons.open_in_full_rounded,
+              size: 14, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: 4),
           // AI 手机快捷入口
           GestureDetector(
             onTap: () => _openVirtualPhone(context),
@@ -890,6 +875,37 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showFullTurnState() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('TA 的当前状态',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      )),
+              const SizedBox(height: 12),
+              Text('情绪：$_turnEmotion'),
+              if (_turnIntensity > 0)
+                Text('强度：${(_turnIntensity * 100).round()}%'),
+              const SizedBox(height: 12),
+              Text(_turnThought,
+                  style: Theme.of(ctx).textTheme.bodyLarge?.copyWith(
+                        height: 1.6,
+                      )),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1453,10 +1469,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         widget.session.isBlocked && widget.session.blockedBy == BlockedBy.ai;
     _isBlockedByUser =
         widget.session.isBlocked && widget.session.blockedBy == BlockedBy.user;
-    _chatBloc = ChatBloc(
-      RepositoryProvider.of<LocalStorageRepository>(context),
-      AIService(RepositoryProvider.of<LocalStorageRepository>(context)),
-    );
+    // 回复生成使用应用级 ChatBloc，不绑定聊天详情页生命周期。
+    // 页面切换后任务继续执行并落库，回来时由 ChatLoadMessages 恢复结果。
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    _chatBloc =
+        ChatBloc.forChat(widget.session.id, storage, AIService(storage));
     _loadTurnState();
     _scrollController.addListener(_onScroll);
     _initialize();
@@ -1471,6 +1488,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     };
     _modeSettingsStorage!.modeSettingsNotifier
         .addListener(_onModeSettingsChanged!);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 同一页面从其它页面返回时，读取持久化的最终回复；生成任务不依赖本页面。
+    _chatBloc.add(ChatLoadMessages(widget.session.id));
   }
 
   Future<void> _loadTurnState() async {
@@ -2469,20 +2493,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _onSilenceTimeout() {
-    if (_aiBrokeSilence) return;
-    if (_replyMode == ReplyMode.manual) return;
-    if (!_enableProactiveMessage) return;
+    // 主动消息现在由应用级前台心跳统一调度，避免离开本页面后丢失消息，
+    // 也避免多个聊天页各自计时导致重复生成。此计时器仅保留为兼容旧状态刷新。
     _aiBrokeSilence = true;
-
-    final user = (context.read<AuthBloc>().state is AuthAuthenticated)
-        ? (context.read<AuthBloc>().state as AuthAuthenticated).user
-        : null;
-    if (user == null) return;
-
-    _chatBloc.add(ChatProactiveReply(
-      chatId: widget.session.id,
-      userId: user.id,
-    ));
   }
 
   void _showTransferDialog() {
@@ -4929,16 +4942,16 @@ class _MessageBubble extends StatelessWidget {
     this.dialogueColorDark,
   });
 
-  // 抖音风格配色
-  static const Color _douyinBlue = Color(0xFF2B7BF5);
-  static const Color _douyinBlueDark = Color(0xFF4A90F7);
+  // 暗色叙事界面：暖灰正文 + 克制酒红强调，不使用高饱和即时通讯蓝。
+  static const Color _douyinBlue = Color(0xFFB86F76);
+  static const Color _douyinBlueDark = Color(0xFFC88383);
   static const Color _bubbleLight = Color(0xFFFFFFFF);
-  static const Color _bubbleDark = Color(0xFF2C2C2C);
-  static const Color _textOnBlue = Colors.white;
-  static const Color _textOnWhite = Color(0xFF1A1A1A);
-  static const Color _textOnDark = Color(0xFFE8EAED);
+  static const Color _bubbleDark = Color(0xFF1B1C20);
+  static const Color _textOnBlue = Color(0xFFFFF8F3);
+  static const Color _textOnWhite = Color(0xFF302B29);
+  static const Color _textOnDark = Color(0xFFEDE7DF);
   static const double _avatarSize = 32.0;
-  static const double _bubbleRadius = 12.0;
+  static const double _bubbleRadius = 8.0;
   static const double _hPad = 16.0;
 
   /// 匹配对白：中文弯引号「”…”」、直角引号「」/『』。
@@ -5302,7 +5315,7 @@ class _MessageBubble extends StatelessWidget {
                   Flexible(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
+                          horizontal: 17, vertical: 15),
                       decoration: BoxDecoration(
                         color: isRecalled
                             ? (brightness == Brightness.dark
@@ -5310,6 +5323,13 @@ class _MessageBubble extends StatelessWidget {
                                 : const Color(0xFFF0F0F0))
                             : (isAI ? aiBubbleColor : userBubbleColor),
                         borderRadius: BorderRadius.circular(_bubbleRadius),
+                        border: isAI && !isRecalled
+                            ? Border.all(
+                                color: brightness == Brightness.dark
+                                    ? Colors.white.withOpacity(0.08)
+                                    : Colors.black.withOpacity(0.07),
+                              )
+                            : null,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,

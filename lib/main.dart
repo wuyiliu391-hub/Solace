@@ -32,7 +32,6 @@ import 'screens/discover/ai_diary_screen.dart';
 import 'screens/discover/entertainment_screen.dart';
 import 'screens/discover/bookmark_list_screen.dart';
 import 'screens/character/create_character_screen.dart';
-import 'screens/character/create_character_screen.dart';
 import 'screens/settings/ai_config_screen.dart';
 import 'screens/profile/settings_screen.dart';
 import 'screens/tarot/tarot_screen.dart';
@@ -68,8 +67,7 @@ import 'services/memory_engine.dart';
 import 'services/core_hub.dart';
 import 'services/usage_meter_service.dart';
 import 'services/memory_rebuild_service.dart';
-import 'services/llm_service.dart';
-import 'models/app_config_data.dart';
+import 'services/background_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -360,6 +358,7 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
   final Map<int, Widget> _pageCache = {};
   bool _phoneDesktop = false;
   bool _shellPrefLoaded = false;
+  Timer? _foregroundProactiveTimer;
 
   // 修复：复用 ChatBloc 实例，避免每次切换 Tab 都重建导致状态丢失
   ChatBloc? _chatBloc;
@@ -375,6 +374,7 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
 
       // 初始化 ChatBloc（修复：避免每次切换 Tab 都重建）
       _initChatBloc();
+      _startForegroundProactiveHeartbeat();
       await _loadShellPref();
       try {
         context
@@ -452,12 +452,29 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _loadShellPref();
+      _startForegroundProactiveHeartbeat();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _foregroundProactiveTimer?.cancel();
+      _foregroundProactiveTimer = null;
     }
+  }
+
+  void _startForegroundProactiveHeartbeat() {
+    if (_foregroundProactiveTimer != null) return;
+    _foregroundProactiveTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => handleForegroundProactiveChatTask().catchError((error) {
+        debugPrint('前台主动消息心跳失败: $error');
+      }),
+    );
+    unawaited(handleForegroundProactiveChatTask());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _foregroundProactiveTimer?.cancel();
     try {
       context
           .read<LocalStorageRepository>()

@@ -2,16 +2,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:solace/config/constants.dart';
 import 'package:solace/models/ai_character.dart';
+import 'package:solace/models/ai_turn_state.dart';
 import 'package:solace/models/character_emotion.dart';
+import 'package:solace/models/memory.dart';
 import 'package:solace/services/emotion_engine.dart';
 import 'package:solace/repositories/local_storage_repository.dart';
+import 'package:solace/utils/sentiment_analyzer.dart';
 
 class _MockStorage extends Mock implements LocalStorageRepository {}
+
+class _FakeMemory extends Fake implements Memory {}
 
 void main() {
   late LocalStorageRepository mockStorage;
   late EmotionEngine engine;
   late AICharacter testCharacter;
+
+  setUpAll(() {
+    registerFallbackValue(_FakeMemory());
+  });
 
   setUp(() {
     mockStorage = _MockStorage();
@@ -27,6 +36,8 @@ void main() {
 
     // EmotionEngine 通过 getString 读取情绪数据，默认返回 null（首次使用）
     when(() => mockStorage.getString(any())).thenReturn(null);
+    when(() => mockStorage.setString(any(), any())).thenAnswer((_) async {});
+    when(() => mockStorage.saveMemory(any())).thenAnswer((_) async {});
   });
 
   group('getCurrentEmotion', () {
@@ -136,6 +147,69 @@ void main() {
     });
   });
 
+  group('turn state persistence', () {
+    test('user input changes the persisted emotion before the reply', () async {
+      final emotion = await engine.updateEmotion(
+        character: testCharacter,
+        userId: 'user-test',
+        userMessage: '我真的很喜欢你，你真好',
+        userSentiment: SentimentAnalyzer.analyze('我真的很喜欢你，你真好'),
+        intimacyLevel: 3,
+      );
+
+      expect(emotion.primaryEmotion, EmotionType.happy);
+      expect(emotion.lastInteractionTime, isNotNull);
+      verify(() => mockStorage.setString(
+          PrefKeys.emotionType('char-test', 'user-test'), 'happy')).called(1);
+    });
+
+    test(
+        'turn state is blended into persistent emotion instead of replacing it',
+        () async {
+      await engine.updateEmotion(
+        character: testCharacter,
+        userId: 'user-test',
+        userMessage: '你真好，我很喜欢你',
+        userSentiment: SentimentAnalyzer.analyze('你真好，我很喜欢你'),
+        intimacyLevel: 3,
+      );
+
+      final emotion = await engine.applyTurnState(
+        character: testCharacter,
+        userId: 'user-test',
+        turnState: const AiTurnState(
+          emotion: '有点担心',
+          intensity: 0.8,
+          thought: '我想确认她今天是不是真的没事。',
+        ),
+      );
+
+      expect(emotion.primaryEmotion, EmotionType.worried);
+      expect(emotion.intensity, lessThan(0.8));
+      expect(emotion.trigger, contains('我想确认她今天'));
+      expect(emotion.lastInteractionTime, isNotNull);
+      verify(() => mockStorage.setString(
+          PrefKeys.emotionType('char-test', 'user-test'), 'worried')).called(1);
+    });
+
+    test(
+        'unknown model emotion preserves the locally determined primary emotion',
+        () async {
+      final emotion = await engine.applyTurnState(
+        character: testCharacter,
+        userId: 'user-test',
+        turnState: const AiTurnState(
+          emotion: '五味杂陈',
+          intensity: 0.6,
+          thought: '这句话让我想了很久。',
+        ),
+      );
+
+      expect(emotion.primaryEmotion, EmotionType.calm);
+      expect(emotion.intensity, greaterThan(0));
+    });
+  });
+
   group('emotion types', () {
     test('all types have labels and descriptions', () {
       for (final type in EmotionType.values) {
@@ -146,9 +220,17 @@ void main() {
 
     test('covers required emotions', () {
       final names = EmotionType.values.map((e) => e.name).toSet();
-      expect(names, containsAll([
-        'happy', 'sad', 'angry', 'calm', 'worried', 'shy', 'touched',
-      ]));
+      expect(
+          names,
+          containsAll([
+            'happy',
+            'sad',
+            'angry',
+            'calm',
+            'worried',
+            'shy',
+            'touched',
+          ]));
     });
   });
 

@@ -114,7 +114,7 @@ class GroupMessageBubble extends StatelessWidget {
     }
 
     // AI 消息：角色色
-    final color = speakerColor ?? cs.tertiary;
+    final color = speakerColor ?? const Color(0xFFC88383);
     final bubbleBg = color.withValues(
       alpha: Theme.of(context).brightness == Brightness.dark ? 0.18 : 0.10,
     );
@@ -213,7 +213,13 @@ class GroupMessageBubble extends StatelessWidget {
         children: [
           if (replyTo != null)
             _replyPreview(cs, isMe: isMe, replyTo: replyTo, isDark: isDark),
-          _bubbleBody(cs, isMe: isMe, bg: bg, recalled: recalled),
+          _bubbleBody(
+            cs,
+            isMe: isMe,
+            bg: bg,
+            recalled: recalled,
+            isDark: isDark,
+          ),
           if (message.swipeHistory.length > 1) _swipeControls(cs, isMe),
           if (message.isBookmarked || edited)
             Padding(
@@ -271,6 +277,7 @@ class GroupMessageBubble extends StatelessWidget {
     required bool isMe,
     Color? bg,
     required bool recalled,
+    required bool isDark,
   }) {
     // 图片消息
     if (message.type == GroupChatMessageType.image) {
@@ -312,10 +319,19 @@ class GroupMessageBubble extends StatelessWidget {
 
     return Container(
       constraints: BoxConstraints(maxWidth: screenWidth * 0.7),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 14),
       decoration: BoxDecoration(
-        color: isMe ? cs.primary : (bg ?? cs.surfaceContainerHighest),
-        borderRadius: BorderRadius.circular(16).copyWith(
+        color: isMe
+            ? const Color(0xFFB86F76)
+            : (bg ?? (isDark ? const Color(0xFF1B1C20) : Colors.white)),
+        border: !isMe
+            ? Border.all(
+                color: isDark
+                    ? Colors.white.withOpacity(0.08)
+                    : Colors.black.withOpacity(0.07),
+              )
+            : null,
+        borderRadius: BorderRadius.circular(8).copyWith(
           bottomRight: isMe ? const Radius.circular(4) : null,
           bottomLeft: isMe ? null : const Radius.circular(4),
         ),
@@ -334,8 +350,14 @@ class GroupMessageBubble extends StatelessWidget {
           : Text(
               message.content,
               style: TextStyle(
+                fontFamily: 'serif',
                 fontSize: 15,
-                color: isMe ? cs.onPrimary : cs.onSurface,
+                height: 1.5,
+                color: isMe
+                    ? const Color(0xFFFFF8F3)
+                    : (isDark
+                        ? const Color(0xFFEDE7DF)
+                        : const Color(0xFF302B29)),
               ),
             ),
     );

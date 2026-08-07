@@ -181,8 +181,10 @@ class DeterministicDeviceRouter {
         args: {},
       );
     }
-    if (RegExp(r'(用了多久|使用时间|花了.*时间|玩了多久|用了.*小时).*(' + _appPattern + r')').hasMatch(lower)) {
-      final appMatch = RegExp(_appPattern, caseSensitive: false).firstMatch(lower);
+    if (RegExp(r'(用了多久|使用时间|花了.*时间|玩了多久|用了.*小时).*(' + _appPattern + r')')
+        .hasMatch(lower)) {
+      final appMatch =
+          RegExp(_appPattern, caseSensitive: false).firstMatch(lower);
       if (appMatch != null) {
         return DeterministicDeviceRoute(
           toolName: 'get_app_usage_time',
@@ -196,7 +198,8 @@ class DeterministicDeviceRouter {
         args: {},
       );
     }
-    if (RegExp(r'(当前.*应用|什么.*前台|在.*什么应用|现在.*用什么|前台应用|当前.*程序)').hasMatch(lower)) {
+    if (RegExp(r'(当前.*应用|什么.*前台|在.*什么应用|现在.*用什么|前台应用|当前.*程序)')
+        .hasMatch(lower)) {
       return const DeterministicDeviceRoute(
         toolName: 'get_current_app',
         args: {},
@@ -243,7 +246,8 @@ class DeterministicDeviceRouter {
         args: {'level': level},
       );
     }
-    if (RegExp(r'(调亮|调暗|亮度.*调|亮度.*大|亮度.*小|亮度.*高|亮度.*低|调.*亮度)').hasMatch(lower)) {
+    if (RegExp(r'(调亮|调暗|亮度.*调|亮度.*大|亮度.*小|亮度.*高|亮度.*低|调.*亮度)')
+        .hasMatch(lower)) {
       final bright = RegExp(r'亮|大|高', caseSensitive: false).hasMatch(lower);
       return DeterministicDeviceRoute(
         toolName: 'set_brightness',
@@ -256,8 +260,10 @@ class DeterministicDeviceRouter {
       return const DeterministicDeviceRoute(
         toolName: 'swipe',
         args: {
-          'start_x': 540, 'start_y': 1500,
-          'end_x': 540, 'end_y': 500,
+          'start_x': 540,
+          'start_y': 1500,
+          'end_x': 540,
+          'end_y': 500,
           'duration': 300,
         },
       );
@@ -266,8 +272,10 @@ class DeterministicDeviceRouter {
       return const DeterministicDeviceRoute(
         toolName: 'swipe',
         args: {
-          'start_x': 540, 'start_y': 500,
-          'end_x': 540, 'end_y': 1500,
+          'start_x': 540,
+          'start_y': 500,
+          'end_x': 540,
+          'end_y': 1500,
           'duration': 300,
         },
       );
@@ -276,8 +284,10 @@ class DeterministicDeviceRouter {
       return const DeterministicDeviceRoute(
         toolName: 'swipe',
         args: {
-          'start_x': 900, 'start_y': 1200,
-          'end_x': 100, 'end_y': 1200,
+          'start_x': 900,
+          'start_y': 1200,
+          'end_x': 100,
+          'end_y': 1200,
           'duration': 300,
         },
       );
@@ -286,8 +296,10 @@ class DeterministicDeviceRouter {
       return const DeterministicDeviceRoute(
         toolName: 'swipe',
         args: {
-          'start_x': 100, 'start_y': 1200,
-          'end_x': 900, 'end_y': 1200,
+          'start_x': 100,
+          'start_y': 1200,
+          'end_x': 900,
+          'end_y': 1200,
           'duration': 300,
         },
       );
@@ -311,12 +323,13 @@ class DeterministicDeviceRouter {
 
     // ─── UI 自动化：输入文字 ───
     final inputTextMatch = RegExp(
-      r'(?:输入|打出|打字|写)\s*(?:文字|字|内容)?\s*[:：]?\s*(.+)',
+      r'(?:(?:在|往|向)(?:当前)?(?:输入框|文本框|搜索框|页面|屏幕)\s*(?:输入|打字|填入)|(?:执行|调用|使用)\s*input_text\s*[:：]?)\s*(.+)',
       caseSensitive: false,
     ).firstMatch(text);
     if (inputTextMatch != null) {
       final txt = inputTextMatch.group(1)?.trim() ?? '';
-      if (txt.isNotEmpty && txt.length <= 500 &&
+      if (txt.isNotEmpty &&
+          txt.length <= 500 &&
           !RegExp(r'^(文字|字|内容|一下)$').hasMatch(txt)) {
         return DeterministicDeviceRoute(
           toolName: 'input_text',
@@ -385,12 +398,10 @@ class DeterministicDeviceRouter {
                 args['text'] = rest;
                 break;
               case 'set_brightness':
-                args['level'] =
-                    int.tryParse(rest)?.clamp(0, 255) ?? 128;
+                args['level'] = int.tryParse(rest)?.clamp(0, 255) ?? 128;
                 break;
               case 'tap':
-                final xy = RegExp(r'(\d+)\s*[,，\s]\s*(\d+)')
-                    .firstMatch(rest);
+                final xy = RegExp(r'(\d+)\s*[,，\s]\s*(\d+)').firstMatch(rest);
                 if (xy != null) {
                   args['x'] = int.tryParse(xy.group(1)!);
                   args['y'] = int.tryParse(xy.group(2)!);
@@ -414,12 +425,29 @@ class DeterministicDeviceRouter {
 
   /// 所有已知工具名集合
   static const _knownTools = {
-    'open_app', 'close_app', 'lock_screen', 'go_home', 'press_back',
-    'adjust_volume', 'set_mute', 'toggle_wifi', 'toggle_bluetooth',
-    'set_brightness', 'open_gallery', 'take_screenshot', 'execute_shell',
-    'get_battery_info', 'get_notifications', 'get_notification_count',
-    'get_installed_apps', 'get_app_usage_time', 'get_current_app',
-    'tap', 'swipe', 'input_text', 'press_key',
+    'open_app',
+    'close_app',
+    'lock_screen',
+    'go_home',
+    'press_back',
+    'adjust_volume',
+    'set_mute',
+    'toggle_wifi',
+    'toggle_bluetooth',
+    'set_brightness',
+    'open_gallery',
+    'take_screenshot',
+    'execute_shell',
+    'get_battery_info',
+    'get_notifications',
+    'get_notification_count',
+    'get_installed_apps',
+    'get_app_usage_time',
+    'get_current_app',
+    'tap',
+    'swipe',
+    'input_text',
+    'press_key',
   };
 
   static bool _isKnownTool(String name) => _knownTools.contains(name);

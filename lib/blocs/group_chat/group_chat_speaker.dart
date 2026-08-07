@@ -79,14 +79,13 @@ List<String> _activateListOrder(List<String> members) {
   return List.of(members);
 }
 
-/// ST activateImpersonate：随机取一个成员（forceCharacterId 优先）
+/// 手动模式：没有明确点名时不自动替用户选择角色。
 List<String> _activateImpersonate(List<String> members, SpeakerContext ctx) {
   final forced = ctx.forceCharacterId;
   if (forced != null && members.contains(forced)) {
     return [forced];
   }
-  if (members.isEmpty) return [];
-  return [members[ctx.random.nextInt(members.length)]];
+  return [];
 }
 
 /// ST activatePooledOrder：优先未发言者，全部说过排除最后发言者

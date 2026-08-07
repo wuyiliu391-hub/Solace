@@ -391,3 +391,20 @@ class ChatAutoGlmCompleted extends ChatState {
   @override
   List<Object?> get props => [messages, success, resultMessage, totalSteps];
 }
+
+class ChatToolPermissionRequired extends ChatState {
+  final String chatId;
+  final String taskId;
+  final String toolName;
+  final Map<String, dynamic> args;
+
+  const ChatToolPermissionRequired({
+    required this.chatId,
+    required this.taskId,
+    required this.toolName,
+    required this.args,
+  });
+
+  @override
+  List<Object?> get props => [chatId, taskId, toolName, args];
+}

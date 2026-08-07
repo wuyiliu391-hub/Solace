@@ -45,7 +45,7 @@ button, input, textarea, select { border-radius: 0; }
 .hero, .section, .page-head, .page-body { max-width: var(--max); margin: auto; padding-right: 28px; padding-left: 28px; }
 .hero { min-height: 680px; display: grid; grid-template-columns: 1.04fr .96fr; gap: 60px; align-items: center; position: relative; }
 .hero:after { content: 'SCROLL TO EXPLORE ↓'; position: absolute; bottom: 24px; left: 28px; color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; }
-.hero:before { content: 'SOLACE / 17.7'; position: absolute; top: 92px; right: 8%; color: var(--line); font: 12px var(--mono); letter-spacing: .12em; transform: rotate(90deg); }
+.hero:before { content: 'SOLACE / 17.8'; position: absolute; top: 92px; right: 8%; color: var(--line); font: 12px var(--mono); letter-spacing: .12em; transform: rotate(90deg); }
 .eyebrow { display: inline-flex; align-items: center; gap: 9px; color: var(--blue); font: 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .eyebrow:before { content: ''; width: 9px; height: 9px; background: var(--coral); border-radius: 50%; }
 h1, h2, h3, p { margin-top: 0; }

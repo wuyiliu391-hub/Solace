@@ -14,6 +14,18 @@ class AiTurnState {
 
   bool get isValid => emotion.trim().isNotEmpty && thought.trim().isNotEmpty;
 
+  static AiTurnState fallback({
+    required String emotion,
+    required double intensity,
+    required String thought,
+  }) {
+    return AiTurnState(
+      emotion: emotion.trim().isEmpty ? '平静' : emotion.trim(),
+      intensity: intensity.clamp(0.0, 1.0),
+      thought: thought.trim().isEmpty ? 'TA 正在消化这一轮对话。' : thought.trim(),
+    );
+  }
+
   static AiTurnState? parse(String content) {
     final match = RegExp(
       r'\[TURN_STATE\]\s*(.*?)\s*\[/TURN_STATE\]',

@@ -14,6 +14,7 @@ import '../../models/memory.dart';
 import '../../models/intimacy_event.dart';
 import '../../models/ai_stream_chunk.dart';
 import '../../models/ai_turn_state.dart';
+import '../../models/proactive_policy.dart';
 import '../../repositories/local_storage_repository.dart';
 
 import '../../services/ai_service.dart';
@@ -31,6 +32,9 @@ import '../../services/bridge/ai_service_adapter.dart';
 import '../../services/builtin_sticker_service.dart';
 import '../../services/memory_engine.dart';
 import '../../services/emotion_engine.dart';
+import '../../services/character_commitment_service.dart';
+import '../../services/proactive_policy_service.dart';
+import '../../services/relationship_context_service.dart';
 
 import '../../models/character_emotion.dart';
 import '../../utils/sentiment_analyzer.dart';
@@ -50,24 +54,42 @@ import '../../services/device_service.dart';
 import '../../services/tools/tools.dart';
 import '../../services/tools/tool_registry.dart';
 import '../../services/tools/tool.dart';
-import '../../services/tools/tool_executor.dart';
 import '../../services/tools/deterministic_device_router.dart';
-import '../../services/llm_service.dart';
+import '../../services/tools/device_intent_router.dart';
 import 'tool_aware_service.dart';
-import '../../services/tools/conversation_turn.dart';
 import 'chat_bloc_utils.dart';
 import 'chat_bloc_intimacy.dart';
+import '../../models/tool_task_state.dart';
+import '../../services/tool_permission_policy.dart';
 
 part 'chat_event.dart';
 part 'chat_state.dart';
 
 class ChatBloc extends Bloc<ChatEvent, ChatState>
     with ChatBlocUtils, ChatBlocIntimacy {
+  static final Map<String, ChatBloc> _chatInstances = {};
+
+  static ChatBloc forChat(
+    String chatId,
+    LocalStorageRepository storage,
+    AIService aiService, {
+    AIServiceAdapter? aiAdapter,
+  }) {
+    return _chatInstances[chatId] ??= ChatBloc(
+      storage,
+      aiService,
+      aiAdapter: aiAdapter,
+    );
+  }
+
   final LocalStorageRepository _storage;
   final AIService _aiService;
   late final PureAIService _pureAIService;
   final MemoryEngine _memoryEngine;
   final EmotionEngine _emotionEngine;
+  late final CharacterCommitmentService _commitmentService;
+  late final RelationshipContextService _relationshipService;
+  final ProactivePolicyService _proactivePolicy = ProactivePolicyService();
   final _uuid = const Uuid();
   DateTime? _lastMessageTime;
   final Map<String, int> _dailyMsgCount = {};
@@ -90,6 +112,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   late final BtAgentExecutionService _btAgentExecutionService;
   late final DeviceAgentExecutionService _deviceAgentExecutionService;
   late final CharacterDesireEngine _desireEngine;
+  late final ToolPermissionPolicy _toolPermissionPolicy;
+  final Set<String> _cancelledToolTasks = {};
+  final Map<String, Completer<bool>> _toolPermissionWaiters = {};
   final AIServiceAdapter? _aiAdapter;
 
   /// 工具注册表 — 全局唯一，所有设备操控工具在此注册
@@ -236,7 +261,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     _btAgentExecutionService = BtAgentExecutionService(_storage);
     _deviceAgentExecutionService =
         DeviceAgentExecutionService(_storage, registry: _toolRegistry);
+    _toolPermissionPolicy = ToolPermissionPolicy(_storage);
     _desireEngine = CharacterDesireEngine(_storage);
+    _commitmentService = CharacterCommitmentService(_storage);
+    _relationshipService = RelationshipContextService(_storage);
     _toolAwareService = null; // 延迟到第一次使用时初始化（需要在 onSendMessage 中拿到 LlmService）
     on<ChatLoadSessions>(_onLoadSessions);
     on<ChatLoadMessages>(_onLoadMessages);
@@ -269,8 +297,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     on<ChatClearContext>(_onClearContext);
     on<ChatRunAutoGlm>(_onRunAutoGlm);
     on<ChatCancelAutoGlm>(_onCancelAutoGlm);
+    on<ChatSetToolPermission>(_onSetToolPermission);
+    on<ChatResolveToolPermission>(_onResolveToolPermission);
     on<ChatEditAIReply>(_onEditAIReply);
     on<ChatRegenerateAIReply>(_onRegenerateAIReply);
+  }
+
+  @override
+  Future<void> close() {
+    _chatInstances.removeWhere((_, bloc) => identical(bloc, this));
+    return super.close();
   }
 
   /// 音乐共情模式上下文 — 外部页面设置，每次发送消息自动注入 internalSystemContext
@@ -1315,10 +1351,19 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     final forbiddenPhrases = _storage.getForbiddenPhrases();
     cleanText =
         MessageSanitizer.filterForbiddenPhrases(cleanText, forbiddenPhrases);
+    if (_storage.isChatStyleNovelModeEnabled() &&
+        !_storage.isPureAiModeEnabled()) {
+      cleanText = MessageSanitizer.normalizeNovelPunctuation(cleanText);
+    }
 
     // 流式链路不经过 AIService.sendMessage 的最终解析，必须在完整流结束后自行提取。
-    _completedTurnStates[chatId] =
-        AiTurnState.parse(finalContent) ?? _bridgeLastTurnState;
+    _completedTurnStates[chatId] = AiTurnState.parse(finalContent) ??
+        _bridgeLastTurnState ??
+        AiTurnState.fallback(
+          emotion: sentiment.label,
+          intensity: (sentiment.score.abs() / 100).clamp(0.0, 1.0),
+          thought: 'TA 正在消化你刚才说的话，情绪偏${sentiment.label}。',
+        );
 
     return (
       cleanText: cleanText,
@@ -1335,50 +1380,44 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   }) async {
     final state = _completedTurnStates.remove(chatId) ?? _bridgeLastTurnState;
     final now = DateTime.now();
-    if (state == null || !state.isValid) {
-      await _storage.setString(
-          'turn_state_$chatId',
-          jsonEncode({
-            'emotion': '状态同步失败',
-            'intensity': 0.0,
-            'thought': '本轮回复未返回有效的心理状态协议。',
-            'updatedAt': now.toIso8601String(),
-          }));
-      emit(ChatTurnStateUpdated(
-        chatId: chatId,
-        emotion: '状态同步失败',
-        intensity: 0,
-        thought: '本轮回复未返回有效的心理状态协议。',
-        updatedAt: now,
-      ));
-      return;
-    }
+    final effectiveState = state?.isValid == true
+        ? state!
+        : AiTurnState.fallback(
+            emotion: '平静',
+            intensity: 0.2,
+            thought: 'TA 正在消化这一轮对话。',
+          );
 
     // 每轮均写入独立记录，不覆盖旧内心状态，也不把用户可见回复混入内部状态。
     await _storage.saveInnerThought({
       'id': _uuid.v4(),
       'characterId': character.id,
       'userId': userId,
-      'content': state.thought,
+      'content': effectiveState.thought,
       'type': 1,
       'emotionValence': 0.0,
-      'emotionArousal': state.intensity,
+      'emotionArousal': effectiveState.intensity,
       'isRead': 0,
       'createdAt': now.toIso8601String(),
     });
     await _storage.setString(
         'turn_state_$chatId',
         jsonEncode({
-          'emotion': state.emotion,
-          'intensity': state.intensity,
-          'thought': state.thought,
+          'emotion': effectiveState.emotion,
+          'intensity': effectiveState.intensity,
+          'thought': effectiveState.thought,
           'updatedAt': now.toIso8601String(),
         }));
+    await _emotionEngine.applyTurnState(
+      character: character,
+      userId: userId,
+      turnState: effectiveState,
+    );
     emit(ChatTurnStateUpdated(
       chatId: chatId,
-      emotion: state.emotion,
-      intensity: state.intensity,
-      thought: state.thought,
+      emotion: effectiveState.emotion,
+      intensity: effectiveState.intensity,
+      thought: effectiveState.thought,
       updatedAt: now,
     ));
   }
@@ -2334,6 +2373,56 @@ $tail
       _lastMessageTime = DateTime.now();
 
       sentiment = SentimentAnalyzer.analyze(event.content);
+      // 用户话语先经本地情绪规则落盘；本轮模型状态会在回复完成后低权重归并。
+      await _emotionEngine.updateEmotion(
+        character: character,
+        userId: event.userId,
+        userMessage: event.content,
+        userSentiment: sentiment,
+        intimacyLevel: session.intimacyLevel,
+      );
+      await _commitmentService.createFromUserMessage(
+        characterId: character.id,
+        userId: event.userId,
+        chatId: event.chatId,
+        message: event.content,
+      );
+      final activeCommitment = await _commitmentService.getActive(
+        characterId: character.id,
+        userId: event.userId,
+      );
+      final commitmentResolution =
+          await _commitmentService.resolveFromUserMessage(
+        commitment: activeCommitment,
+        message: event.content,
+      );
+      if (commitmentResolution != null) {
+        await _storage.saveMemory(Memory(
+          id: _uuid.v4(),
+          characterId: character.id,
+          userId: event.userId,
+          type: MemoryType.milestone,
+          content: commitmentResolution.summary,
+          importance: MemoryImportance.important,
+          keywords: const ['共同经历', '承诺结果'],
+          createdAt: DateTime.now(),
+          pinned: true,
+        ));
+      }
+      final commitmentForPrompt =
+          commitmentResolution == null ? activeCommitment : null;
+      final relationship = await _relationshipService.updateFromUserMessage(
+        chatId: event.chatId,
+        message: event.content,
+        sentiment: sentiment,
+      );
+      if (relationship.hasConflict != session.isInFriction) {
+        await _storage.saveChatSession(session.copyWith(
+          isInFriction: relationship.hasConflict,
+          frictionDaysLeft: relationship.hasConflict ? 3 : 0,
+          updatedAt: DateTime.now(),
+        ));
+      }
 
       // 仅在需要最新列表时再读库（标记已读后可能变更 status）
       final chatMsgs = await _storage.getChatMessages(event.chatId);
@@ -2377,16 +2466,29 @@ $tail
         sessionStateContext,
         relatedGroupMemory,
       );
+      sessionStateContext = _mergeInternalSystemContext(
+        sessionStateContext,
+        _commitmentService.buildPrompt(commitmentForPrompt),
+      );
+      sessionStateContext = _mergeInternalSystemContext(
+        sessionStateContext,
+        _relationshipService.buildPrompt(relationship),
+      );
 
       // 声明后续会用到的变量
       String aiVisibleText = '';
       String reasoningText = '';
       bool agentHadTool = false;
+      bool deviceRequestAttempted = false;
       List<ToolExecutionRecord> toolExecutions = [];
 
       // 1) 确定性路由：与 Operit 快捷操作一致，明确设备指令直接执行，不依赖 LLM
-      final deterministicRoute = DeterministicDeviceRouter.match(event.content);
+      final deviceIntent = DeviceIntentRouter.match(event.content);
+      final deterministicRoute = deviceIntent.usesDeterministicRoute
+          ? DeterministicDeviceRouter.match(event.content)
+          : null;
       if (deterministicRoute != null) {
+        deviceRequestAttempted = true;
         debugPrint(
             '[DeterministicRoute] 命中 ${deterministicRoute.toolName} args=${deterministicRoute.args}');
         LogService.instance.i(
@@ -2410,10 +2512,27 @@ $tail
               processingState: _chatProcessingState,
             ));
 
-            final executor = ToolExecutor(_toolRegistry);
-            final record = await executor.execute(
-              deterministicRoute.toolName,
-              deterministicRoute.args,
+            final action = await _deviceAgentExecutionService.executeFromJson(
+              jsonEncode({
+                'action': deterministicRoute.toolName,
+                'params': deterministicRoute.args,
+                'reason': '用户明确发起的设备请求',
+              }),
+              characterId: character.id,
+              sessionId: event.chatId,
+              checkRateLimit: false,
+            );
+            if (action == null) {
+              throw StateError('设备操作未生成执行记录');
+            }
+            final record = ToolExecutionRecord(
+              toolName: deterministicRoute.toolName,
+              args: deterministicRoute.args,
+              result: action.result == DeviceActionResult.success
+                  ? ToolResult.success(action.message)
+                  : ToolResult.error(action.message),
+              startedAt: action.createdAt,
+              endedAt: action.createdAt,
             );
             toolExecutions = [record];
             agentHadTool = true;
@@ -2433,15 +2552,8 @@ $tail
           }
 
           if (toolExecutions.isNotEmpty) {
-            final executionTrace = toolExecutions
-                .map((e) => {
-                      'tool': e.toolName,
-                      'args': e.args.toString(),
-                      'result': e.result.message,
-                      'success': e.result.success,
-                      'duration_ms': e.duration.inMilliseconds,
-                    })
-                .toList();
+            final executionTrace =
+                toolExecutions.map((e) => e.toTraceJson()).toList();
             final traceMsg = ChatMessage(
               id: _uuid.v4(),
               chatId: event.chatId,
@@ -2476,18 +2588,95 @@ $tail
       // 工具请求走 ToolAwareService（纯工具助手，无角色人设干扰）
       // 普通聊天走 _streamAndProcessAIResponse（角色扮演，无工具干扰）
       final bool isToolRequest =
-          !agentHadTool && _looksLikeToolRequest(event.content);
+          !agentHadTool && deviceIntent.kind == DeviceIntentKind.agent;
 
       if (isToolRequest) {
+        deviceRequestAttempted = true;
         debugPrint('[ToolAware] 进入工具路径');
         LogService.instance
             .i('ToolAware', '检测到工具请求，尝试工具感知', chatId: event.chatId);
 
         try {
           // 创建 ToolAwareService（使用数据库中的 AI 配置）
-          _toolAwareService ??= ToolAwareService(
+          final toolAwareService = ToolAwareService(
             llmService: LlmService(settings: await _loadLlmSettings()),
             registry: _toolRegistry,
+            guardedExecute: (toolName, args) async {
+              final mode = _toolPermissionPolicy.mode(toolName);
+              if (mode == ToolPermissionMode.alwaysDeny) {
+                return ToolExecutionRecord(
+                  toolName: toolName,
+                  args: args,
+                  result: ToolResult.error(
+                    '此工具已被设置为始终拒绝。',
+                    errorCode: 'PERMISSION_DENIED',
+                    needsPermission: false,
+                    permissionName: toolName,
+                  ),
+                  startedAt: DateTime.now(),
+                  endedAt: DateTime.now(),
+                );
+              }
+              if (mode == ToolPermissionMode.ask) {
+                await _toolPermissionPolicy.requestOnce(
+                    event.chatId, toolName, args);
+                final waiter = Completer<bool>();
+                _toolPermissionWaiters[event.chatId] = waiter;
+                emit(ChatToolPermissionRequired(
+                  chatId: event.chatId,
+                  taskId: event.chatId,
+                  toolName: toolName,
+                  args: args,
+                ));
+                final approved = await waiter.future.timeout(
+                  const Duration(minutes: 2),
+                  onTimeout: () => false,
+                );
+                _toolPermissionWaiters.remove(event.chatId);
+                await _toolPermissionPolicy.resolveOnce(event.chatId);
+                if (!approved) {
+                  return ToolExecutionRecord(
+                    toolName: toolName,
+                    args: args,
+                    result: ToolResult.error(
+                      '用户未批准该工具执行。',
+                      errorCode: 'PERMISSION_DENIED',
+                      permissionName: toolName,
+                    ),
+                    startedAt: DateTime.now(),
+                    endedAt: DateTime.now(),
+                  );
+                }
+              }
+              final action = await _deviceAgentExecutionService.executeFromJson(
+                jsonEncode({
+                  'action': toolName,
+                  'params': args,
+                  'reason': '用户明确发起的设备请求',
+                }),
+                characterId: character!.id,
+                sessionId: event.chatId,
+              );
+              if (action == null) {
+                return ToolExecutionRecord(
+                  toolName: toolName,
+                  args: args,
+                  result: ToolResult.error('设备操作未生成执行记录'),
+                  startedAt: DateTime.now(),
+                  endedAt: DateTime.now(),
+                );
+              }
+              return ToolExecutionRecord(
+                toolName: toolName,
+                args: args,
+                result: action.result == DeviceActionResult.success
+                    ? ToolResult.success(action.message)
+                    : ToolResult.error(action.message),
+                startedAt: action.createdAt,
+                endedAt: action.createdAt,
+              );
+            },
+            isCancelled: () => _cancelledToolTasks.contains(event.chatId),
           );
 
           // 构建 LLM 消息列表
@@ -2496,8 +2685,9 @@ $tail
           // 系统提示：纯工具助手（不注入角色人设，避免角色扮演压制工具调用）
           final toolDesc = _toolRegistry.toDescriptionText();
           final systemPrompt = StringBuffer();
-          systemPrompt.writeln('【重要指令】你是 Solace 设备操作助手。用户要求你执行设备操作。');
-          systemPrompt.writeln('你必须调用工具来完成任务，而不是用文字描述或角色扮演。');
+          systemPrompt.writeln('【重要指令】你是 Solace 设备操作代理，当前用户请求已被判定为真实设备操作。');
+          systemPrompt.writeln('你必须调用工具来完成任务，而不是把请求当作普通文本对话。');
+          systemPrompt.writeln('工具执行后，必须根据工具返回的真实结果，用角色自然的口吻向用户反馈；不得虚构成功。');
           systemPrompt.writeln('禁止事项：不要进行角色扮演、不要闲聊、不要说你做不到、不要问用户更多信息。');
           systemPrompt.writeln('如果用户说"打开微信"，你必须调用 open_app 工具，而不是回复文字。');
           if (toolDesc.isNotEmpty) {
@@ -2516,6 +2706,13 @@ $tail
                 '微信=com.tencent.mm, QQ=com.tencent.mobileqq, 设置=com.android.settings');
             systemPrompt
                 .writeln('相册/图库=com.android.gallery, 浏览器=com.android.browser');
+          }
+          systemPrompt.writeln('## 角色反馈风格');
+          systemPrompt.writeln(
+              '角色名：${character.name}\n角色人设：${character.personality ?? ''}');
+          if (sessionStateContext != null && sessionStateContext.isNotEmpty) {
+            systemPrompt.writeln(
+                '以下是只用于生成执行后反馈的关系与剧情上下文，不得替代工具调用，也不得声称未执行的操作已完成：\n$sessionStateContext');
           }
 
           llmMessages.add({
@@ -2552,10 +2749,11 @@ $tail
             processingState: _chatProcessingState,
           ));
 
-          final result = await _toolAwareService!.run(
+          final result = await toolAwareService.run(
             turns: [],
             llmMessages: llmMessages,
             maxSteps: 10,
+            requireToolOnFirstStep: true,
             onStep: (step) {
               LogService.instance.i('ToolAware',
                   '步骤 ${step.step}: ${step.toolName}(${step.args}) -> ${step.status}',
@@ -2581,15 +2779,8 @@ $tail
 
           // 保存工具执行记录
           if (toolExecutions.isNotEmpty) {
-            final executionTrace = toolExecutions
-                .map((e) => {
-                      'tool': e.toolName,
-                      'args': e.args.toString(),
-                      'result': e.result.message,
-                      'success': e.result.success,
-                      'duration_ms': e.duration.inMilliseconds,
-                    })
-                .toList();
+            final executionTrace =
+                toolExecutions.map((e) => e.toTraceJson()).toList();
 
             final traceMsg = ChatMessage(
               id: _uuid.v4(),
@@ -2627,10 +2818,11 @@ $tail
               'content': '【系统指令】你没有调用工具！请立即调用工具执行以下操作，'
                   '不要用文字回复，不要角色扮演，直接调用工具：${event.content}',
             });
-            final retryResult = await _toolAwareService!.run(
+            final retryResult = await toolAwareService.run(
               turns: [],
               llmMessages: llmMessages,
               maxSteps: 5,
+              requireToolOnFirstStep: true,
               onStep: (step) {
                 _chatProcessingState = ChatProcessingState.executingTool;
                 emit(ChatAIProcessing(
@@ -2648,10 +2840,10 @@ $tail
               agentHadTool = true;
               debugPrint('[ToolAware] 重试成功，调用了 ${retryRecords.length} 个工具');
             } else {
-              debugPrint('[ToolAware] 重试仍失败，回退到普通角色聊天');
-              // 清空工具路径的文本，触发后续回退
-              aiVisibleText = '';
-              agentHadTool = false;
+              debugPrint('[ToolAware] 重试仍未调用工具，保留设备请求失败反馈');
+              aiVisibleText = retryContent.isNotEmpty
+                  ? retryContent
+                  : '设备请求未执行：当前模型没有发起工具调用。';
             }
           }
 
@@ -2665,39 +2857,14 @@ $tail
               .e('ToolAware', '工具路径异常: $e\n$stack', chatId: event.chatId);
           _chatProcessingState = ChatProcessingState.error;
 
-          // 工具路径异常时回退到普通角色聊天
-          try {
-            final fallbackResult = await _streamAndProcessAIResponse(
-              character: character,
-              userId: event.userId,
-              messageForAI: userMessageForAI,
-              messages: messages,
-              memories: memories,
-              session: session,
-              sentiment: sentiment,
-              chatMsgs: chatMsgs,
-              emit: emit,
-              chatId: event.chatId,
-              originalUserMessage: event.content,
-              imageDescription: imageDescription,
-              imagePaths: imagePaths,
-              enableWebSearch: event.enableWebSearch,
-              internalSystemContext: sessionStateContext,
-            );
-            aiVisibleText = fallbackResult.cleanText;
-            reasoningText = fallbackResult.reasoning;
-          } catch (fallbackError) {
-            LogService.instance
-                .e('ToolAware', '回退也失败: $fallbackError', chatId: event.chatId);
-            aiVisibleText = '抱歉，处理你的请求时遇到了问题，请稍后再试。';
-          }
+          aiVisibleText = '设备请求未执行：工具服务异常，请检查模型配置和 Operit 权限后重试。';
         }
       } // end if (isToolRequest)
 
       // 如果 AI 没有返回内容且没有执行工具，走普通角色聊天路径
       // （非工具请求也会走到这里，aiVisibleText 为空，触发 normal AI response）
       List<RegExpMatch> aiStickerMatches = const [];
-      if (aiVisibleText.isEmpty && !agentHadTool) {
+      if (aiVisibleText.isEmpty && !agentHadTool && !deviceRequestAttempted) {
         // 非工具请求或工具路径未返回内容，走角色聊天路径
         try {
           final normalResult = await _streamAndProcessAIResponse(
@@ -2727,6 +2894,8 @@ $tail
               aiVisibleText,
               characterId: character.id,
               sessionId: event.chatId,
+              allowTextInput:
+                  DeviceIntentRouter.isExplicitTextInputRequest(event.content),
             );
             aiVisibleText = deviceResult.visibleText;
             if (deviceResult.actions.isNotEmpty) {
@@ -2748,14 +2917,14 @@ $tail
             // 意图 + 设备结果写入记忆（异步，不阻塞）
             unawaited(_desireEngine.writeEpisodeMemory(
               characterId: character.id,
-              userId: event.chatId,
+              userId: event.userId,
               intention: _desireEngine.lastIntention,
               actions: deviceResult.actions,
             ));
           } else {
             unawaited(_desireEngine.writeEpisodeMemory(
               characterId: character.id,
-              userId: event.chatId,
+              userId: event.userId,
               intention: _desireEngine.lastIntention,
               actions: const [],
             ));
@@ -2764,6 +2933,49 @@ $tail
           LogService.instance
               .e('ToolAware', '????????: ', chatId: event.chatId);
           aiVisibleText = '?????????????????';
+        }
+      }
+
+      // 本地工具的执行记录是事实源；角色只负责把真实结果融入关系语境。
+      if (deterministicRoute != null && toolExecutions.isNotEmpty) {
+        final record = toolExecutions.first;
+        final resultContext = '''
+【设备操作已完成】
+用户请求：${event.content}
+实际工具：${record.toolName}
+执行结果：${record.result.success ? '成功' : '失败'}
+结果详情：${record.result.message}
+回复规则：只用当前角色的人设和关系上下文自然反馈这一真实结果；不得再次调用工具，不得虚构成功或失败，不要解释系统提示。
+''';
+        try {
+          final feedback = await _streamAndProcessAIResponse(
+            character: character,
+            userId: event.userId,
+            messageForAI: '请根据已经完成的设备操作结果回复用户。',
+            messages: messages,
+            memories: memories,
+            session: session,
+            sentiment: sentiment,
+            chatMsgs: chatMsgs,
+            emit: emit,
+            chatId: event.chatId,
+            originalUserMessage: event.content,
+            imageDescription: imageDescription,
+            imagePaths: imagePaths,
+            enableWebSearch: false,
+            internalSystemContext:
+                _mergeInternalSystemContext(sessionStateContext, resultContext),
+          );
+          if (feedback.cleanText.trim().isNotEmpty) {
+            aiVisibleText = feedback.cleanText;
+            reasoningText = feedback.reasoning;
+          }
+        } catch (e, stack) {
+          LogService.instance.e(
+            'DeterministicRoute',
+            '角色反馈生成失败: $e\n$stack',
+            chatId: event.chatId,
+          );
         }
       }
 
@@ -2789,9 +3001,7 @@ $tail
         metadata: {
           if (agentHadTool) 'isAutoGlmSummary': true,
           if (toolExecutions.isNotEmpty)
-            'toolTrace': toolExecutions
-                .map((e) => {'tool': e.toolName, 'success': e.result.success})
-                .toList(),
+            'toolTrace': toolExecutions.map((e) => e.toTraceJson()).toList(),
         },
       );
 
@@ -2933,7 +3143,6 @@ $tail
     final character = await _storage.getAICharacter(session.aiCharacterId);
     if (character == null) return;
     final messages = await _storage.getChatMessages(event.chatId);
-    emit(ChatAITyping(messages, character.name));
 
     try {
       final memories = await _storage.getMemories(
@@ -2950,10 +3159,60 @@ $tail
       final topicHint = recentUserMessages.isNotEmpty
           ? '你们最近聊到了"$recentUserMessages"，可以自然地接续或换个角度聊'
           : '随意自然地开始一段对话';
+      final activeCommitment = await _commitmentService.getActive(
+        characterId: character.id,
+        userId: event.userId,
+      );
+      final relationship = await _storage.getRelationshipContext(event.chatId);
+      final now = DateTime.now();
+      final proactiveMessages = messages.where((message) =>
+          message.isFromAI && message.metadata?['isProactive'] == true);
+      final deliveredToday = proactiveMessages
+          .where((message) =>
+              message.createdAt.year == now.year &&
+              message.createdAt.month == now.month &&
+              message.createdAt.day == now.day)
+          .length;
+      final latestProactive = proactiveMessages.isEmpty
+          ? null
+          : proactiveMessages
+              .map((message) => message.createdAt)
+              .reduce((a, b) => a.isAfter(b) ? a : b);
+      final latestUserMessage = messages
+          .where((message) => !message.isFromAI)
+          .map((message) => message.createdAt)
+          .fold<DateTime?>(
+              null,
+              (latest, value) =>
+                  latest == null || value.isAfter(latest) ? value : latest);
+      final policy = _proactivePolicy.evaluate(ProactivePolicyInput(
+        enabled: character.interactionConfig?.enableMomentInteraction ?? false,
+        frequencyHours:
+            character.interactionConfig?.activeMessageFrequency ?? 2,
+        now: now,
+        lastUserMessageAt: latestUserMessage,
+        lastProactiveAt: latestProactive,
+        deliveredToday: deliveredToday,
+        hasDueCommitment: activeCommitment?.isDue == true,
+        respectsBoundary: relationship?.boundary?.isNotEmpty != true,
+      ));
+      if (!policy.allowed) {
+        LogService.instance
+            .i('ProactivePolicy', policy.reason, chatId: event.chatId);
+        emit(ChatMessagesLoaded(messages));
+        return;
+      }
+      emit(ChatAITyping(messages, character.name));
+      final commitmentPrompt = _commitmentService.buildPrompt(activeCommitment);
+      final relationshipPrompt = relationship == null
+          ? ''
+          : _relationshipService.buildPrompt(relationship);
 
       final silencePrompt = '（$topicHint。用你平时说话的风格，像真人一样发一条消息，'
           '不要用太整齐的句式，可以口语化一点，可以说说你现在在想什么或者分享一个想法'
-          '只发一条简短的消息，不要说"你还好吗"这种太刻意的问候。）';
+          '只发一条简短的消息，不要说"你还好吗"这种太刻意的问候。）'
+          '${commitmentPrompt.isEmpty ? '' : '\n$commitmentPrompt'}'
+          '${relationshipPrompt.isEmpty ? '' : '\n$relationshipPrompt'}';
 
       final aiResponse = await _bridgeSendMessage(
         character: character,
@@ -2963,6 +3222,8 @@ $tail
         memories: memories,
         intimacyLevel: session.intimacyLevel,
       );
+      _completedTurnStates[event.chatId] =
+          AiTurnState.parse(aiResponse) ?? _bridgeLastTurnState;
 
       final stickerReplyEnabled = _isStickerReplyEnabled(character);
       var text = aiResponse.trim().isNotEmpty
@@ -3072,6 +3333,15 @@ $tail
         lastMessageTime: DateTime.now(),
         updatedAt: DateTime.now(),
       ));
+      await _persistTurnState(
+        chatId: event.chatId,
+        character: character,
+        userId: event.userId,
+        emit: emit,
+      );
+      if (activeCommitment?.isDue == true) {
+        await _commitmentService.fulfill(activeCommitment!);
+      }
     } catch (e) {
       LogService.instance
           .e('Bloc', '_onProactiveReply failed: $e', chatId: event.chatId);
@@ -3614,6 +3884,13 @@ $tail
       userMessageForAI = '[用户发送了一个表情包：$stickerDesc]';
       sentimentResult = SentimentResult(
           label: 'positive', score: 1, type: SentimentType.positive);
+      await _emotionEngine.updateEmotion(
+        character: character,
+        userId: event.userId,
+        userMessage: userMessageForAI,
+        userSentiment: sentimentResult,
+        intimacyLevel: session.intimacyLevel,
+      );
       try {
         aiResponse = await _bridgeSendMessage(
           character: character,
@@ -5037,14 +5314,7 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
                 ? '已完成任务: ${event.task}'
                 : '任务未完全成功';
 
-        final executionTrace = records
-            .map((e) => {
-                  'tool': e.toolName,
-                  'args': e.args.toString(),
-                  'result': e.result.message,
-                  'success': e.result.success,
-                })
-            .toList();
+        final executionTrace = records.map((e) => e.toTraceJson()).toList();
 
         // 保存工具执行的 AI 总结
         final aiName = character?.name ?? 'AI';
@@ -5116,8 +5386,30 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
     ChatCancelAutoGlm event,
     Emitter<ChatState> emit,
   ) {
+    _cancelledToolTasks.add(event.chatId);
     LogService.instance
         .i('Bloc', 'Tool call cancel requested', chatId: event.chatId);
+  }
+
+  Future<void> _onSetToolPermission(
+    ChatSetToolPermission event,
+    Emitter<ChatState> emit,
+  ) async {
+    final mode = ToolPermissionMode.values.firstWhere(
+      (value) => value.name == event.mode,
+      orElse: () => ToolPermissionMode.ask,
+    );
+    await _toolPermissionPolicy.setMode(event.toolName, mode);
+  }
+
+  void _onResolveToolPermission(
+    ChatResolveToolPermission event,
+    Emitter<ChatState> emit,
+  ) {
+    final waiter = _toolPermissionWaiters[event.taskId];
+    if (waiter != null && !waiter.isCompleted) {
+      waiter.complete(event.allow);
+    }
   }
 
   Future<LlmSettings> _loadLlmSettings() async {
@@ -5130,82 +5422,5 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       );
     }
     return const LlmSettings();
-  }
-
-  /// 轻量级意图分流：判断用户消息是否看起来像工具请求
-  /// 匹配到 → 走 ToolAwareService；未匹配 → 走普通角色聊天
-  /// 设计原则：高精度（避免误触发），低召回（漏掉的由 LLM 自行判断）
-  bool _looksLikeToolRequest(String message) {
-    final msg = message.trim();
-    if (msg.isEmpty) return false;
-
-    // 太长的消息通常是聊天/情感表达，不是工具请求
-    if (msg.length > 150) return false;
-
-    // 去掉常见礼貌前缀（长前缀优先，避免"能不能"吞噬"能不能帮我"）
-    final cleaned = msg
-        .replaceFirst(
-            RegExp(r'^(能不能帮我|可以帮我|能不能|请你|麻烦你|你帮|让你|帮我|请|麻烦|可以|能)'), '')
-        .trim();
-
-    // 工具请求动作模式
-    final toolPatterns = [
-      // 打开/启动/运行应用
-      RegExp(r'(打开|启动|运行|开一下)\s*\S', caseSensitive: false),
-      // 关闭/退出应用
-      RegExp(r'(关闭|关掉|退出|杀掉|结束)', caseSensitive: false),
-      // 锁屏
-      RegExp(r'锁屏|锁定屏幕', caseSensitive: false),
-      // 截屏/截图
-      RegExp(r'截[图屏]|截图|截个图', caseSensitive: false),
-      // 音量
-      RegExp(r'音量.*(大|小|高|低|调|增|减)', caseSensitive: false),
-      // 静音
-      RegExp(r'静音|取消静音', caseSensitive: false),
-      // WiFi/蓝牙
-      RegExp(r'(wifi|WiFi|Wi-Fi|无线网|无线网络).*(开|关|连接|断开)', caseSensitive: false),
-      RegExp(r'蓝牙.*(开|关|连接|断开)', caseSensitive: false),
-      // 亮度
-      RegExp(r'亮度.*(调|高|低|亮|暗|增|减)', caseSensitive: false),
-      // 回到桌面/返回
-      RegExp(r'(回到|返回|退到).*(桌面|主页|主屏幕)', caseSensitive: false),
-      RegExp(r'^返回$|^回桌面$|^主页$', caseSensitive: false),
-      // 电量/电池
-      RegExp(r'(查看|看看|看下|多少).*(电量|电池)', caseSensitive: false),
-      RegExp(r'^电量$|^电池.*多少', caseSensitive: false),
-      // 通知
-      RegExp(r'(查看|看看|看下|有什么|有几个).*(通知|消息)', caseSensitive: false),
-      // 应用信息
-      RegExp(r'(查看|看看|有哪些|什么).*(已安装|应用|APP|app)', caseSensitive: false),
-      RegExp(r'(当前|现在).*(用的|在用|打开).*(应用|APP|app|什么)', caseSensitive: false),
-      // 闹钟/提醒
-      RegExp(r'(设置|设个|定个|提醒).*(闹钟|提醒|闹铃)', caseSensitive: false),
-      // 执行命令/Shell/Shizuku
-      RegExp(r'(执行|运行|跑|跑一下|跑个).*(命令|shell|shizuku|指令|command|cmd|终端)',
-          caseSensitive: false),
-      RegExp(r'shizuku', caseSensitive: false),
-      RegExp(r'(命令|shell|终端|terminal|cmd).*(执行|运行|跑)', caseSensitive: false),
-      // 发送/分享
-      RegExp(r'(发送|分享|转发).*(给|到|至)', caseSensitive: false),
-      // 拨打电话
-      RegExp(r'(拨打|打给|打电话给|呼叫)', caseSensitive: false),
-      // 设置/系统操作
-      RegExp(r'(打开|进入).*(设置|系统设置|开发者选项)', caseSensitive: false),
-      // 安装/卸载应用
-      RegExp(r'(安装|卸载|删除).*(应用|APP|app|软件|包)', caseSensitive: false),
-      // 把字句/被字句（如"把微信打开"、"把音量调大"）
-      RegExp(r'把\s*\S+\s*(打开|关掉|调大|调小|调高|调低|启动|关闭)', caseSensitive: false),
-      // 帮我/帮忙 + 动作（如"帮我打开微信"、"帮忙截个图"）
-      RegExp(r'(帮我|帮忙|替我).*(打开|关闭|截图|截屏|锁屏|调|设置|启动|发送|拨打)',
-          caseSensitive: false),
-    ];
-
-    return toolPatterns.any((p) {
-      final matched = p.hasMatch(cleaned) || p.hasMatch(msg);
-      if (matched) {
-        debugPrint('[IntentRouter] 匹配到模式: ${p.pattern}');
-      }
-      return matched;
-    });
   }
 }

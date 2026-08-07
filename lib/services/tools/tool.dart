@@ -23,7 +23,10 @@ class ToolResult {
     return ToolResult(success: true, message: message, data: data);
   }
 
-  factory ToolResult.error(String message, {String? errorCode, bool needsPermission = false, String? permissionName}) {
+  factory ToolResult.error(String message,
+      {String? errorCode,
+      bool needsPermission = false,
+      String? permissionName}) {
     return ToolResult(
       success: false,
       message: message,
@@ -51,6 +54,24 @@ class ToolExecutionRecord {
   });
 
   Duration get duration => endedAt.difference(startedAt);
+
+  Map<String, dynamic> toTraceJson() => {
+        'tool': toolName,
+        'args': args,
+        'result': result.message,
+        'success': result.success,
+        'error_code': result.errorCode,
+        'needs_permission': result.needsPermission,
+        'permission': result.permissionName,
+        'duration_ms': duration.inMilliseconds,
+        'started_at': startedAt.toIso8601String(),
+        'ended_at': endedAt.toIso8601String(),
+      };
+
+  bool get isRetryable =>
+      !result.success &&
+      result.errorCode != 'PERMISSION_REQUIRED' &&
+      result.errorCode != 'DUPLICATE_TOOL_CALL';
 }
 
 /// 工具抽象
@@ -95,8 +116,8 @@ class ToolCall {
     Map<String, dynamic> args = {};
     try {
       if (argumentsRaw is String) {
-        args = Map<String, dynamic>.from(
-            jsonDecode(argumentsRaw) as Map? ?? {});
+        args =
+            Map<String, dynamic>.from(jsonDecode(argumentsRaw) as Map? ?? {});
       } else if (argumentsRaw is Map<String, dynamic>) {
         args = argumentsRaw;
       } else if (argumentsRaw is Map) {

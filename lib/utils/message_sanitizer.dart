@@ -433,7 +433,8 @@ class MessageSanitizer {
     result = result.replaceAll(_statusBlock, '');
     result = result.replaceAll(_statusTag, '');
     result = result.replaceAll(
-        RegExp(r'<BT_ACTION>[\s\S]*?</BT_ACTION>', caseSensitive: false, dotAll: true),
+        RegExp(r'<BT_ACTION>[\s\S]*?</BT_ACTION>',
+            caseSensitive: false, dotAll: true),
         '');
     result = result.replaceAll(
         RegExp(r'<DEVICE_ACTION>[\s\S]*?</DEVICE_ACTION>',
@@ -605,6 +606,40 @@ class MessageSanitizer {
     return result;
   }
 
+  /// 小说模式的保守标点兜底。
+  ///
+  /// 部分模型会忽略提示词，输出“今天真好我吃饭了”这类连续中文。
+  /// 这里只在明显的句末语气词后紧跟新主语/场景词时断句，并补齐缺失的行末
+  /// 句号；不会改写已有标点、引号或段落，避免把正常短语强行切碎。
+  static String normalizeNovelPunctuation(String text) {
+    if (text.trim().isEmpty) return text;
+
+    final subjectBoundary = RegExp(
+      r'''([好坏对错了呢吧啊呀哟])(?![，。！？；：、“”"'])(?=(?:我|你|他|她|它|我们|你们|他们|她们|大家|今天|刚才|后来|然后|此刻|这会儿|路灯|夜色|风|雨))''',
+    );
+    final trailingPunctuation = RegExp(r'[。！？!?…]$');
+    final trailingQuoteWithPunctuation = RegExp(r'[。！？!?…][”」』）)]$');
+    final cjkContent = RegExp(r'[\u4E00-\u9FFF]');
+
+    final lines = text.split('\n').map((rawLine) {
+      final line = rawLine.trimRight();
+      if (line.trim().isEmpty || !cjkContent.hasMatch(line)) return line;
+
+      var normalized = line.replaceAllMapped(
+        subjectBoundary,
+        (match) => '${match.group(1)}。',
+      );
+
+      if (!trailingPunctuation.hasMatch(normalized) &&
+          !trailingQuoteWithPunctuation.hasMatch(normalized)) {
+        normalized = '$normalized。';
+      }
+      return normalized;
+    });
+
+    return lines.join('\n');
+  }
+
   /// 信件/朋友圈等非聊天专用清洗。比 sanitizeFinal 更强力，过滤推理泄漏行和设定重复。
   static String sanitizeForContent(String text) {
     if (text.isEmpty) return text;
@@ -621,9 +656,11 @@ class MessageSanitizer {
       r'|^(这(?:封信|是)?(?:可能|应该|需要|符合|根据|按照|基于))'
       r'|^(结合(?:之前|当前|用户|对话)(?:的)?(?:对话|历史|情境|上下文))'
       r'|^(以下|以上|下面|接下来|然后是)',
-      caseSensitive: false, multiLine: true,
+      caseSensitive: false,
+      multiLine: true,
     );
-    result = result.split('\n')
+    result = result
+        .split('\n')
         .where((line) => !leakLines.hasMatch(line.trim()))
         .join('\n');
 
@@ -692,8 +729,10 @@ class MessageSanitizer {
     final greekCount = RegExp(r'[Ͱ-Ͽ]').allMatches(normalized).length;
     final kanaCount = RegExp(r'[぀-ヿ]').allMatches(normalized).length;
     final hangulCount = RegExp(r'[가-힯]').allMatches(normalized).length;
-    final latinWordCount = RegExp(r'\b[A-Za-z]{3,}\b').allMatches(normalized).length;
-    final rareSymbolCount = RegExp(r'[Δ#®@{}\[\]<>$%^&*=|\\]').allMatches(normalized).length;
+    final latinWordCount =
+        RegExp(r'\b[A-Za-z]{3,}\b').allMatches(normalized).length;
+    final rareSymbolCount =
+        RegExp(r'[Δ#®@{}\[\]<>$%^&*=|\\]').allMatches(normalized).length;
     final codeKeywordCount = RegExp(
       r'\b(?:Threshold|Trace|Setup|font|extract|dependence|Access|Config|Debug|Error|Token|Delta|Stream|Json|Widget|State|Render|Build|Function|Class|Import|Export)\b',
       caseSensitive: false,
@@ -712,8 +751,10 @@ class MessageSanitizer {
     if (hangulCount >= 2) scriptGroups++;
     if (cyrillicCount >= 3 && cjkCount >= 2 && latinWordCount >= 2) return true;
     if (cyrillicCount >= 3 && codeKeywordCount >= 2) return true;
-    if (codeKeywordCount >= 4 && cjkCount >= 4 && rareSymbolCount >= 2) return true;
-    if (scriptGroups >= 4 && rareSymbolCount >= 2 && latinWordCount >= 3) return true;
+    if (codeKeywordCount >= 4 && cjkCount >= 4 && rareSymbolCount >= 2)
+      return true;
+    if (scriptGroups >= 4 && rareSymbolCount >= 2 && latinWordCount >= 3)
+      return true;
     return false;
   }
 
@@ -738,8 +779,10 @@ class MessageSanitizer {
     var result = text;
     // 1) 角色名 + 错代词 → 角色名 + 正代词
     if (characterName != null && characterName.isNotEmpty) {
-      result = result.replaceAll('$characterName$wrong', '$characterName$right');
-      result = result.replaceAll('$wrong$characterName', '$right$characterName');
+      result =
+          result.replaceAll('$characterName$wrong', '$characterName$right');
+      result =
+          result.replaceAll('$wrong$characterName', '$right$characterName');
     }
     // 2) 常见自指搭配：「他很/她很/他会/她会…」在明显角色叙事中纠错
     // 仅当全文同时出现「我」时更可能是角色第一人称叙事泄漏第三人称错代词
@@ -770,18 +813,10 @@ class MessageSanitizer {
     if (raw == null) return null;
     final g = raw.trim().toLowerCase();
     if (g.isEmpty) return null;
-    if (g == '女' ||
-        g == '女性' ||
-        g == 'female' ||
-        g == 'f' ||
-        g.contains('女')) {
+    if (g == '女' || g == '女性' || g == 'female' || g == 'f' || g.contains('女')) {
       return '女';
     }
-    if (g == '男' ||
-        g == '男性' ||
-        g == 'male' ||
-        g == 'm' ||
-        g.contains('男')) {
+    if (g == '男' || g == '男性' || g == 'male' || g == 'm' || g.contains('男')) {
       return '男';
     }
     return null;

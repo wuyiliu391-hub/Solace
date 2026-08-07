@@ -37,6 +37,17 @@ void main() {
       expect(MessageSanitizer.sanitizeFinal(normal), normal);
     });
 
+    test('adds conservative punctuation for unpunctuated novel prose', () {
+      expect(
+        MessageSanitizer.normalizeNovelPunctuation('今天真好我吃饭了'),
+        '今天真好。我吃饭了。',
+      );
+      expect(
+        MessageSanitizer.normalizeNovelPunctuation('她抬头看你。你还好吗？'),
+        '她抬头看你。你还好吗？',
+      );
+    });
+
     test('extracts complete think block from final text', () {
       final parts = MessageSanitizer.stripReasoningTags(
         '<think>先分析一下</think>我在。',
@@ -146,7 +157,8 @@ assistant: 我已经到了
       });
 
       test('removes BT_ACTION blocks from final text and stream', () {
-        const text = '当然可以，这样眼睛会舒服些～<BT_ACTION>{"action":"setTheme","params":{"mode":"dark"}}</BT_ACTION>';
+        const text =
+            '当然可以，这样眼睛会舒服些～<BT_ACTION>{"action":"setTheme","params":{"mode":"dark"}}</BT_ACTION>';
         final cleaned = MessageSanitizer.sanitizeFinal(text);
         expect(cleaned, '当然可以，这样眼睛会舒服些～');
         expect(cleaned.contains('BT_ACTION'), isFalse);
@@ -155,7 +167,10 @@ assistant: 我已经到了
 
     group('isGatewayError', () {
       test('identifies gateway errors', () {
-        expect(MessageSanitizer.isGatewayError('[An error occurred. Reference: 732eb9fc-5e75-45a4-bf67-594e15330c4e at 01:29]'), isTrue);
+        expect(
+            MessageSanitizer.isGatewayError(
+                '[An error occurred. Reference: 732eb9fc-5e75-45a4-bf67-594e15330c4e at 01:29]'),
+            isTrue);
         expect(MessageSanitizer.isGatewayError('Bad Gateway'), isTrue);
         expect(MessageSanitizer.isGatewayError('Service Unavailable'), isTrue);
         expect(MessageSanitizer.isGatewayError('正常的聊天信息'), isFalse);

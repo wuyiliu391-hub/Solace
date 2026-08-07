@@ -169,12 +169,17 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: colorScheme.surface,
+      backgroundColor:
+          isDark ? const Color(0xFF121315) : const Color(0xFFF1EFEB),
       appBar: _selectionMode
           ? _buildSelectionAppBar(colorScheme)
           : AppBar(
+              backgroundColor:
+                  isDark ? const Color(0xFF121315) : const Color(0xFFF1EFEB),
+              elevation: 0,
               title: InkWell(
                 onTap: () => _scaffoldKey.currentState?.openEndDrawer(),
                 borderRadius: BorderRadius.circular(8),
@@ -187,9 +192,12 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                       child: Text(
                         _session.name,
                         style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: colorScheme.onSurface,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                          color: isDark
+                              ? const Color(0xFFF0EAE2)
+                              : const Color(0xFF312B29),
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -335,6 +343,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
             members: _members,
             disabledIds: _session.disabledMemberIds.toSet(),
             forcedSpeakerIds: _forcedSpeakerIds,
+            activationStrategy: _session.activationStrategy,
             onSpeakersChanged: _setForcedSpeakers,
           ),
           _buildInputBar(),
@@ -344,14 +353,17 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   }
 
   Widget _buildNoticeBar(String notice) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4),
+      color: isDark
+          ? Colors.white.withOpacity(0.04)
+          : Colors.black.withOpacity(0.03),
       child: Row(
         children: [
-          Icon(Icons.campaign_outlined,
-              size: 16, color: Theme.of(context).colorScheme.primary),
+          const Icon(Icons.campaign_outlined,
+              size: 16, color: Color(0xFFC88383)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -419,7 +431,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       itemCount: displayMessages.length + (typingCharacter != null ? 1 : 0),
       itemBuilder: (context, index) {
         if (typingCharacter != null && index == 0) {
@@ -568,10 +580,11 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
 
   Widget _buildInputBar() {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
+        color: isDark ? const Color(0xFF121315) : const Color(0xFFF1EFEB),
         border: Border(
             top: BorderSide(color: colorScheme.outline.withOpacity(0.2))),
       ),
@@ -684,13 +697,23 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 child: TextField(
                   controller: _messageController,
                   decoration: InputDecoration(
-                    hintText: '输入消息...',
+                    hintText: '输入接下来的动作或话语...',
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(8),
                       borderSide: BorderSide.none,
                     ),
                     filled: true,
-                    fillColor: colorScheme.surface,
+                    fillColor: isDark
+                        ? const Color(0xFF1C1D20)
+                        : const Color(0xFFE8E4DE),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? Colors.white.withOpacity(0.10)
+                            : Colors.black.withOpacity(0.08),
+                      ),
+                    ),
                     contentPadding:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
@@ -706,7 +729,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: colorScheme.primary,
+                    color: const Color(0xFFB86F76),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -807,6 +830,10 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           imagePaths: hasImages ? List<String>.from(_pendingImagePaths) : null,
           metadata: metadata,
         ));
+    // 点名是一次性本轮选择；Bloc 在开始本轮时也会清理，页面同步清除高亮。
+    if (_forcedSpeakerIds.isNotEmpty) {
+      setState(() => _forcedSpeakerIds = []);
+    }
     _messageController.clear();
     if (hasImages) setState(() => _pendingImagePaths.clear());
 
@@ -1656,9 +1683,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       case GroupGenerationMode.swap:
         return '逐角色切换';
       case GroupGenerationMode.append:
-        return '合并角色卡(排除禁言)';
+        return '逐角色生成（旧配置：排除禁言）';
       case GroupGenerationMode.appendDisabled:
-        return '合并角色卡(包括禁言)';
+        return '逐角色生成（旧配置：包括禁言）';
     }
   }
 
@@ -1682,12 +1709,19 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       context: context,
       builder: (ctx) => SimpleDialog(
         title: const Text('生成模式'),
-        children: GroupGenerationMode.values
-            .map((m) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(ctx, m),
-                  child: Text(_generationModeLabel(m)),
-                ))
-            .toList(),
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+            child: Text(
+              '为避免多人共用同一种人格，群聊现在统一按真实角色分别生成。旧的合并配置会自动按逐角色方式执行。',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+          ...GroupGenerationMode.values.map((m) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, m),
+                child: Text(_generationModeLabel(m)),
+              )),
+        ],
       ),
     );
   }

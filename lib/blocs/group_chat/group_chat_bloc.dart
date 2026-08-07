@@ -602,19 +602,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     required bool isFollowUp,
     required String? excludeCharacterId,
   }) async {
-    // 生成模式 APPEND：合并卡一次生成
-    if (session.generationMode != GroupGenerationMode.swap) {
-      await _generateAppendReply(
-        groupId: groupId,
-        userId: userId,
-        session: session,
-        userMessage: userMessage,
-        imagePaths: imagePaths,
-        isFollowUp: isFollowUp,
-        excludeCharacterId: excludeCharacterId,
-      );
-      return;
-    }
+    // 多角色必须逐个使用真实角色卡生成。APPEND 的合并角色卡会丢失
+    // 当前说话人的身份，导致不同角色复用同一套措辞，因此统一走 SWAP。
 
     final loadedHistory = await _storage.getGroupChatMessages(groupId,
         limit: 120, chatId: session.chatId);
@@ -685,6 +674,11 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       return;
     }
 
+    // 手动点名只作用于当前这一轮，避免用户一次点名后后续每轮都被锁死。
+    if (forcedIds.isNotEmpty) {
+      _forcedSpeakers.remove(groupId);
+    }
+
     // 逐个生成（SWAP 模式，ST 的 for chId of activatedMembers）
     for (final characterId in activated) {
       if (_replyingGroups[groupId] != true) break;
@@ -715,6 +709,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     required String userMessage,
     required List<String>? imagePaths,
     required bool isFollowUp,
+    int duplicateRetry = 0,
+    List<String> avoidReplies = const [],
   }) async {
     final character = await _storage.getAICharacter(characterId);
     if (character == null) return;
@@ -764,6 +760,22 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       );
     }
     final nudge = buildGroupNudge(character.name);
+    final recentReplies = history
+        .where((message) => !message.isUser && !message.isSystem)
+        .toList()
+        .reversed
+        .take(4)
+        .map((message) => '${message.senderName}：${message.content}')
+        .toList()
+        .reversed
+        .toList();
+    final voice = buildMemberVoicePrompt(
+      self: character,
+      otherMembers:
+          members.where((member) => member.id != character.id).toList(),
+      recentReplies: recentReplies,
+      avoidReplies: avoidReplies,
+    );
     // Keep generation compatible with older test doubles and migrated stores
     // that do not yet expose the optional lorebook table.
     List<GroupChatLorebookEntry> lore = const [];
@@ -777,6 +789,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     final internalContext = _promptPipeline.build(
       segments: [
         GroupPromptSegment(id: 'intro', content: intro, priority: 100),
+        GroupPromptSegment(id: 'member_voice', content: voice, priority: 110),
         GroupPromptSegment(id: 'shared_memory', content: shared, priority: 60),
         GroupPromptSegment(id: 'nudge', content: nudge, priority: 90),
       ],
@@ -831,9 +844,40 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       return;
     }
 
-    final cleanText = MessageSanitizer.sanitizeFinal(fullText).trim();
+    var cleanText = MessageSanitizer.sanitizeFinal(fullText).trim();
+    if (_isNovelModeEnabled()) {
+      cleanText = MessageSanitizer.normalizeNovelPunctuation(cleanText);
+    }
     if (cleanText.isEmpty) {
       _replyingGroups[groupId] = false;
+      return;
+    }
+
+    final recentAiReplies = history
+        .where((message) => !message.isUser && !message.isSystem)
+        .map((message) => message.content)
+        .toList();
+    final isDuplicate = [
+      ...recentAiReplies,
+      ...avoidReplies,
+    ].any((previous) => isDuplicateGroupReply(cleanText, previous));
+    if (isDuplicate && duplicateRetry < 1) {
+      LogService.instance.w(
+        'GroupChat',
+        '检测到重复回复，重生成 ${character.name}',
+        chatId: groupId,
+      );
+      await _generateOneReply(
+        groupId: groupId,
+        userId: userId,
+        session: session,
+        characterId: characterId,
+        userMessage: userMessage,
+        imagePaths: imagePaths,
+        isFollowUp: isFollowUp,
+        duplicateRetry: duplicateRetry + 1,
+        avoidReplies: [...avoidReplies, cleanText],
+      );
       return;
     }
 
@@ -1108,7 +1152,10 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       return;
     }
 
-    final cleanText = MessageSanitizer.sanitizeFinal(fullText).trim();
+    var cleanText = MessageSanitizer.sanitizeFinal(fullText).trim();
+    if (_isNovelModeEnabled()) {
+      cleanText = MessageSanitizer.normalizeNovelPunctuation(cleanText);
+    }
     if (cleanText.isEmpty) {
       _replyingGroups[groupId] = false;
       return;
@@ -1194,6 +1241,15 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       if (c != null) result.add(c);
     }
     return result;
+  }
+
+  bool _isNovelModeEnabled() {
+    try {
+      return _storage.isChatStyleNovelModeEnabled() &&
+          !_storage.isPureAiModeEnabled();
+    } catch (_) {
+      return false;
+    }
   }
 
   /// 群聊 AI 回复后：LLM 提取本轮群聊事件为社交记忆（降频，unawaited）

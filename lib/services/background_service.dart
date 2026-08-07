@@ -14,8 +14,9 @@ import '../config/business_rules.dart';
 import '../utils/message_sanitizer.dart';
 import '../utils/response_decoder.dart';
 import '../utils/global_mode_prompt.dart';
+import '../models/proactive_policy.dart';
 import 'ai_service.dart';
-
+import 'proactive_policy_service.dart';
 
 const String bgTaskName = 'proactiveChatMessage';
 const String bgTaskMomentPost = 'aiMomentPost';
@@ -23,6 +24,7 @@ const String bgTaskCommentReply = 'aiCommentReply';
 const String bgTaskMomentInteract = 'aiMomentInteract';
 const String bgTaskLetter = 'aiLetter';
 const String bgTaskUnique = MethodChannels.background;
+bool _foregroundProactiveRunning = false;
 
 @pragma('vm:entry-point')
 void callbackDispatcher() {
@@ -62,6 +64,39 @@ Future<bool> handleCommentReplyTask(Map<String, dynamic>? inputData) =>
 Future<bool> handleMomentInteractTask(Map<String, dynamic>? inputData) =>
     _handleMomentInteract(inputData);
 
+/// 前台心跳入口：应用仍在前台时，主动消息不依赖当前打开的聊天页面。
+/// 每次只处理到期的角色；消息直接落库，当前页面/其他页面都能在下次刷新时看到。
+Future<void> handleForegroundProactiveChatTask() async {
+  if (_foregroundProactiveRunning) return;
+  _foregroundProactiveRunning = true;
+  final db = await _openRawDb();
+  try {
+    final rows = await db.query('ai_characters');
+    for (final character in rows) {
+      final characterId = character['id']?.toString();
+      if (characterId == null || characterId.isEmpty) continue;
+      final sessions = await db.query(
+        'chat_sessions',
+        where: 'aiCharacterId = ?',
+        whereArgs: [characterId],
+        orderBy: 'updatedAt DESC',
+        limit: 1,
+      );
+      if (sessions.isEmpty) continue;
+      final session = sessions.first;
+      await _handleProactiveChat({
+        'characterId': characterId,
+        'sessionId': session['id']?.toString(),
+        'intimacyLevel': session['intimacyLevel'] as int? ?? 0,
+        'foreground': true,
+      });
+    }
+  } finally {
+    await db.close();
+    _foregroundProactiveRunning = false;
+  }
+}
+
 // ─── Shared helpers ───
 
 Future<Database> _openRawDb() async {
@@ -89,8 +124,15 @@ Future<String> _callAiApi(
 
   final modePrompt = await _buildBackgroundGlobalModePrompt();
   final novelMode = await _isBackgroundNovelModeEnabled();
-  final effectiveMaxTokens =
-      novelMode ? (config['maxTokens'] as int? ?? maxTokens) : maxTokens;
+  final configuredMaxTokens = config['maxTokens'] as int?;
+  // 后台动态不能因为全局配置较小而在句中截断；调用方的预算是最低值。
+  final effectiveMaxTokens = novelMode
+      ? (configuredMaxTokens == null
+          ? maxTokens
+          : configuredMaxTokens > maxTokens
+              ? configuredMaxTokens
+              : maxTokens)
+      : maxTokens;
 
   final response = await http
       .post(
@@ -1381,20 +1423,66 @@ Future<bool> _handleProactiveChat(Map<String, dynamic>? inputData) async {
     if (charRows.isEmpty) return false;
     final character = charRows.first;
 
-    // 检查用户是否关闭了主动消息
-    final interactionConfigRaw = character['interactionConfig'] as String?;
-    if (interactionConfigRaw != null && interactionConfigRaw.isNotEmpty) {
-      try {
-        final configMap =
-            Map<String, dynamic>.from(jsonDecode(interactionConfigRaw));
-        if (configMap['enableMomentInteraction'] == false ||
-            configMap['enableMomentInteraction'] == 0) {
-          debugPrint('Background: 主动消息已关闭，跳过 $characterId');
-          return true;
-        }
-      } catch (e) {
-        debugPrint('Error: $e');
-      }
+    final messages = await db.query(
+      'chat_messages',
+      where: 'chatId = ?',
+      whereArgs: [sessionId],
+      orderBy: 'createdAt ASC',
+    );
+    final now = DateTime.now();
+    final proactiveMessages = messages.where((message) {
+      final metadata = message['metadata'] as String?;
+      return metadata != null && metadata.contains('"isProactive":true');
+    }).toList();
+    final latestProactive = proactiveMessages.isEmpty
+        ? null
+        : proactiveMessages
+            .map((message) =>
+                DateTime.tryParse(message['createdAt'] as String? ?? ''))
+            .whereType<DateTime>()
+            .fold<DateTime?>(
+                null,
+                (latest, value) =>
+                    latest == null || value.isAfter(latest) ? value : latest);
+    final latestUser = messages
+        .where((message) =>
+            (message['senderId']?.toString() ?? '').startsWith('ai_') == false)
+        .map((message) =>
+            DateTime.tryParse(message['createdAt'] as String? ?? ''))
+        .whereType<DateTime>()
+        .fold<DateTime?>(
+            null,
+            (latest, value) =>
+                latest == null || value.isAfter(latest) ? value : latest);
+    final interactionConfigRaw =
+        character['interactionConfig'] as String? ?? '{}';
+    Map<String, dynamic> interactionConfig = {};
+    try {
+      interactionConfig =
+          Map<String, dynamic>.from(jsonDecode(interactionConfigRaw));
+    } catch (_) {}
+    final policy = ProactivePolicyService().evaluate(ProactivePolicyInput(
+      enabled: interactionConfig['enableMomentInteraction'] != false &&
+          interactionConfig['enableMomentInteraction'] != 0,
+      frequencyHours:
+          (interactionConfig['activeMessageFrequency'] as num?)?.toInt() ?? 2,
+      now: now,
+      lastUserMessageAt: latestUser,
+      lastProactiveAt: latestProactive,
+      deliveredToday: proactiveMessages.where((message) {
+        final created =
+            DateTime.tryParse(message['createdAt'] as String? ?? '');
+        return created != null &&
+            created.year == now.year &&
+            created.month == now.month &&
+            created.day == now.day;
+      }).length,
+      hasDueCommitment: false,
+      respectsBoundary: true,
+    ));
+    if (!policy.allowed) {
+      debugPrint('Background: 主动消息策略拦截 $characterId: ${policy.reason}');
+      return true;
     }
 
     String content;
@@ -1410,7 +1498,6 @@ Future<bool> _handleProactiveChat(Map<String, dynamic>? inputData) async {
       return true;
     }
 
-    final now = DateTime.now();
     final msgId = 'bg_${now.millisecondsSinceEpoch}_${Random().nextInt(9999)}';
     await db.insert('chat_messages', {
       'id': msgId,
@@ -1421,17 +1508,32 @@ Future<bool> _handleProactiveChat(Map<String, dynamic>? inputData) async {
       'type': 0,
       'status': 1,
       'createdAt': now.toIso8601String(),
+      'metadata': jsonEncode(
+          {'isProactive': true, 'delivery': 'foreground_or_background'}),
     });
 
+    final sessionRows = await db.query(
+      'chat_sessions',
+      columns: ['unreadCount'],
+      where: 'id = ?',
+      whereArgs: [sessionId],
+      limit: 1,
+    );
+    final unreadCount = sessionRows.isEmpty
+        ? 0
+        : (sessionRows.first['unreadCount'] as int? ?? 0);
     await db.update(
         'chat_sessions',
         {
           'lastMessage': content,
           'lastMessageTime': now.toIso8601String(),
+          'unreadCount': unreadCount + 1,
           'updatedAt': now.toIso8601String(),
         },
         where: 'id = ?',
         whereArgs: [sessionId]);
+
+    if (inputData?['foreground'] == true) return true;
 
     final flp = FlutterLocalNotificationsPlugin();
     const androidSettings =
@@ -1602,8 +1704,12 @@ Future<bool> _handleMomentPost(Map<String, dynamic>? inputData) async {
 
       String content;
       try {
-        content = _cleanContent(await _callAiApi(config, prompt),
-            faMode: await _isBackgroundFaModeEnabled());
+        // 动态允许 1-3 句完整内容。默认 150 tokens 容易让带推理的模型在句中断开，
+        // 而 moments 表和主列表都保留全文，因此在生成入口提供足够预算。
+        content = _cleanContent(
+          await _callAiApi(config, prompt, maxTokens: 300),
+          faMode: await _isBackgroundFaModeEnabled(),
+        );
       } catch (e) {
         debugPrint('AI moment generation failed for $name: $e');
         continue;
@@ -1939,7 +2045,8 @@ String _buildMomentPrompt({
 2. 内容自然真实：日常、心情、工作/学习间隙、见闻、吐槽、小感悟都可以
 3. 可隐约呼应最近聊天或记忆，但不要写成私聊复述，也不要直呼系统设定
 4. 1-3句话，口语化；不要用括号描写动作或情绪
-5. 只输出动态内容本身''');
+5. 必须在句号、问号、感叹号或自然收束的短句处结束；绝不能输出半句话、未闭合引号或“未完”之类的截断内容
+6. 只输出动态内容本身''');
 
   return buf.toString();
 }
@@ -1957,9 +2064,7 @@ String _lifestyleHintForHour(int hour, String personality) {
       p.contains('运动');
 
   if (hour >= 5 && hour < 9) {
-    return earlyBird
-        ? '清晨作息：可能刚起床/晨跑/洗漱准备出门'
-        : '清晨：可能刚醒、赖床、通勤路上';
+    return earlyBird ? '清晨作息：可能刚起床/晨跑/洗漱准备出门' : '清晨：可能刚醒、赖床、通勤路上';
   }
   if (hour >= 9 && hour < 12) {
     return '上午：工作/学习/出门办事的节奏';
@@ -1974,13 +2079,9 @@ String _lifestyleHintForHour(int hour, String personality) {
     return '傍晚：下班/放学、回家、晚饭、散步';
   }
   if (hour >= 21 && hour < 24) {
-    return nightOwl
-        ? '夜晚：仍在活动/创作/打游戏，适合碎碎念'
-        : '夜晚：放松、洗漱、准备休息';
+    return nightOwl ? '夜晚：仍在活动/创作/打游戏，适合碎碎念' : '夜晚：放松、洗漱、准备休息';
   }
-  return nightOwl
-      ? '深夜：夜猫子仍可能清醒，语气可偏安静或疲惫'
-      : '深夜：多数人该睡了，若发动态应偏简短、困倦';
+  return nightOwl ? '深夜：夜猫子仍可能清醒，语气可偏安静或疲惫' : '深夜：多数人该睡了，若发动态应偏简短、困倦';
 }
 
 // ─── Handler: AI 回复用户评论 ───
@@ -2276,8 +2377,9 @@ Future<bool> _handleMomentInteract(Map<String, dynamic>? inputData) async {
 
       try {
         final commentContent = AIService.filterHallucinatedNames(
-          _cleanContent(await _callAiApi(config, prompt,
-              temperature: 0.85, maxTokens: 80),
+          _cleanContent(
+              await _callAiApi(config, prompt,
+                  temperature: 0.85, maxTokens: 80),
               faMode: await _isBackgroundFaModeEnabled()),
           userNickname,
         );

@@ -20,6 +20,8 @@ import '../models/ai_config.dart';
 import '../models/ai_letter.dart';
 import '../models/chat_session.dart';
 import '../models/chat_message.dart';
+import '../models/character_commitment.dart';
+import '../models/relationship_context.dart';
 import '../models/intimacy_event.dart';
 import '../models/memory.dart';
 import '../models/moment.dart';
@@ -509,6 +511,23 @@ class LocalStorageRepository {
       'sentimentType': 'TEXT',
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'sync_seq': 'INTEGER DEFAULT 0',
+    },
+    'character_commitments': {
+      'characterId': 'TEXT NOT NULL DEFAULT ""',
+      'userId': 'TEXT NOT NULL DEFAULT ""',
+      'chatId': 'TEXT NOT NULL DEFAULT ""',
+      'content': 'TEXT NOT NULL DEFAULT ""',
+      'dueAt': 'TEXT NOT NULL DEFAULT ""',
+      'status': 'TEXT NOT NULL DEFAULT "active"',
+      'createdAt': 'TEXT NOT NULL DEFAULT ""',
+      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
+    },
+    'relationship_contexts': {
+      'trust': 'REAL NOT NULL DEFAULT 0.5',
+      'boundary': 'TEXT',
+      'unresolvedConflict': 'TEXT',
+      'recentImportantEvent': 'TEXT',
+      'updatedAt': 'TEXT NOT NULL DEFAULT ""',
     },
     'memories': {
       'characterId': 'TEXT NOT NULL DEFAULT ""',
@@ -1024,6 +1043,12 @@ class LocalStorageRepository {
       case 'intimacy_events':
         await createIntimacyEventsTable(db);
         break;
+      case 'character_commitments':
+        await createCharacterCommitmentsTable(db);
+        break;
+      case 'relationship_contexts':
+        await createRelationshipContextsTable(db);
+        break;
       case 'ai_letters':
         await createAILettersTable(db);
         break;
@@ -1498,6 +1523,18 @@ class LocalStorageRepository {
         ''' CREATE INDEX IF NOT EXISTS idx_intimacy_events_chatId ON intimacy_events(chatId) ''');
     await db.execute(
         ''' CREATE INDEX IF NOT EXISTS idx_intimacy_events_createdAt ON intimacy_events(createdAt DESC) ''');
+  }
+
+  static Future<void> createCharacterCommitmentsTable(Database db) async {
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS character_commitments ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL DEFAULT '', userId TEXT NOT NULL DEFAULT '', chatId TEXT NOT NULL DEFAULT '', content TEXT NOT NULL DEFAULT '', dueAt TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active', createdAt TEXT NOT NULL DEFAULT '', updatedAt TEXT NOT NULL DEFAULT '' ) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_character_commitments_active ON character_commitments(characterId, userId, status, dueAt) ''');
+  }
+
+  static Future<void> createRelationshipContextsTable(Database db) async {
+    await db.execute(
+        ''' CREATE TABLE IF NOT EXISTS relationship_contexts ( chatId TEXT PRIMARY KEY, trust REAL NOT NULL DEFAULT 0.5, boundary TEXT, unresolvedConflict TEXT, recentImportantEvent TEXT, updatedAt TEXT NOT NULL DEFAULT '' ) ''');
   }
 
   static Future<Set<String>> getTableColumns(
@@ -2232,6 +2269,14 @@ class LocalStorageRepository {
       }
       debugPrint(' v68 迁移: 故事书模块数据表已移除');
     }
+    if (oldVersion < 69) {
+      await createCharacterCommitmentsTable(db);
+      debugPrint(' v69 迁移: 角色承诺表已就绪');
+    }
+    if (oldVersion < 70) {
+      await createRelationshipContextsTable(db);
+      debugPrint(' v70 迁移: 关系上下文表已就绪');
+    }
   }
 
   /// 虚拟手机六张表建表语句（_onCreate / 迁移 共用）
@@ -2292,6 +2337,8 @@ class LocalStorageRepository {
     await db.execute(
         ''' CREATE INDEX idx_messages_chatId ON chat_messages(chatId) ''');
     await createIntimacyEventsTable(db);
+    await createCharacterCommitmentsTable(db);
+    await createRelationshipContextsTable(db);
     await db.execute(
         ''' CREATE TABLE memories ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, userId TEXT NOT NULL, type INTEGER NOT NULL, content TEXT NOT NULL, importance INTEGER NOT NULL DEFAULT 1, keywords TEXT, createdAt TEXT NOT NULL, lastAccessedAt TEXT, accessCount INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, weight REAL NOT NULL DEFAULT 1.0, pinned INTEGER NOT NULL DEFAULT 0, lastRecalledAt TEXT, summary TEXT ) ''');
     await db.execute(
@@ -3013,6 +3060,11 @@ class LocalStorageRepository {
   }
 
   Future<void> saveAICharacter(AICharacter character) async {
+    // 内置角色是应用身份的一部分：允许删除，但禁止通过任何保存路径覆盖。
+    if (BuiltinCharacters.isBuiltin(character.id)) {
+      final existing = await getAICharacter(character.id);
+      if (existing != null) return;
+    }
     if (_isWeb) {
       await _prefs?.setString(
           PrefKeys.character(character.id), jsonEncode(character.toMap()));
@@ -3056,7 +3108,13 @@ class LocalStorageRepository {
         await db.insert('ai_characters', character.toMap());
         debugPrint('Seeded built-in character: ${character.name}');
       } else {
-        debugPrint('Built-in character already exists: ${character.name}');
+        // 内置角色资料被锁定，不允许用户编辑；因此版本升级时可安全刷新
+        // 官方人格与边界，确保旧用户也能获得新版设定。
+        final map = await _filterMapToExistingColumns(
+            db, 'ai_characters', character.toMap());
+        await db.update('ai_characters', map,
+            where: 'id = ?', whereArgs: [character.id]);
+        debugPrint('Refreshed built-in character: ${character.name}');
       }
     }
   }
@@ -3125,6 +3183,11 @@ class LocalStorageRepository {
         await deleteChatSession(session.id);
         await clearMemories(characterId, session.userId);
         await clearEmotionState(characterId, session.userId);
+        if (!_isWeb) {
+          final db = await _ensureDb();
+          await db.delete('relationship_contexts',
+              where: 'chatId = ?', whereArgs: [session.id]);
+        }
       }
       if (_isWeb) {
         final ids = _prefs?.getStringList('moment_ids') ?? [];
@@ -3145,6 +3208,8 @@ class LocalStorageRepository {
         }
       } else {
         final db = await _ensureDb();
+        await db.delete('character_commitments',
+            where: 'characterId = ?', whereArgs: [characterId]);
         final momentsDeleted = await db.delete(
           'moments',
           where: 'isFromAI = 1 AND userId = ?',
@@ -3180,6 +3245,11 @@ class LocalStorageRepository {
         final db = await _ensureDb();
         await db.delete(
           'intimacy_events',
+          where: 'chatId = ?',
+          whereArgs: [sessionId],
+        );
+        await db.delete(
+          'relationship_contexts',
           where: 'chatId = ?',
           whereArgs: [sessionId],
         );
@@ -5217,6 +5287,8 @@ class LocalStorageRepository {
         'bt_agent_actions',
         'ai_letters',
         'intimacy_events',
+        'character_commitments',
+        'relationship_contexts',
         'moment_bookmarks',
         'moment_notifications',
         'trending_tags',
@@ -5273,6 +5345,8 @@ class LocalStorageRepository {
       'bt_agent_actions',
       'ai_letters',
       'intimacy_events',
+      'character_commitments',
+      'relationship_contexts',
       'moment_bookmarks',
       'moment_notifications',
       'trending_tags',
@@ -5449,6 +5523,8 @@ class LocalStorageRepository {
       'bt_agent_actions',
       'ai_letters',
       'intimacy_events',
+      'character_commitments',
+      'relationship_contexts',
       'moment_bookmarks',
       'moment_notifications',
       'trending_tags',
@@ -6223,6 +6299,39 @@ class LocalStorageRepository {
     final db = await _ensureDb();
     await db.update('inner_thoughts', {'isRead': 1},
         where: 'id = ?', whereArgs: [id]);
+  }
+
+  // --- character_commitments ---
+  Future<void> saveCharacterCommitment(CharacterCommitment commitment) async {
+    final db = await _ensureDb();
+    await db.insert('character_commitments', commitment.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<CharacterCommitment?> getActiveCharacterCommitment({
+    required String characterId,
+    required String userId,
+  }) async {
+    final db = await _ensureDb();
+    final rows = await db.query('character_commitments',
+        where: 'characterId = ? AND userId = ? AND status = ?',
+        whereArgs: [characterId, userId, CharacterCommitmentStatus.active.name],
+        orderBy: 'dueAt ASC, updatedAt DESC',
+        limit: 1);
+    return rows.isEmpty ? null : CharacterCommitment.fromMap(rows.first);
+  }
+
+  Future<void> saveRelationshipContext(RelationshipContext context) async {
+    final db = await _ensureDb();
+    await db.insert('relationship_contexts', context.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<RelationshipContext?> getRelationshipContext(String chatId) async {
+    final db = await _ensureDb();
+    final rows = await db.query('relationship_contexts',
+        where: 'chatId = ?', whereArgs: [chatId], limit: 1);
+    return rows.isEmpty ? null : RelationshipContext.fromMap(rows.first);
   }
 
   // --- forum_posts ---

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../models/character_emotion.dart';
 import '../models/ai_character.dart';
+import '../models/ai_turn_state.dart';
 import '../models/memory.dart';
 import '../repositories/local_storage_repository.dart';
 import '../utils/sentiment_analyzer.dart';
@@ -117,6 +118,107 @@ class EmotionEngine {
     }
 
     return newEmotion;
+  }
+
+  /// 将模型在回复末尾给出的状态作为受限提示合并进角色的持久情绪。
+  ///
+  /// 用户输入仍由 [updateEmotion] 的本地规则主导；这里故意只接受较小
+  /// 权重，避免一次生成结果让角色的长期情绪突然失真。
+  Future<CharacterEmotion> applyTurnState({
+    required AICharacter character,
+    required String userId,
+    required AiTurnState turnState,
+  }) async {
+    if (!turnState.isValid) {
+      return getCurrentEmotion(character: character, userId: userId);
+    }
+
+    final current =
+        await getCurrentEmotion(character: character, userId: userId);
+    final proposed = _emotionTypeFromTurnState(turnState.emotion);
+    final now = DateTime.now();
+    final incomingIntensity = turnState.intensity.clamp(0.0, 1.0);
+    final primaryEmotion = proposed ?? current.primaryEmotion;
+    final targetValence = _valenceFor(primaryEmotion);
+    final targetArousal = _arousalFor(primaryEmotion, incomingIntensity);
+
+    final updated = CharacterEmotion(
+      characterId: character.id,
+      userId: userId,
+      primaryEmotion: primaryEmotion,
+      intensity: (current.currentIntensity * 0.65 + incomingIntensity * 0.35)
+          .clamp(0.0, 1.0),
+      trigger: _turnStateTrigger(turnState.thought),
+      updatedAt: now,
+      valence:
+          (current.currentValence * 0.7 + targetValence * 0.3).clamp(-1.0, 1.0),
+      arousal:
+          (current.currentArousal * 0.7 + targetArousal * 0.3).clamp(0.0, 1.0),
+      lastInteractionTime: now,
+    );
+
+    _cache[_cacheKey(character.id, userId)] = updated;
+    await _saveToStorage(updated);
+    return updated;
+  }
+
+  EmotionType? _emotionTypeFromTurnState(String value) {
+    final text = value.trim().toLowerCase();
+    if (text.isEmpty) return null;
+    for (final emotion in EmotionType.values) {
+      if (text == emotion.name || text == emotion.label) return emotion;
+    }
+    if (_matchesAny(text, ['开心', '愉快', '高兴', '快乐', '满足'])) {
+      return EmotionType.happy;
+    }
+    if (_matchesAny(text, ['兴奋', '激动', '惊喜', '雀跃'])) {
+      return EmotionType.excited;
+    }
+    if (_matchesAny(text, ['担心', '忧虑', '挂念'])) return EmotionType.worried;
+    if (_matchesAny(text, ['难过', '伤心', '失落', '委屈'])) return EmotionType.sad;
+    if (_matchesAny(text, ['生气', '愤怒', '恼火', '不满'])) return EmotionType.angry;
+    if (_matchesAny(text, ['害羞', '不好意思', '羞涩'])) return EmotionType.shy;
+    if (_matchesAny(text, ['感动', '温暖', '欣慰'])) return EmotionType.touched;
+    if (_matchesAny(text, ['孤独', '寂寞'])) return EmotionType.lonely;
+    if (_matchesAny(text, ['想念', '思念'])) return EmotionType.miss;
+    if (_matchesAny(text, ['焦虑', '紧张', '不安'])) return EmotionType.anxious;
+    if (_matchesAny(text, ['困', '疲惫', '疲倦'])) return EmotionType.sleepy;
+    if (_matchesAny(text, ['调皮', '好玩', '玩味'])) return EmotionType.playful;
+    if (_matchesAny(text, ['平静', '放松', '释然', '安稳'])) return EmotionType.calm;
+    return null;
+  }
+
+  double _valenceFor(EmotionType emotion) => switch (emotion) {
+        EmotionType.happy || EmotionType.excited || EmotionType.playful => 0.7,
+        EmotionType.touched || EmotionType.miss => 0.5,
+        EmotionType.shy => 0.25,
+        EmotionType.worried || EmotionType.anxious => -0.35,
+        EmotionType.sad || EmotionType.lonely => -0.6,
+        EmotionType.angry => -0.5,
+        EmotionType.sleepy => -0.15,
+        EmotionType.calm => 0.0,
+      };
+
+  double _arousalFor(EmotionType emotion, double intensity) {
+    final baseline = switch (emotion) {
+      EmotionType.excited || EmotionType.angry => 0.85,
+      EmotionType.worried || EmotionType.anxious => 0.7,
+      EmotionType.happy || EmotionType.playful => 0.65,
+      EmotionType.touched || EmotionType.shy || EmotionType.miss => 0.45,
+      EmotionType.sad || EmotionType.lonely => 0.3,
+      EmotionType.sleepy => 0.1,
+      EmotionType.calm => 0.25,
+    };
+    return (baseline * 0.65 + intensity * 0.35).clamp(0.0, 1.0);
+  }
+
+  String _turnStateTrigger(String thought) {
+    const maxLength = 80;
+    final trimmed = thought.trim();
+    final preview = trimmed.length > maxLength
+        ? '${trimmed.substring(0, maxLength)}...'
+        : trimmed;
+    return '本轮心声：$preview';
   }
 
   /// 生成融入系统提示的情绪上下文（v2 — 增加孤独感和连续维度）
@@ -764,7 +866,8 @@ class EmotionEngine {
     required String userId,
     required int intimacyLevel,
   }) async {
-    final emotion = await getCurrentEmotion(character: character, userId: userId);
+    final emotion =
+        await getCurrentEmotion(character: character, userId: userId);
     final v = emotion.currentValence;
     final a = emotion.currentArousal;
     final lon = emotion.loneliness;
@@ -819,19 +922,48 @@ class EmotionEngine {
       buffer.writeln('你们还在建立关系，保持友好但不要过度亲密。');
     }
 
-    buffer.writeln('重要：以上情绪是真实的底色，请自然地让它们影响你的语气，但不要直接说出来（比如不要说"我心情不好"）。用户会从你的语气中感受到。');
+    buffer.writeln(
+        '重要：以上情绪是真实的底色，请自然地让它们影响你的语气，但不要直接说出来（比如不要说"我心情不好"）。用户会从你的语气中感受到。');
 
     return buffer.toString();
   }
 
   static const _positiveMemoryWords = [
-    '开心', '喜欢', '快乐', '幸福', '美好', '温暖', '感动', '开心', '笑',
-    '好吃', '好玩', '有趣', '惊喜', '礼物', '庆祝', '成功', '顺利',
+    '开心',
+    '喜欢',
+    '快乐',
+    '幸福',
+    '美好',
+    '温暖',
+    '感动',
+    '开心',
+    '笑',
+    '好吃',
+    '好玩',
+    '有趣',
+    '惊喜',
+    '礼物',
+    '庆祝',
+    '成功',
+    '顺利',
   ];
 
   static const _negativeMemoryWords = [
-    '难过', '伤心', '生气', '失望', '吵架', '分手', '累', '加班',
-    '生病', '烦恼', '失败', '压力', '焦虑', '失眠', '讨厌',
+    '难过',
+    '伤心',
+    '生气',
+    '失望',
+    '吵架',
+    '分手',
+    '累',
+    '加班',
+    '生病',
+    '烦恼',
+    '失败',
+    '压力',
+    '焦虑',
+    '失眠',
+    '讨厌',
   ];
 
   bool _containsAny(String text, List<String> words) {
@@ -843,8 +975,19 @@ class EmotionEngine {
 
   bool _isNostalgicTopic(String text) {
     final triggers = [
-      '以前', '过去', '曾经', '还记得', '上次', '那时候', '当年',
-      '小时候', '之前', '好久', '很久', '怀念', '回忆',
+      '以前',
+      '过去',
+      '曾经',
+      '还记得',
+      '上次',
+      '那时候',
+      '当年',
+      '小时候',
+      '之前',
+      '好久',
+      '很久',
+      '怀念',
+      '回忆',
     ];
     for (final t in triggers) {
       if (text.contains(t)) return true;

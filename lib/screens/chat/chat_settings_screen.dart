@@ -14,6 +14,7 @@ import '../../models/chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
 
 import '../../services/memory_engine.dart';
+import '../../data/builtin_characters.dart';
 import '../../services/voice_clone_service.dart';
 import '../../services/tts_service.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -52,6 +53,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   TextEditingController? _statusController;
   late bool _isBlockedByUser;
   AIWallet? _aiWallet;
+
+  bool get _isBuiltinCharacter =>
+      BuiltinCharacters.isBuiltin(_localSession.aiCharacterId);
 
   final ScrollController _scrollController = ScrollController();
 
@@ -695,6 +699,12 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     required Future<void> Function(String) onSave,
     int maxLines = 1,
   }) {
+    if (_isBuiltinCharacter) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('内置角色资料已锁定，不能修改')),
+      );
+      return;
+    }
     final controller = TextEditingController(text: currentValue ?? '');
     showDialog(
       context: context,
@@ -1213,13 +1223,20 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         _SettingsItem(
           icon: Icons.person_outline,
           title: '查看TA的资料',
+          subtitle: _isBuiltinCharacter ? '内置角色资料已锁定' : null,
           onTap: _navigateToCharacterProfile,
         ),
         _SettingsItem(
           icon: Icons.settings_applications_outlined,
           title: '互动设置',
-          subtitle: '问候、主动消息、回复行为等',
+          subtitle: _isBuiltinCharacter ? '内置角色互动设置已锁定' : '问候、主动消息、回复行为等',
           onTap: () {
+            if (_isBuiltinCharacter) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('内置角色互动设置已锁定')),
+              );
+              return;
+            }
             if (_character != null) {
               Navigator.push(
                 context,
@@ -1601,6 +1618,7 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
   final _editingScrollController = ScrollController();
 
   void _enterEditMode(int section) {
+    if (BuiltinCharacters.isBuiltin(_character.id)) return;
     if (_editingSection != section) {
       setState(() => _editingSection = section);
     }
@@ -1817,6 +1835,12 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
   }
 
   Future<void> _saveChanges() async {
+    if (BuiltinCharacters.isBuiltin(_character.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('内置角色资料已锁定，不能修改')),
+      );
+      return;
+    }
     if (_isSaving) return;
 
     setState(() {
@@ -2461,6 +2485,17 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
 
   Widget _buildEditToggleButton(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+
+    if (BuiltinCharacters.isBuiltin(_character.id)) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          onPressed: null,
+          icon: const Icon(Icons.lock_outline),
+          label: const Text('内置角色已锁定'),
+        ),
+      );
+    }
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,

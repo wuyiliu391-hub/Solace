@@ -8,11 +8,16 @@ import 'tool_registry.dart';
 /// 负责权限检查、工具查找、执行，并返回执行记录。
 class ToolExecutor {
   final ToolRegistry registry;
+  final bool Function(Tool tool)? permissionChecker;
 
-  const ToolExecutor(this.registry);
+  const ToolExecutor(this.registry, {this.permissionChecker});
 
   /// 执行工具
-  Future<ToolExecutionRecord> execute(String toolName, Map<String, dynamic> args) async {
+  Future<ToolExecutionRecord> execute(
+    String toolName,
+    Map<String, dynamic> args, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
     final startedAt = DateTime.now();
     final tool = registry.findTool(toolName);
     if (tool == null) {
@@ -25,12 +30,39 @@ class ToolExecutor {
       );
     }
 
+    // Tool metadata is the last local safety boundary before execution. The
+    // caller can still add a stricter policy through guardedExecute.
+    if (tool.requiredPermissions.isNotEmpty &&
+        permissionChecker != null &&
+        !permissionChecker!(tool)) {
+      return ToolExecutionRecord(
+        toolName: toolName,
+        args: args,
+        result: ToolResult.error(
+          '工具需要授权后才能执行: ${tool.requiredPermissions.join(', ')}',
+          errorCode: 'PERMISSION_REQUIRED',
+          needsPermission: true,
+          permissionName: tool.requiredPermissions.join(','),
+        ),
+        startedAt: startedAt,
+        endedAt: DateTime.now(),
+      );
+    }
+
     try {
-      final result = await tool.execute(args);
+      final result = await tool.execute(args).timeout(timeout);
       return ToolExecutionRecord(
         toolName: toolName,
         args: args,
         result: result,
+        startedAt: startedAt,
+        endedAt: DateTime.now(),
+      );
+    } on TimeoutException {
+      return ToolExecutionRecord(
+        toolName: toolName,
+        args: args,
+        result: ToolResult.error('工具执行超时，可稍后重试。', errorCode: 'TIMEOUT'),
         startedAt: startedAt,
         endedAt: DateTime.now(),
       );

@@ -6,7 +6,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 
 import '../models/llm_request.dart';
 import '../models/chat_context.dart';
@@ -102,6 +101,7 @@ class LlmService {
     required List<Map<String, dynamic>> messages,
     required List<Map<String, dynamic>> tools,
     int? maxTokens,
+    String toolChoice = 'auto',
   }) async {
     var baseUrl = settings.baseUrl.trim();
     while (baseUrl.endsWith('/')) {
@@ -115,7 +115,7 @@ class LlmService {
       'model': _currentModel,
       'messages': messages,
       'tools': tools,
-      'tool_choice': 'auto',
+      'tool_choice': toolChoice,
       if (maxTokens != null) 'max_tokens': maxTokens,
     };
 

@@ -53,6 +53,7 @@ class ChatSendMessage extends ChatEvent {
   final String content;
   final Map<String, dynamic>? metadata;
   final bool enableWebSearch;
+
   /// 本轮附带的本地图片路径（多模态模型时走 OpenAI vision）
   final List<String>? imagePaths;
 
@@ -172,8 +173,10 @@ class ChatSendGift extends ChatEvent {
   final String itemEmoji;
   final int price;
   final String? message;
+
   /// 商品分类 gift/food/express
   final String? itemCategory;
+
   /// 商品说明（自定义商品尤其重要，供 AI 理解）
   final String? itemDescription;
   final bool isCustomItem;
@@ -497,4 +500,24 @@ class ChatCancelAutoGlm extends ChatEvent {
 
   @override
   List<Object?> get props => [chatId];
+}
+
+class ChatSetToolPermission extends ChatEvent {
+  final String toolName;
+  final String mode;
+
+  const ChatSetToolPermission({required this.toolName, required this.mode});
+
+  @override
+  List<Object?> get props => [toolName, mode];
+}
+
+class ChatResolveToolPermission extends ChatEvent {
+  final String taskId;
+  final bool allow;
+
+  const ChatResolveToolPermission({required this.taskId, required this.allow});
+
+  @override
+  List<Object?> get props => [taskId, allow];
 }

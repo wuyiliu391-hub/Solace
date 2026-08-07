@@ -330,7 +330,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 68;
+  static const int dbVersion = 70;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;
@@ -343,6 +343,8 @@ class DbDefaults {
     'chat_sessions',
     'chat_messages',
     'intimacy_events',
+    'character_commitments',
+    'relationship_contexts',
     'memories',
     'moments',
     'sticker_packs',
@@ -389,8 +391,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-  static const String version = '17.7.0';
-  static const int build = 290;
+  static const String version = '17.8.0';
+  static const int build = 291;
 }
 
 class NotificationChannels {

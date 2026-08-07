@@ -831,6 +831,7 @@ class _MomentCard extends StatelessWidget {
                       height: 1.4,
                       color: colorScheme.onSurface,
                     ),
+                    softWrap: true,
                   ),
                   if (moment.images.isNotEmpty) ...[
                     const SizedBox(height: 8),

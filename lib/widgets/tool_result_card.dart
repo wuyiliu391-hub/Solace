@@ -129,8 +129,7 @@ class _ToolResultCardState extends State<ToolResultCard>
     final accentColor =
         widget.isSuccess ? colorScheme.primary : colorScheme.error;
     final icon = widget.icon ?? ToolResultCard.inferToolIcon(widget.toolName);
-    final hasDetail =
-        widget.detail != null && widget.detail!.trim().isNotEmpty;
+    final hasDetail = widget.detail != null && widget.detail!.trim().isNotEmpty;
 
     return Container(
       decoration: BoxDecoration(
@@ -150,8 +149,7 @@ class _ToolResultCardState extends State<ToolResultCard>
           // ═══ 工具调用行 ═══
           InkWell(
             onTap: hasDetail ? _toggle : null,
-            borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(10)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               child: Row(
@@ -229,8 +227,7 @@ class _ToolResultCardState extends State<ToolResultCard>
           // ═══ 可展开的详情区域 ═══
           if (hasDetail && _expanded) ...[
             Padding(
-              padding: const EdgeInsets.only(
-                  left: 10, right: 10, bottom: 8),
+              padding: const EdgeInsets.only(left: 10, right: 10, bottom: 8),
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
@@ -341,36 +338,29 @@ class ToolTraceCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           // 每条工具记录
-          ...traces.map((trace) {
+          ...traces.asMap().entries.map((entry) {
+            final index = entry.key;
+            final trace = entry.value;
             final toolName = trace['tool'] as String? ?? '未知工具';
             final success = trace['success'] as bool? ?? false;
             final icon = ToolResultCard.inferToolIcon(toolName);
-            final accentColor =
-                success ? colorScheme.primary : colorScheme.error;
+            final args = trace['args'];
+            final detail = [
+              if (args != null) '参数：$args',
+              if ((trace['result'] ?? '').toString().isNotEmpty)
+                '结果：${trace['result']}',
+              if (trace['duration_ms'] != null) '耗时：${trace['duration_ms']} ms',
+              if (trace['error_code'] != null) '错误码：${trace['error_code']}',
+            ].join('\n');
 
             return Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                children: [
-                  Icon(icon, size: 13, color: accentColor.withOpacity(0.7)),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      toolName,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colorScheme.onSurface.withOpacity(0.7),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Icon(
-                    success ? Icons.check_circle : Icons.cancel,
-                    size: 14,
-                    color: accentColor,
-                  ),
-                ],
+              child: ToolResultCard(
+                toolName: '步骤 ${index + 1} · $toolName',
+                summary: (trace['result'] ?? '无结果').toString(),
+                isSuccess: success,
+                detail: detail,
+                icon: icon,
               ),
             );
           }),

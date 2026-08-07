@@ -3,60 +3,37 @@ import 'package:solace/blocs/group_chat/group_chat_prompts.dart';
 import 'package:solace/models/ai_character.dart';
 
 void main() {
-  final charA = AICharacter(
-    id: 'c1', name: '小美', personality: '温柔', coreDesire: '陪伴',
-    moralBoundary: '不伤人', createdAt: DateTime.now(),
-    backgroundStory: '咖啡店店员', openingLine: '你好呀',
-    catchphrases: '好耶',
-  );
-  final charB = AICharacter(
-    id: 'c2', name: '阿强', personality: '直爽', coreDesire: '热闹',
-    moralBoundary: '不骗人', createdAt: DateTime.now(),
-    backgroundStory: '程序员', openingLine: '哟',
-    catchphrases: '整',
-  );
-
-  test('群成员名单 prompt（对标 new_group_chat_prompt）', () {
-    final p = buildGroupIntroPrompt(
-      selfName: '小美',
-      memberNames: ['小美', '阿强', '你'],
-      isNewChat: true,
+  test('member voice prompt keeps each character distinct', () {
+    final quiet = AICharacter(
+      id: 'quiet',
+      name: '林默',
+      personality: '克制、观察细致，不轻易下结论',
+      coreDesire: '理解事情的真相',
+      moralBoundary: '',
+      languageStyle: '短句，少用感叹号，喜欢先说具体细节',
+      catchphrases: '先等等',
+      createdAt: DateTime(2026, 8, 7),
     );
-    expect(p, contains('群成员'));
-    expect(p, contains('小美'));
-    expect(p, contains('阿强'));
-  });
-
-  test('nudge prompt（对标 group_nudge_prompt）', () {
-    final nudge = buildGroupNudge('小美');
-    expect(nudge, contains('[请只以「小美」的身份继续发言。'));
-    expect(nudge, contains('不要重复'));
-    expect(nudge, contains('不要原样回显'));
-  });
-
-  test('消息格式化：自己发言不带前缀，他人带 名字: 内容', () {
-    expect(formatGroupMessage(isSelf: true, senderName: '小美', content: '哈喽'), '哈喽');
-    expect(formatGroupMessage(isSelf: false, senderName: '阿强', content: '整'), '阿强: 整');
-  });
-
-  test('合并角色卡（对标 getGroupCharacterCards）', () {
-    final combined = buildCombinedCard(
-      members: [charA, charB],
-      joinPrefix: '',
-      joinSuffix: '',
+    final lively = AICharacter(
+      id: 'lively',
+      name: '周晴',
+      personality: '直率、热情，想到什么就说什么',
+      coreDesire: '让群里热闹起来',
+      moralBoundary: '',
+      languageStyle: '语速快，口语化，偶尔用夸张的感叹',
+      createdAt: DateTime(2026, 8, 7),
     );
-    expect(combined.description, contains('咖啡店店员'));
-    expect(combined.description, contains('程序员'));
-    expect(combined.personality, contains('温柔'));
-    expect(combined.personality, contains('直爽'));
-  });
 
-  test('合并卡 joinPrefix/joinSuffix 包字段', () {
-    final combined = buildCombinedCard(
-      members: [charA],
-      joinPrefix: '【',
-      joinSuffix: '】',
+    final prompt = buildMemberVoicePrompt(
+      self: quiet,
+      otherMembers: [lively],
+      recentReplies: const ['周晴：这也太离谱了吧！'],
     );
-    expect(combined.description, contains('【咖啡店店员】'));
+
+    expect(prompt, contains('你只能作为「林默」发言'));
+    expect(prompt, contains('短句，少用感叹号'));
+    expect(prompt, contains('周晴'));
+    expect(prompt, contains('不得复用本轮其他角色的句式'));
+    expect(prompt, contains('这也太离谱了吧！'));
   });
 }

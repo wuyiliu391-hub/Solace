@@ -6,8 +6,6 @@ import '../../services/tools/tool_registry.dart';
 import '../../services/tools/tool_executor.dart';
 import '../../services/tools/conversation_turn.dart';
 import '../../services/llm_service.dart';
-import '../../models/app_config_data.dart';
-import '../../utils/message_sanitizer.dart';
 
 /// 工具感知的 LLM 调用服务 — 重写版
 ///
@@ -24,12 +22,21 @@ class ToolAwareService {
   final LlmService llmService;
   final ToolRegistry registry;
   final ToolExecutor executor;
+  final Future<ToolExecutionRecord> Function(String, Map<String, dynamic>)?
+      guardedExecute;
+  final bool Function()? isCancelled;
 
   ToolAwareService({
     required this.llmService,
     required this.registry,
     ToolExecutor? executor,
+    this.guardedExecute,
+    this.isCancelled,
   }) : executor = executor ?? ToolExecutor(registry);
+
+  Future<ToolExecutionRecord> _execute(String name, Map<String, dynamic> args) {
+    return guardedExecute?.call(name, args) ?? executor.execute(name, args);
+  }
 
   // ── 状态机 ──
 
@@ -52,10 +59,12 @@ class ToolAwareService {
   /// [onStateChange] 状态变更回调
   ///
   /// 返回 (finalText, executionRecords, hadTools)
-  Future<(String finalText, List<ToolExecutionRecord> records, bool hadTools)> run({
+  Future<(String finalText, List<ToolExecutionRecord> records, bool hadTools)>
+      run({
     required List<ConversationTurn> turns,
     required List<Map<String, dynamic>> llmMessages,
     int maxSteps = 10,
+    bool requireToolOnFirstStep = false,
     void Function(AgentStep)? onStep,
     void Function(ToolProcessingState)? onStateChange,
   }) async {
@@ -67,6 +76,7 @@ class ToolAwareService {
     }
 
     final executions = <ToolExecutionRecord>[];
+    final executedCalls = <String>{};
     final mutableMessages = List<Map<String, dynamic>>.from(llmMessages);
     final mutableTurns = List<ConversationTurn>.from(turns);
 
@@ -75,7 +85,6 @@ class ToolAwareService {
 
     // 递归核心：调用 LLM -> 解析输出 -> 提取工具 -> 执行 -> 追加结果 -> 再调用
     var finalContent = '';
-    var finalReasoning = '';
     var hadTools = false;
 
     for (var step = 1; step <= maxSteps; step++) {
@@ -88,6 +97,7 @@ class ToolAwareService {
         messages: mutableMessages,
         tools: tools,
         maxTokens: 2048,
+        toolChoice: step == 1 && requireToolOnFirstStep ? 'required' : 'auto',
       );
 
       if (response == null) {
@@ -98,8 +108,11 @@ class ToolAwareService {
           return ('AI 调用失败，请检查 API 配置。', executions, false);
         }
         // 后续轮失败：返回已有内容
-        return (finalContent.isNotEmpty ? finalContent : 'AI 调用中断',
-            executions, hadTools);
+        return (
+          finalContent.isNotEmpty ? finalContent : 'AI 调用中断',
+          executions,
+          hadTools
+        );
       }
 
       _setState(ToolProcessingState.receiving);
@@ -108,9 +121,9 @@ class ToolAwareService {
       final content = response['content'] as String? ?? '';
       final reasoning = response['reasoning'] as String? ?? '';
 
-      if (content.isNotEmpty) {
-        finalContent = content;
-        finalReasoning = reasoning;
+      final visibleContent = _removeXmlToolCalls(content);
+      if (visibleContent.isNotEmpty) {
+        finalContent = visibleContent;
       }
 
       // ── 关键：从同一次输出中解析工具调用 ──
@@ -127,9 +140,16 @@ class ToolAwareService {
       if (allToolCalls.isEmpty && xmlToolCalls.isEmpty) {
         // 没有工具调用：完成
         if (step == 1) {
-          // 第一轮就没有工具调用：不是工具请求
+          // 调用方已确认是设备请求时，绝不能把模型的文本输出伪装成执行结果。
           _setState(ToolProcessingState.completed);
           onStateChange?.call(_state);
+          if (requireToolOnFirstStep) {
+            return (
+              '设备请求未执行：当前模型没有发起工具调用。请更换支持 Function Calling 的模型，或使用 Operit 中的快捷操作。',
+              executions,
+              false,
+            );
+          }
           return (finalContent, executions, false);
         }
         // 工具执行后的后续轮：模型给了文本回复，结束循环
@@ -142,9 +162,7 @@ class ToolAwareService {
       hadTools = true;
 
       // 解析 OpenAI 格式的 tool calls
-      final toolCalls = allToolCalls
-          .map(ToolCall.fromOpenAI)
-          .toList();
+      final toolCalls = allToolCalls.map(ToolCall.fromOpenAI).toList();
 
       // 追加 XML 工具调用
       final parsedXmlCalls = xmlToolCalls
@@ -173,6 +191,34 @@ class ToolAwareService {
 
       for (var i = 0; i < allParsedCalls.length; i++) {
         final call = allParsedCalls[i];
+        final callKey = _callKey(call);
+        if (!executedCalls.add(callKey)) {
+          final duplicate = ToolExecutionRecord(
+            toolName: call.name,
+            args: call.args,
+            result: ToolResult.error(
+              '检测到重复工具调用，已停止重复执行。',
+              errorCode: 'DUPLICATE_TOOL_CALL',
+            ),
+            startedAt: DateTime.now(),
+            endedAt: DateTime.now(),
+          );
+          executions.add(duplicate);
+          final duplicateTurn = ConversationTurn.toolResultFromExecution(
+            duplicate,
+            toolCallId: '${call.name}_duplicate_$i',
+          );
+          mutableTurns.add(duplicateTurn);
+          mutableMessages.add(duplicateTurn.toLlmMessage());
+          onStep?.call(AgentStep(
+            step: step,
+            toolName: call.name,
+            args: call.args,
+            status: 'failed',
+            result: duplicate.result.message,
+          ));
+          continue;
+        }
         final toolCallId = allToolCalls.length > i
             ? (allToolCalls[i]['id'] as String? ?? '${call.name}_$i')
             : '${call.name}_$i';
@@ -184,7 +230,14 @@ class ToolAwareService {
           status: 'running',
         ));
 
-        final record = await executor.execute(call.name, call.args);
+        if (isCancelled?.call() == true) {
+          return (
+            finalContent.isNotEmpty ? finalContent : '任务已取消。',
+            executions,
+            hadTools
+          );
+        }
+        var record = await _executeWithRetry(call.name, call.args);
         executions.add(record);
 
         final result = record.result;
@@ -219,24 +272,28 @@ class ToolAwareService {
       if (continueResponse == null) {
         _setState(ToolProcessingState.error);
         onStateChange?.call(_state);
-        return (finalContent.isNotEmpty ? finalContent : '工具已执行，但 AI 后续回复失败。',
-            executions, true);
+        return (
+          finalContent.isNotEmpty ? finalContent : '工具已执行，但 AI 后续回复失败。',
+          executions,
+          true
+        );
       }
 
       final continueContent = continueResponse['content'] as String? ?? '';
       final continueReasoning = continueResponse['reasoning'] as String? ?? '';
 
-      if (continueContent.isNotEmpty) {
-        finalContent = continueContent;
-        finalReasoning = continueReasoning;
+      final continueVisibleContent = _removeXmlToolCalls(continueContent);
+      if (continueVisibleContent.isNotEmpty) {
+        finalContent = continueVisibleContent;
       }
 
       // 检查工具执行后的回复里是否又有新的工具调用
-      final continueToolCalls = (continueResponse['tool_calls'] as List<dynamic>?)
-              ?.map((e) => _safeCastMap(e))
-              .whereType<Map<String, dynamic>>()
-              .toList() ??
-          [];
+      final continueToolCalls =
+          (continueResponse['tool_calls'] as List<dynamic>?)
+                  ?.map((e) => _safeCastMap(e))
+                  .whereType<Map<String, dynamic>>()
+                  .toList() ??
+              [];
       final continueXmlCalls = _extractXmlToolCalls(continueContent);
 
       if (continueToolCalls.isEmpty && continueXmlCalls.isEmpty) {
@@ -246,8 +303,7 @@ class ToolAwareService {
         return (finalContent, executions, true);
       }
 
-      // 有新的工具调用：下一轮循环继续
-      // 追加 assistant turn
+      // 有新的工具调用：先追加 assistant turn 并执行它们。
       final continueAssistantTurn = ConversationTurn.assistantFromResponse(
         continueContent,
         reasoning: continueReasoning,
@@ -255,16 +311,104 @@ class ToolAwareService {
       );
       mutableTurns.add(continueAssistantTurn);
       mutableMessages.add(continueAssistantTurn.toLlmMessage());
+
+      final parsedContinueCalls = [
+        ...continueToolCalls.map(ToolCall.fromOpenAI),
+        ...continueXmlCalls.map((tc) => ToolCall(name: tc.name, args: tc.args)),
+      ];
+      _setState(ToolProcessingState.executingTool);
+      onStateChange?.call(_state);
+      for (var i = 0; i < parsedContinueCalls.length; i++) {
+        final call = parsedContinueCalls[i];
+        final callKey = _callKey(call);
+        if (!executedCalls.add(callKey)) {
+          final duplicate = ToolExecutionRecord(
+            toolName: call.name,
+            args: call.args,
+            result: ToolResult.error(
+              '检测到重复工具调用，已停止重复执行。',
+              errorCode: 'DUPLICATE_TOOL_CALL',
+            ),
+            startedAt: DateTime.now(),
+            endedAt: DateTime.now(),
+          );
+          executions.add(duplicate);
+          final duplicateTurn = ConversationTurn.toolResultFromExecution(
+            duplicate,
+            toolCallId: '${call.name}_duplicate_$i',
+          );
+          mutableTurns.add(duplicateTurn);
+          mutableMessages.add(duplicateTurn.toLlmMessage());
+          continue;
+        }
+        final toolCallId = i < continueToolCalls.length
+            ? (continueToolCalls[i]['id'] as String? ?? '${call.name}_$i')
+            : '${call.name}_$i';
+        onStep?.call(AgentStep(
+          step: step,
+          toolName: call.name,
+          args: call.args,
+          status: 'running',
+        ));
+        if (isCancelled?.call() == true) {
+          return (
+            finalContent.isNotEmpty ? finalContent : '任务已取消。',
+            executions,
+            hadTools
+          );
+        }
+        final record = await _executeWithRetry(call.name, call.args);
+        executions.add(record);
+        onStep?.call(AgentStep(
+          step: step,
+          toolName: call.name,
+          args: call.args,
+          status: record.result.success ? 'completed' : 'failed',
+          result: record.result.message,
+        ));
+        mutableTurns.add(ConversationTurn.toolResultFromExecution(
+          record,
+          toolCallId: toolCallId,
+        ));
+        mutableMessages.add(mutableTurns.last.toLlmMessage());
+      }
     }
 
     // 达到最大步数
     _setState(ToolProcessingState.completed);
     onStateChange?.call(_state);
-    return (finalContent.isNotEmpty ? finalContent : '工具已执行完毕。',
-        executions, true);
+    return (
+      finalContent.isNotEmpty ? finalContent : '工具已执行完毕。',
+      executions,
+      true
+    );
   }
 
   // ── 辅助方法 ──
+
+  Future<ToolExecutionRecord> _executeWithRetry(
+      String name, Map<String, dynamic> args) async {
+    ToolExecutionRecord record = await _execute(name, args);
+    for (var attempt = 1; attempt < 3 && record.isRetryable; attempt++) {
+      if (isCancelled?.call() == true) break;
+      await Future<void>.delayed(Duration(milliseconds: 250 * attempt));
+      record = await _execute(name, args);
+    }
+    return record;
+  }
+
+  String _callKey(ToolCall call) =>
+      '${call.name}:${jsonEncode(_sortMap(call.args))}';
+
+  Map<String, dynamic> _sortMap(Map<String, dynamic> value) {
+    final keys = value.keys.toList()..sort();
+    return {
+      for (final key in keys)
+        key: value[key] is Map<String, dynamic>
+            ? _sortMap(value[key] as Map<String, dynamic>)
+            : value[key],
+    };
+  }
 
   /// 从文本内容中提取 Operit 风格 XML 工具标签
   /// 格式: <tool name="tool_name"><param name="param_name">value</param></tool>
@@ -309,6 +453,16 @@ class ToolAwareService {
     }
 
     return results;
+  }
+
+  String _removeXmlToolCalls(String content) {
+    return content
+        .replaceAll(
+          RegExp(r'<tool\b[^>]*>[\s\S]*?</tool>',
+              caseSensitive: false, dotAll: true),
+          '',
+        )
+        .trim();
   }
 
   /// 安全将任意 Map 转换为 Map<String, dynamic>

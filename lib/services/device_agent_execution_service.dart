@@ -4,7 +4,6 @@ import '../config/constants.dart';
 import '../models/device_agent_action.dart';
 import '../repositories/local_storage_repository.dart';
 import 'device_action_policy.dart';
-import 'device_persona_strategy.dart';
 import 'tools/tool_executor.dart';
 import 'tools/tool_registry.dart';
 import 'tools/tools.dart';
@@ -31,8 +30,7 @@ class DeviceAgentExecutionService {
     this._repo, {
     ToolRegistry? registry,
     ToolExecutor? executor,
-  }) : _executor =
-            executor ?? ToolExecutor(registry ?? createToolRegistry());
+  }) : _executor = executor ?? ToolExecutor(registry ?? createToolRegistry());
 
   bool isRolePathAllowed() {
     if (!_repo.isDeviceAgentMasterEnabled()) return false;
@@ -50,6 +48,7 @@ class DeviceAgentExecutionService {
     String text, {
     required String characterId,
     required String sessionId,
+    bool allowTextInput = true,
   }) async {
     if (text.isEmpty || !text.contains('<DEVICE_ACTION>')) {
       return (visibleText: text, actions: <DeviceAgentAction>[]);
@@ -78,6 +77,10 @@ class DeviceAgentExecutionService {
       }
       final jsonStr = match.group(1)?.trim() ?? '';
       if (jsonStr.isEmpty) continue;
+      if (!allowTextInput && _isInputTextAction(jsonStr)) {
+        debugPrint('[DeviceAgent] 跳过非显式请求的 input_text');
+        continue;
+      }
       final log = await executeFromJson(
         jsonStr,
         characterId: characterId,
@@ -88,13 +91,23 @@ class DeviceAgentExecutionService {
     return (visibleText: visible, actions: actions);
   }
 
+  bool _isInputTextAction(String jsonStr) {
+    try {
+      final decoded = json.decode(_cleanJson(jsonStr));
+      if (decoded is! Map) return false;
+      return (decoded['action'] ?? decoded['tool'] ?? '').toString().trim() ==
+          'input_text';
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 工具是否被用户子权限允许（Desire 引擎裁剪时用）
   bool isToolPermitted(String toolName) {
     if (!isRolePathAllowed()) return false;
     final type = parseDeviceActionType(toolName);
     if (type == null) return false;
-    final cat =
-        deviceActionCategoryMap[type] ?? DevicePermissionCategory.read;
+    final cat = deviceActionCategoryMap[type] ?? DevicePermissionCategory.read;
     return _repo.isDevicePermissionEnabled(_prefKey(cat));
   }
 
@@ -105,6 +118,7 @@ class DeviceAgentExecutionService {
     String jsonStr, {
     required String characterId,
     required String sessionId,
+    bool checkRateLimit = true,
   }) async {
     Map<String, dynamic> map;
     try {
@@ -214,7 +228,7 @@ class DeviceAgentExecutionService {
       );
     }
 
-    if (!_policy.allow(sessionId)) {
+    if (checkRateLimit && !_policy.allow(sessionId)) {
       return _reject(
         actionType: actionType,
         category: category,
@@ -317,9 +331,8 @@ class DeviceAgentExecutionService {
         return {'direction': d == 'up' ? 'up' : 'down'};
       case DeviceActionType.setMute:
         final muted = params['muted'];
-        final boolVal = muted is bool
-            ? muted
-            : muted?.toString().toLowerCase() != 'false';
+        final boolVal =
+            muted is bool ? muted : muted?.toString().toLowerCase() != 'false';
         return {'muted': boolVal};
       case DeviceActionType.openApp:
       case DeviceActionType.closeApp:

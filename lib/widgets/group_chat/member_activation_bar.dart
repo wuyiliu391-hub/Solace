@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/ai_character.dart';
 import '../../utils/avatar_resolver.dart';
 import '../../utils/character_color.dart';
+import '../../models/group_chat_session.dart';
 
 /// 输入框上方成员激活条（对标 ST 手动激活）：
 /// 单击 = 锁定该角色发言；再次点击 = 解锁；长按 = 多选模式
@@ -10,6 +11,7 @@ class MemberActivationBar extends StatefulWidget {
   final Set<String> disabledIds;
   final List<String> forcedSpeakerIds;
   final ValueChanged<List<String>> onSpeakersChanged;
+  final GroupActivationStrategy activationStrategy;
 
   const MemberActivationBar({
     super.key,
@@ -17,6 +19,7 @@ class MemberActivationBar extends StatefulWidget {
     required this.disabledIds,
     required this.forcedSpeakerIds,
     required this.onSpeakersChanged,
+    this.activationStrategy = GroupActivationStrategy.natural,
   });
 
   @override
@@ -55,7 +58,7 @@ class _MemberActivationBarState extends State<MemberActivationBar> {
             child: Row(
               children: [
                 Text(
-                  '已锁定 ${widget.forcedSpeakerIds.length} 人',
+                  '本轮指定 ${widget.forcedSpeakerIds.length} 人',
                   style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
                 ),
                 const Spacer(),
@@ -76,8 +79,8 @@ class _MemberActivationBarState extends State<MemberActivationBar> {
             separatorBuilder: (_, __) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
               final c = widget.members[index];
-              final color = characterColor(
-                  colorHex: c.colorHex, name: c.name, cs: cs);
+              final color =
+                  characterColor(colorHex: c.colorHex, name: c.name, cs: cs);
               final forced = _isForced(c.id);
               final disabled = widget.disabledIds.contains(c.id);
               return GestureDetector(
@@ -113,10 +116,8 @@ class _MemberActivationBarState extends State<MemberActivationBar> {
                                   color: color,
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Icon(
-                                    Icons.record_voice_over,
-                                    size: 9,
-                                    color: Colors.white),
+                                child: const Icon(Icons.record_voice_over,
+                                    size: 9, color: Colors.white),
                               ),
                             ),
                           if (disabled)
@@ -144,9 +145,8 @@ class _MemberActivationBarState extends State<MemberActivationBar> {
                         style: TextStyle(
                           fontSize: 9,
                           color: forced ? color : cs.onSurfaceVariant,
-                          fontWeight: forced
-                              ? FontWeight.bold
-                              : FontWeight.normal,
+                          fontWeight:
+                              forced ? FontWeight.bold : FontWeight.normal,
                         ),
                       ),
                     ),
@@ -154,6 +154,23 @@ class _MemberActivationBarState extends State<MemberActivationBar> {
                 ),
               );
             },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 12, right: 12, bottom: 2),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              widget.forcedSpeakerIds.isEmpty
+                  ? (widget.activationStrategy == GroupActivationStrategy.manual
+                      ? '手动点名模式：请选择本轮发言角色'
+                      : '点按头像可指定本轮发言角色，长按可多选')
+                  : '已指定本轮发言，发送后自动清除',
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
         ),
       ],

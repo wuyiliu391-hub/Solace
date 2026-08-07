@@ -6,6 +6,7 @@ import '../../repositories/local_storage_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../services/proactive_scheduler.dart';
 import '../../services/voice_clone_service.dart';
+import '../../data/builtin_characters.dart';
 
 class InteractionSettingsScreen extends StatefulWidget {
   final AICharacter character;
@@ -44,6 +45,8 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
   bool _saving = false;
   int _loadGen = 0;
   AICharacter? _latestSaved;
+
+  bool get _isLocked => BuiltinCharacters.isBuiltin(widget.character.id);
 
   @override
   void initState() {
@@ -139,6 +142,7 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
   }
 
   Future<AICharacter?> _saveSettings() async {
+    if (_isLocked) return widget.character;
     if (_saving) return _latestSaved;
     setState(() => _saving = true);
     try {
@@ -531,283 +535,289 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
               ),
             ),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  const SizedBox(height: 16),
+              child: AbsorbPointer(
+                absorbing: _isLocked,
+                child: Opacity(
+                  opacity: _isLocked ? 0.72 : 1,
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    children: [
+                      const SizedBox(height: 16),
 
-                  // 主动消息设置
-                  Text('主动消息',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: colorScheme.primary)),
-                  const SizedBox(height: 8),
-                  buildSettingsCard(children: [
-                    buildSwitchTile(
-                      title: '角色主动发消息',
-                      subtitle: '开启后TA会主动找你聊天',
-                      value: _enableMomentInteraction,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableMomentInteraction = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启角色主动发消息' : '已关闭角色主动发消息');
-                      },
-                    ),
-                    if (_enableMomentInteraction) ...[
-                      buildDivider(),
-                      buildNumberInputTile(
-                        title: '互动频率',
-                        value: _activeMessageFrequency,
-                        suffixTag: '小时',
-                        description: '每隔多久TA会主动发消息',
-                        onChanged: (v) => setState(() {
-                          _dirty = true;
-                          _activeMessageFrequency = v;
-                        }),
-                        onSubmitted: () => _saveSettingsWithFeedback(
-                            '互动频率已保存为$_activeMessageFrequency小时'),
-                      ),
+                      // 主动消息设置
+                      Text('主动消息',
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.primary)),
+                      const SizedBox(height: 8),
+                      buildSettingsCard(children: [
+                        buildSwitchTile(
+                          title: '角色主动发消息',
+                          subtitle: '开启后TA会主动找你聊天',
+                          value: _enableMomentInteraction,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableMomentInteraction = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启角色主动发消息' : '已关闭角色主动发消息');
+                          },
+                        ),
+                        if (_enableMomentInteraction) ...[
+                          buildDivider(),
+                          buildNumberInputTile(
+                            title: '互动频率',
+                            value: _activeMessageFrequency,
+                            suffixTag: '小时',
+                            description: '每隔多久TA会主动发消息',
+                            onChanged: (v) => setState(() {
+                              _dirty = true;
+                              _activeMessageFrequency = v;
+                            }),
+                            onSubmitted: () => _saveSettingsWithFeedback(
+                                '互动频率已保存为$_activeMessageFrequency小时'),
+                          ),
+                        ],
+                        buildDivider(),
+                        buildSwitchTile(
+                          title: '朋友圈互动',
+                          subtitle: '发动态后TA会来点赞评论',
+                          value: _enableUserMomentInteraction,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableUserMomentInteraction = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启朋友圈互动' : '已关闭朋友圈互动');
+                          },
+                        ),
+                      ]),
+
+                      const SizedBox(height: 16),
+
+                      // 问候设置
+                      Text('定时问候',
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.primary)),
+                      const SizedBox(height: 8),
+                      buildSettingsCard(children: [
+                        buildSwitchTile(
+                          title: '早安问候',
+                          subtitle: '每天早上向你问好',
+                          value: _enableMorningGreeting,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableMorningGreeting = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启早安问候' : '已关闭早安问候');
+                          },
+                        ),
+                        if (_enableMorningGreeting) ...[
+                          buildDivider(),
+                          buildTimeTile(
+                            title: '早安时间',
+                            subtitle: '发送早安的时间',
+                            time: _morningGreetingTime,
+                            isEnabled: _enableMorningGreeting,
+                            onTap: () => _pickTime(isMorning: true),
+                          ),
+                        ],
+                        buildDivider(),
+                        buildSwitchTile(
+                          title: '晚安问候',
+                          subtitle: '每晚睡前说晚安',
+                          value: _enableNightGreeting,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableNightGreeting = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启晚安问候' : '已关闭晚安问候');
+                          },
+                        ),
+                        if (_enableNightGreeting) ...[
+                          buildDivider(),
+                          buildTimeTile(
+                            title: '晚安时间',
+                            subtitle: '发送晚安的时间',
+                            time: _nightGreetingTime,
+                            isEnabled: _enableNightGreeting,
+                            onTap: () => _pickTime(isMorning: false),
+                          ),
+                        ],
+                        buildDivider(),
+                        buildSwitchTile(
+                          title: '节日祝福',
+                          subtitle: '重要节日发送祝福',
+                          value: _enableFestivalGreeting,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableFestivalGreeting = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启节日祝福' : '已关闭节日祝福');
+                          },
+                        ),
+                      ]),
+
+                      const SizedBox(height: 16),
+
+                      // 回复设置
+                      Text('回复行为',
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.primary)),
+                      const SizedBox(height: 8),
+                      buildSettingsCard(children: [
+                        buildSwitchTile(
+                          title: '手动回复模式',
+                          subtitle: '需要上滑才触发回复',
+                          value: _replyMode == ReplyMode.manual,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _replyMode =
+                                  v ? ReplyMode.manual : ReplyMode.normal;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启手动回复模式' : '已关闭手动回复模式');
+                          },
+                        ),
+                        buildDivider(),
+                        buildSwitchTile(
+                          title: '等待你回复提醒',
+                          subtitle: '长时间未回复时提醒你',
+                          value: _enableCareReminder,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableCareReminder = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启等待你回复提醒' : '已关闭等待你回复提醒');
+                          },
+                        ),
+                        buildDivider(),
+                        buildSwitchTile(
+                          title: 'AI 表情包回复',
+                          subtitle: '允许AI在回复中附带表情包',
+                          value: _enableStickerReply,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableStickerReply = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启AI表情包回复' : '已关闭AI表情包回复');
+                          },
+                        ),
+                        buildDivider(),
+                        buildSwitchTile(
+                          title: '主动设备操控',
+                          subtitle: '允许该角色在聊天中主动操控设备（仍受全局开关约束）',
+                          value: _enableProactiveDevice,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableProactiveDevice = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启主动设备操控' : '已关闭主动设备操控');
+                          },
+                        ),
+                        buildDivider(),
+                        buildSwitchTile(
+                          title: '允许读取通知',
+                          subtitle: '该角色可因好奇/查岗类动机读通知摘要',
+                          value: _enableReadNotifications,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableReadNotifications = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启允许读取通知' : '已关闭允许读取通知');
+                          },
+                        ),
+                        buildDivider(),
+                        buildSwitchTile(
+                          title: 'LLM 精炼欲望画像',
+                          subtitle: '人设变更时用模型分析动机权重（有缓存，非每轮）',
+                          value: _enableLlmDesireRefine,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableLlmDesireRefine = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启LLM精炼欲望画像' : '已关闭LLM精炼欲望画像');
+                          },
+                        ),
+                        if (_replyMode == ReplyMode.normal) ...[
+                          buildDivider(),
+                          buildNumberInputTile(
+                            title: '回复延迟',
+                            value: _replyDelaySeconds,
+                            suffixTag: '秒',
+                            description: '模拟打字时间的延迟',
+                            onChanged: (v) => setState(() {
+                              _dirty = true;
+                              _replyDelaySeconds = v.clamp(1, 30);
+                            }),
+                            onSubmitted: () => _saveSettingsWithFeedback(
+                                '回复延迟已保存为$_replyDelaySeconds秒'),
+                          ),
+                        ],
+                      ]),
+
+                      // AI 语音回复（始终显示，让用户自主选择）
+                      const SizedBox(height: 16),
+                      Text('语音回复',
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.primary)),
+                      const SizedBox(height: 8),
+                      buildSettingsCard(children: [
+                        buildSwitchTile(
+                          title: 'AI 语音回复',
+                          subtitle:
+                              VoiceCloneService().hasVoice(widget.character.id)
+                                  ? '开启后AI会发送语音消息（像微信语音条）'
+                                  : '尚未配置音色，请先上传音色样本',
+                          value: _voiceReplyEnabled,
+                          onChanged:
+                              VoiceCloneService().hasVoice(widget.character.id)
+                                  ? (v) async {
+                                      setState(() {
+                                        _dirty = true;
+                                        _voiceReplyEnabled = v;
+                                      });
+                                      await _saveSettingsWithFeedback(
+                                          v ? '已开启语音回复' : '已关闭语音回复');
+                                    }
+                                  : (_) {}, // 无音色时点击无效果
+                        ),
+                      ]),
+
+                      const SizedBox(height: 16),
+
+                      const SizedBox(height: 24),
+                      buildSaveButton(),
+                      const SizedBox(height: 32),
                     ],
-                    buildDivider(),
-                    buildSwitchTile(
-                      title: '朋友圈互动',
-                      subtitle: '发动态后TA会来点赞评论',
-                      value: _enableUserMomentInteraction,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableUserMomentInteraction = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启朋友圈互动' : '已关闭朋友圈互动');
-                      },
-                    ),
-                  ]),
-
-                  const SizedBox(height: 16),
-
-                  // 问候设置
-                  Text('定时问候',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: colorScheme.primary)),
-                  const SizedBox(height: 8),
-                  buildSettingsCard(children: [
-                    buildSwitchTile(
-                      title: '早安问候',
-                      subtitle: '每天早上向你问好',
-                      value: _enableMorningGreeting,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableMorningGreeting = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启早安问候' : '已关闭早安问候');
-                      },
-                    ),
-                    if (_enableMorningGreeting) ...[
-                      buildDivider(),
-                      buildTimeTile(
-                        title: '早安时间',
-                        subtitle: '发送早安的时间',
-                        time: _morningGreetingTime,
-                        isEnabled: _enableMorningGreeting,
-                        onTap: () => _pickTime(isMorning: true),
-                      ),
-                    ],
-                    buildDivider(),
-                    buildSwitchTile(
-                      title: '晚安问候',
-                      subtitle: '每晚睡前说晚安',
-                      value: _enableNightGreeting,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableNightGreeting = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启晚安问候' : '已关闭晚安问候');
-                      },
-                    ),
-                    if (_enableNightGreeting) ...[
-                      buildDivider(),
-                      buildTimeTile(
-                        title: '晚安时间',
-                        subtitle: '发送晚安的时间',
-                        time: _nightGreetingTime,
-                        isEnabled: _enableNightGreeting,
-                        onTap: () => _pickTime(isMorning: false),
-                      ),
-                    ],
-                    buildDivider(),
-                    buildSwitchTile(
-                      title: '节日祝福',
-                      subtitle: '重要节日发送祝福',
-                      value: _enableFestivalGreeting,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableFestivalGreeting = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启节日祝福' : '已关闭节日祝福');
-                      },
-                    ),
-                  ]),
-
-                  const SizedBox(height: 16),
-
-                  // 回复设置
-                  Text('回复行为',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: colorScheme.primary)),
-                  const SizedBox(height: 8),
-                  buildSettingsCard(children: [
-                    buildSwitchTile(
-                      title: '手动回复模式',
-                      subtitle: '需要上滑才触发回复',
-                      value: _replyMode == ReplyMode.manual,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _replyMode =
-                              v ? ReplyMode.manual : ReplyMode.normal;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启手动回复模式' : '已关闭手动回复模式');
-                      },
-                    ),
-                    buildDivider(),
-                    buildSwitchTile(
-                      title: '等待你回复提醒',
-                      subtitle: '长时间未回复时提醒你',
-                      value: _enableCareReminder,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableCareReminder = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启等待你回复提醒' : '已关闭等待你回复提醒');
-                      },
-                    ),
-                    buildDivider(),
-                    buildSwitchTile(
-                      title: 'AI 表情包回复',
-                      subtitle: '允许AI在回复中附带表情包',
-                      value: _enableStickerReply,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableStickerReply = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启AI表情包回复' : '已关闭AI表情包回复');
-                      },
-                    ),
-                    buildDivider(),
-                    buildSwitchTile(
-                      title: '主动设备操控',
-                      subtitle: '允许该角色在聊天中主动操控设备（仍受全局开关约束）',
-                      value: _enableProactiveDevice,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableProactiveDevice = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启主动设备操控' : '已关闭主动设备操控');
-                      },
-                    ),
-                    buildDivider(),
-                    buildSwitchTile(
-                      title: '允许读取通知',
-                      subtitle: '该角色可因好奇/查岗类动机读通知摘要',
-                      value: _enableReadNotifications,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableReadNotifications = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启允许读取通知' : '已关闭允许读取通知');
-                      },
-                    ),
-                    buildDivider(),
-                    buildSwitchTile(
-                      title: 'LLM 精炼欲望画像',
-                      subtitle: '人设变更时用模型分析动机权重（有缓存，非每轮）',
-                      value: _enableLlmDesireRefine,
-                      onChanged: (v) async {
-                        setState(() {
-                          _dirty = true;
-                          _enableLlmDesireRefine = v;
-                        });
-                        await _saveSettingsWithFeedback(
-                            v ? '已开启LLM精炼欲望画像' : '已关闭LLM精炼欲望画像');
-                      },
-                    ),
-                    if (_replyMode == ReplyMode.normal) ...[
-                      buildDivider(),
-                      buildNumberInputTile(
-                        title: '回复延迟',
-                        value: _replyDelaySeconds,
-                        suffixTag: '秒',
-                        description: '模拟打字时间的延迟',
-                        onChanged: (v) => setState(() {
-                          _dirty = true;
-                          _replyDelaySeconds = v.clamp(1, 30);
-                        }),
-                        onSubmitted: () => _saveSettingsWithFeedback(
-                            '回复延迟已保存为$_replyDelaySeconds秒'),
-                      ),
-                    ],
-                  ]),
-
-                  // AI 语音回复（始终显示，让用户自主选择）
-                  const SizedBox(height: 16),
-                  Text('语音回复',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: colorScheme.primary)),
-                  const SizedBox(height: 8),
-                  buildSettingsCard(children: [
-                    buildSwitchTile(
-                      title: 'AI 语音回复',
-                      subtitle:
-                          VoiceCloneService().hasVoice(widget.character.id)
-                              ? '开启后AI会发送语音消息（像微信语音条）'
-                              : '尚未配置音色，请先上传音色样本',
-                      value: _voiceReplyEnabled,
-                      onChanged:
-                          VoiceCloneService().hasVoice(widget.character.id)
-                              ? (v) async {
-                                  setState(() {
-                                    _dirty = true;
-                                    _voiceReplyEnabled = v;
-                                  });
-                                  await _saveSettingsWithFeedback(
-                                      v ? '已开启语音回复' : '已关闭语音回复');
-                                }
-                              : (_) {}, // 无音色时点击无效果
-                    ),
-                  ]),
-
-                  const SizedBox(height: 16),
-
-                  const SizedBox(height: 24),
-                  buildSaveButton(),
-                  const SizedBox(height: 32),
-                ],
+                  ),
+                ),
               ),
             ),
           ],
