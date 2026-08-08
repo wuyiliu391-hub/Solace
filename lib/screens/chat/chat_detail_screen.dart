@@ -5462,20 +5462,6 @@ class _MessageBubble extends StatelessWidget {
                             if (isAI && webSearchTrace is Map<String, dynamic>)
                               _WebSearchSection(trace: webSearchTrace),
                             if (isAI &&
-                                message.metadata?['toolTrace'] is List &&
-                                (message.metadata?['toolTrace'] as List)
-                                    .isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: ToolTraceCard(
-                                  traces: (message.metadata!['toolTrace']
-                                          as List)
-                                      .map((e) =>
-                                          Map<String, dynamic>.from(e as Map))
-                                      .toList(),
-                                ),
-                              ),
-                            if (isAI &&
                                 !isRecalled &&
                                 message.reasoning != null &&
                                 message.reasoning!.isNotEmpty)

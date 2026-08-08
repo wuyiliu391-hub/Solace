@@ -62,7 +62,10 @@ import 'tool_aware_service.dart';
 import 'chat_bloc_utils.dart';
 import 'chat_bloc_intimacy.dart';
 import '../../models/tool_task_state.dart';
+import '../../models/tool_intent_decision.dart';
 import '../../services/tool_permission_policy.dart';
+import '../../services/recent_tool_context.dart';
+import '../../services/tool_intent_planner.dart';
 import '../../services/workspace_intent_router.dart';
 import '../../services/workspace_service.dart';
 import '../../services/tool_task_store.dart';
@@ -159,6 +162,25 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   final WellbeingService _wellbeing = WellbeingService();
 
   bool _isAIRefusal(String content) => isAIRefusal(content);
+
+  bool _containsAuthoritativeFact(String text, String result) {
+    final numbers = RegExp(r'\d+(?:[.,]\d+)?')
+        .allMatches(result)
+        .map((match) => match.group(0)!)
+        .toList();
+    if (numbers.isNotEmpty && numbers.any((number) => !text.contains(number))) {
+      return false;
+    }
+    final factWords = <String>[
+      if (result.contains('充电中')) '充电中',
+      if (result.contains('已充满')) '已充满',
+      if (result.contains('未充电')) '未充电',
+      if (result.contains('交流电')) '交流电',
+      if (result.contains('USB')) 'USB',
+      if (result.contains('无线充电')) '无线充电',
+    ];
+    return factWords.every(text.contains);
+  }
 
   String _toolStatusText(ToolProcessingState state) {
     switch (state) {
@@ -2525,9 +2547,57 @@ $tail
         '[DeviceIntent] kind=${deviceIntent.kind.name} reason=${deviceIntent.reason} '
         'content="${event.content}"',
       );
-      final deterministicRoute = deviceIntent.usesDeterministicRoute
+      final recentTool = RecentToolContext.fromMessages(chatMsgs);
+      var deterministicRoute = deviceIntent.usesDeterministicRoute
           ? DeterministicDeviceRouter.match(event.content)
           : null;
+      ToolIntentDecision? semanticIntent;
+      if (deterministicRoute == null &&
+          recentTool != null &&
+          RecentToolContext.isContinuationRequest(event.content)) {
+        deterministicRoute = DeterministicDeviceRoute(
+          toolName: recentTool.toolName,
+          args: recentTool.args,
+        );
+        LogService.instance.i(
+          'ToolContinuation',
+          '本地续接 ${recentTool.toolName} args=${recentTool.args}',
+          chatId: event.chatId,
+        );
+      }
+      if (deterministicRoute == null) {
+        if (ToolIntentPlanner.shouldPlan(event.content, recentTool)) {
+          final planner = ToolIntentPlanner(
+            llm: LlmService(settings: await _loadLlmSettings()),
+            registry: _toolRegistry,
+          );
+          semanticIntent = await planner.plan(
+            message: event.content,
+            recentMessages: chatMsgs,
+            recentTool: recentTool,
+          );
+          LogService.instance.i(
+            'ToolIntentPlanner',
+            'decision=${semanticIntent.kind.name} tool=${semanticIntent.toolName} '
+                'confidence=${semanticIntent.confidence} reason=${semanticIntent.reason}',
+            chatId: event.chatId,
+          );
+          if ((semanticIntent.kind == ToolIntentKind.directTool ||
+                  semanticIntent.kind == ToolIntentKind.continueToolTask) &&
+              semanticIntent.toolName != null) {
+            deterministicRoute = DeterministicDeviceRoute(
+              toolName: semanticIntent.toolName!,
+              args: semanticIntent.args,
+            );
+          } else if (semanticIntent.kind ==
+                  ToolIntentKind.clarificationRequired ||
+              semanticIntent.kind == ToolIntentKind.confirmationRequired) {
+            aiVisibleText = '我大概明白你的意思了，但这一步需要你把目标说得更具体一点。';
+          } else if (semanticIntent.kind == ToolIntentKind.notAllowed) {
+            aiVisibleText = '这项操作我不能在没有明确确认的情况下替你执行。';
+          }
+        }
+      }
       if (deterministicRoute != null) {
         deviceRequestAttempted = true;
         debugPrint(
@@ -2539,7 +2609,7 @@ $tail
         );
         try {
           final policy = DeviceActionPolicy.instance;
-          if (!policy.allow(event.chatId)) {
+          if (!policy.allowTool(event.chatId, deterministicRoute.toolName)) {
             debugPrint(
                 '[DeterministicRoute] 频控拒绝 ${deterministicRoute.toolName}');
             aiVisibleText = '操作过快，请稍后再试。';
@@ -2605,6 +2675,7 @@ $tail
               status: MessageStatus.sent,
               createdAt: DateTime.now(),
               isUser: false,
+              isSystem: true,
               metadata: {
                 'isToolTrace': true,
                 'toolTrace': executionTrace,
@@ -2631,7 +2702,9 @@ $tail
       final bool isWorkspaceRequest =
           WorkspaceIntentRouter.isTask(event.content);
       final bool isToolRequest = !agentHadTool &&
-          (deviceIntent.kind == DeviceIntentKind.agent || isWorkspaceRequest);
+          (deviceIntent.kind == DeviceIntentKind.agent ||
+              isWorkspaceRequest ||
+              semanticIntent?.kind == ToolIntentKind.agentToolTask);
 
       if (isToolRequest) {
         deviceRequestAttempted = true;
@@ -2868,37 +2941,10 @@ $tail
           toolExecutions = records;
           agentHadTool = hadTools;
 
-          // 保存工具执行记录
-          if (toolExecutions.isNotEmpty) {
-            final executionTrace =
-                toolExecutions.map((e) => e.toTraceJson()).toList();
-
-            final traceMsg = ChatMessage(
-              id: _uuid.v4(),
-              chatId: event.chatId,
-              senderId: 'system_tool',
-              senderName: '工具执行',
-              content: '执行了 ${toolExecutions.length} 个工具',
-              type: MessageType.system,
-              status: MessageStatus.sent,
-              createdAt: DateTime.now(),
-              isUser: false,
-              metadata: {
-                'isToolTrace': true,
-                'toolTrace': executionTrace,
-              },
-            );
-            await _storage.saveChatMessage(traceMsg);
-
-            LogService.instance.i(
-                'ToolAware', '工具执行完成: ${toolExecutions.length} 个工具',
-                chatId: event.chatId);
-          }
-
-          // 工具执行后如果没有文本回复，生成默认回复
+          // 工具执行后的最终文字统一交给梦角收尾管线生成；这里不再写入
+          // 通用 Agent 成功话术，避免工具面板和角色气泡割裂。
           if (aiVisibleText.trim().isEmpty && agentHadTool) {
-            final ok = toolExecutions.any((e) => e.result.success);
-            aiVisibleText = ok ? '好的，已经帮你处理好了。' : '抱歉，操作未能成功完成。';
+            aiVisibleText = '';
           }
 
           // 如果 LLM 没有调用任何工具，说明模型不配合，重试一次更强制提示
@@ -2948,6 +2994,32 @@ $tail
           }
 
           _chatProcessingState = ChatProcessingState.completed;
+          if (toolExecutions.isNotEmpty) {
+            final executionTrace =
+                toolExecutions.map((e) => e.toTraceJson()).toList();
+            await _storage.saveChatMessage(ChatMessage(
+              id: _uuid.v4(),
+              chatId: event.chatId,
+              senderId: 'system_tool',
+              senderName: '工具执行',
+              content: '执行了 ${toolExecutions.length} 个工具',
+              type: MessageType.system,
+              status: MessageStatus.sent,
+              createdAt: DateTime.now(),
+              isUser: false,
+              isSystem: true,
+              metadata: {
+                'isToolTrace': true,
+                'toolTrace': executionTrace,
+              },
+            ));
+            LogService.instance.i(
+              'ToolAware',
+              '工具执行完成: ${toolExecutions.length} 个工具',
+              chatId: event.chatId,
+            );
+          }
+
           persistedTask = persistedTask.copyWith(
             status: _cancelledToolTasks.contains(event.chatId)
                 ? ToolTaskStatus.cancelled
@@ -3072,8 +3144,8 @@ $tail
       }
 
       // 本地工具的执行记录是事实源；角色只负责把真实结果融入关系语境。
-      if ((deterministicRoute != null || isWorkspaceRequest) &&
-          toolExecutions.isNotEmpty) {
+      if (toolExecutions.isNotEmpty &&
+          (deterministicRoute != null || isWorkspaceRequest || agentHadTool)) {
         final record = authoritativeRecord ?? toolExecutions.first;
         final resultContext = '''
 【工作任务真实结果】
@@ -3108,15 +3180,14 @@ ${hasAuthoritativeDeviceResult ? '这是设备 API 返回的硬事实。回复�
           );
           final feedbackText = feedback.cleanText.trim();
           final containsAuthoritativeFact = !hasAuthoritativeDeviceResult ||
-              feedbackText.contains(record.result.message);
+              _containsAuthoritativeFact(feedbackText, record.result.message);
           if (feedbackText.isNotEmpty && containsAuthoritativeFact) {
             aiVisibleText = feedback.cleanText;
             reasoningText = feedback.reasoning;
           } else if (hasAuthoritativeDeviceResult) {
-            // A model that drops or changes a device fact must not become the
-            // final response. Keep a small in-character fallback instead.
-            aiVisibleText = '${character.name}刚替你看过了，${record.result.message}。'
-                '我会记着，别让自己撑得太累。';
+            // Preserve the real result if the character model omits or changes
+            // a hard fact; do not invent a second canned relationship reply.
+            aiVisibleText = record.result.message;
           }
         } catch (e, stack) {
           LogService.instance.e(
@@ -3127,11 +3198,17 @@ ${hasAuthoritativeDeviceResult ? '这是设备 API 返回的硬事实。回复�
         }
       }
 
-      // ?? ??????????? ??
       if (aiVisibleText.trim().isEmpty) {
-        LogService.instance.w('ChatBloc', '_onSendMessage: AI ?????????????',
-            chatId: event.chatId);
-        aiVisibleText = '???????????????????????';
+        LogService.instance.w(
+          'ChatBloc',
+          '_onSendMessage: AI response was empty',
+          chatId: event.chatId,
+        );
+        final completedRecord = toolExecutions.firstOrNull;
+        aiVisibleText =
+            completedRecord?.result.message.trim().isNotEmpty == true
+                ? completedRecord!.result.message
+                : '我还没能把这件事处理好，我们再试一次。';
       }
 
       // ?? ???? AI ???? ??
@@ -3148,8 +3225,6 @@ ${hasAuthoritativeDeviceResult ? '这是设备 API 返回的硬事实。回复�
         reasoning: reasoningText.isNotEmpty ? reasoningText : null,
         metadata: {
           if (agentHadTool) 'isAutoGlmSummary': true,
-          if (toolExecutions.isNotEmpty)
-            'toolTrace': toolExecutions.map((e) => e.toTraceJson()).toList(),
         },
       );
 
@@ -5454,15 +5529,34 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       final success =
           records.isNotEmpty && records.any((e) => e.result.success);
 
+      // 工具详情只保存为独立系统面板，避免与角色气泡重复渲染。
+      if (records.isNotEmpty) {
+        final executionTrace = records.map((e) => e.toTraceJson()).toList();
+        await _storage.saveChatMessage(ChatMessage(
+          id: _uuid.v4(),
+          chatId: event.chatId,
+          senderId: 'system_tool',
+          senderName: '工具执行',
+          content: '执行了 ${records.length} 个工具',
+          type: MessageType.system,
+          status: MessageStatus.sent,
+          createdAt: DateTime.now(),
+          isUser: false,
+          isSystem: true,
+          metadata: {
+            'isToolTrace': true,
+            'toolTrace': executionTrace,
+          },
+        ));
+      }
+
       // 保存 AI 总结消息
       if (hadTools || finalText.isNotEmpty) {
         final aiContent = finalText.isNotEmpty
             ? finalText
-            : success
-                ? '已完成任务: ${event.task}'
-                : '任务未完全成功';
-
-        final executionTrace = records.map((e) => e.toTraceJson()).toList();
+            : records.firstOrNull?.result.message.trim().isNotEmpty == true
+                ? records.first.result.message
+                : (success ? '这件事已经处理好了。' : '这件事没有成功完成。');
 
         // 保存工具执行的 AI 总结
         final aiName = character?.name ?? 'AI';
@@ -5481,7 +5575,6 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
             'task': event.task,
             'success': success,
             'executionCount': records.length,
-            'toolTrace': executionTrace,
           },
         );
         await _storage.saveChatMessage(summaryMsg);

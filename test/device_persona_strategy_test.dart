@@ -56,4 +56,13 @@ void main() {
     expect(fb!.contains('80%'), isTrue);
     expect(p.consumeFeedback(sid), isNull);
   });
+
+  test('read refresh uses the short cooldown', () {
+    final p = DeviceActionPolicy.instance;
+    const sid = 'test-session-read-refresh';
+    expect(p.allowTool(sid, 'get_battery_info'), isTrue);
+    p.markSuccess(sid);
+    expect(p.allowTool(sid, 'get_battery_info'), isFalse);
+    expect(p.allowTool(sid, 'open_app'), isFalse);
+  });
 }

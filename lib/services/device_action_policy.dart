@@ -7,6 +7,7 @@ class DeviceActionPolicy {
 
   static const int maxActionsPerHour = 12;
   static const Duration coolDown = Duration(seconds: 15);
+  static const Duration readCoolDown = Duration(seconds: 1);
 
   /// sessionId -> 成功时间戳
   final Map<String, List<DateTime>> _recentSuccess = {};
@@ -19,6 +20,7 @@ class DeviceActionPolicy {
     'get_current_app',
     'get_installed_apps',
     'get_app_usage_time',
+    'get_processes',
     'get_notifications',
     'get_notification_count',
     'take_screenshot',
@@ -37,6 +39,20 @@ class DeviceActionPolicy {
     _recentSuccess[sessionId] = list;
     if (list.length >= maxActionsPerHour) return false;
     if (list.isNotEmpty && now.difference(list.last) < coolDown) return false;
+    return true;
+  }
+
+  bool allowTool(String sessionId, String toolName) {
+    final now = DateTime.now();
+    final list = _recentSuccess[sessionId] ?? [];
+    list.removeWhere((t) => now.difference(t) > const Duration(hours: 1));
+    _recentSuccess[sessionId] = list;
+    if (list.length >= maxActionsPerHour) return false;
+    if (list.isNotEmpty &&
+        now.difference(list.last) <
+            (isReadTool(toolName) ? readCoolDown : coolDown)) {
+      return false;
+    }
     return true;
   }
 
