@@ -185,7 +185,14 @@ class DeterministicDeviceRouter {
     }
 
     // ─── 应用信息 ───
-    if (RegExp(r'(已安装|安装.*应用|应用列表|装了.*应用|有哪些.*应用|列出.*应用)').hasMatch(lower)) {
+    if (RegExp(r'(已安装|安装.*应用|应用列表|装了.*应用|有哪些.*应用|列出.*应用)').hasMatch(lower) ||
+        RegExp(r'(手机|设备).*(装了|安装了|安装).*(什么|啥|东西|软件|应用|app)')
+            .hasMatch(lower) ||
+        RegExp(r'(看看|查看|检查).*(手机|设备).*(有什么|装了|安装|下载)')
+            .hasMatch(lower) ||
+        RegExp(r'((看看|查看).*)?(装了|安装了).*(什么|啥|东西|软件|应用|app)')
+            .hasMatch(lower) ||
+        RegExp(r'(有哪些|有什么).*(应用|app|软件)').hasMatch(lower)) {
       return const DeterministicDeviceRoute(
         toolName: 'get_installed_apps',
         args: {},

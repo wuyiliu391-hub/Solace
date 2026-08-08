@@ -292,7 +292,7 @@ class _ToolResultCardState extends State<ToolResultCard>
 ///
 /// 每条记录显示：工具图标 + 工具名 + 成功/失败状态
 /// 嵌入在系统消息中，居中展示，紧凑风格
-class ToolTraceCard extends StatelessWidget {
+class ToolTraceCard extends StatefulWidget {
   /// 工具执行记录列表
   /// 每条记录包含 'tool' (String) 和 'success' (bool) 字段
   final List<Map<String, dynamic>> traces;
@@ -300,9 +300,17 @@ class ToolTraceCard extends StatelessWidget {
   const ToolTraceCard({super.key, required this.traces});
 
   @override
+  State<ToolTraceCard> createState() => _ToolTraceCardState();
+}
+
+class _ToolTraceCardState extends State<ToolTraceCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final traces = widget.traces;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -320,52 +328,86 @@ class ToolTraceCard extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 标题行
-          Row(
-            children: [
-              Icon(Icons.build_circle_outlined,
-                  size: 14, color: colorScheme.primary),
-              const SizedBox(width: 6),
-              Text(
-                '工具执行 (${traces.length})',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: colorScheme.primary,
+          // 标题行 - 可点击折叠/展开
+          GestureDetector(
+            onTap: () => setState(() => _expanded = !_expanded),
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                Icon(Icons.build_circle_outlined,
+                    size: 14, color: colorScheme.primary),
+                const SizedBox(width: 6),
+                Text(
+                  '工具执行 (${traces.length})',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const Spacer(),
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 16,
+                  color: colorScheme.onSurface.withOpacity(0.4),
+                ),
+              ],
+            ),
+          ),
+          if (_expanded) ...[
+            const SizedBox(height: 6),
+            // 多条 trace 需要约束最大高度避免溢出
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 400),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ...traces.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final trace = entry.value;
+                      final toolName = trace['tool'] as String? ?? '未知工具';
+                      final success = trace['success'] as bool? ?? false;
+                      final icon = ToolResultCard.inferToolIcon(toolName);
+                      final args = trace['args'];
+                      final detail = _safeDetailText(trace, args);
+
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: ToolResultCard(
+                          toolName: '步骤 ${index + 1} · $toolName',
+                          summary: (trace['result'] ?? '无结果').toString(),
+                          isSuccess: success,
+                          detail: detail,
+                          icon: icon,
+                        ),
+                      );
+                    }),
+                  ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          // 每条工具记录
-          ...traces.asMap().entries.map((entry) {
-            final index = entry.key;
-            final trace = entry.value;
-            final toolName = trace['tool'] as String? ?? '未知工具';
-            final success = trace['success'] as bool? ?? false;
-            final icon = ToolResultCard.inferToolIcon(toolName);
-            final args = trace['args'];
-            final detail = [
-              if (args != null) '参数：$args',
-              if ((trace['result'] ?? '').toString().isNotEmpty)
-                '结果：${trace['result']}',
-              if (trace['duration_ms'] != null) '耗时：${trace['duration_ms']} ms',
-              if (trace['error_code'] != null) '错误码：${trace['error_code']}',
-            ].join('\n');
-
-            return Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: ToolResultCard(
-                toolName: '步骤 ${index + 1} · $toolName',
-                summary: (trace['result'] ?? '无结果').toString(),
-                isSuccess: success,
-                detail: detail,
-                icon: icon,
-              ),
-            );
-          }),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  String _safeDetailText(Map<String, dynamic> trace, dynamic args) {
+    try {
+      final parts = <String>[];
+      if (args != null) parts.add('参数：$args');
+      final result = trace['result'];
+      if (result != null && result.toString().isNotEmpty) {
+        parts.add('结果：${result}');
+      }
+      final duration = trace['duration_ms'];
+      if (duration != null) parts.add('耗时：$duration ms');
+      final errorCode = trace['error_code'];
+      if (errorCode != null) parts.add('错误码：$errorCode');
+      return parts.join('\n');
+    } catch (_) {
+      return '';
+    }
   }
 }

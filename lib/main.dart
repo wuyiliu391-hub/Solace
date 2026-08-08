@@ -65,12 +65,20 @@ import 'services/pure_ai_service.dart';
 import 'services/emotion_engine.dart';
 import 'services/memory_engine.dart';
 import 'services/core_hub.dart';
+import 'package:intl/intl.dart';
 import 'services/usage_meter_service.dart';
 import 'services/memory_rebuild_service.dart';
 import 'services/background_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  Intl.defaultLocale = 'zh_CN';
+  try {
+    await initializeDateFormatting('zh_CN')
+        .timeout(const Duration(seconds: 5));
+  } catch (e) {
+    debugPrint('初始化日期区域失败: $e');
+  }
 
   // 全局错误兜底：防止控件构建异常导致空白灰屏
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -132,13 +140,6 @@ void main() async {
 
   // 以下全部是非关键服务，延迟初始化以加速首屏渲染
   Future.delayed(const Duration(seconds: 3), () async {
-    try {
-      await initializeDateFormatting('zh_CN')
-          .timeout(const Duration(seconds: 3));
-    } catch (e) {
-      debugPrint('初始化日期区域失败: $e');
-    }
-
     UsageMeterService.instance.warmUp().catchError((e) {
       debugPrint('用量服务预热失败: $e');
     });

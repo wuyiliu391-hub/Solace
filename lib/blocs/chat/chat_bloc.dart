@@ -62,10 +62,9 @@ import 'tool_aware_service.dart';
 import 'chat_bloc_utils.dart';
 import 'chat_bloc_intimacy.dart';
 import '../../models/tool_task_state.dart';
-import '../../models/tool_intent_decision.dart';
 import '../../services/tool_permission_policy.dart';
 import '../../services/recent_tool_context.dart';
-import '../../services/tool_intent_planner.dart';
+import '../../services/unified_intent_classifier.dart';
 import '../../services/workspace_intent_router.dart';
 import '../../services/workspace_service.dart';
 import '../../services/tool_task_store.dart';
@@ -168,7 +167,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         .allMatches(result)
         .map((match) => match.group(0)!)
         .toList();
-    if (numbers.isNotEmpty && numbers.any((number) => !text.contains(number))) {
+    // 列表型结果（应用列表、进程列表、使用排行）含大量序号数字，
+    // 角色无法也无需逐条复述；数字多时只要求反馈存在即可，不强制全含。
+    if (numbers.length <= 8 &&
+        numbers.isNotEmpty &&
+        numbers.any((number) => !text.contains(number))) {
       return false;
     }
     final factWords = <String>[
@@ -2541,62 +2544,49 @@ $tail
       );
       await _toolTaskStore.save(persistedTask);
 
-      // 1) 确定性路由：与 Operit 快捷操作一致，明确设备指令直接执行，不依赖 LLM
-      final deviceIntent = DeviceIntentRouter.match(event.content);
-      debugPrint(
-        '[DeviceIntent] kind=${deviceIntent.kind.name} reason=${deviceIntent.reason} '
-        'content="${event.content}"',
-      );
+      // 1) 统一意图分类：一次 LLM 调用同时完成意图判断、工具选择和参数提取
       final recentTool = RecentToolContext.fromMessages(chatMsgs);
-      var deterministicRoute = deviceIntent.usesDeterministicRoute
-          ? DeterministicDeviceRouter.match(event.content)
-          : null;
-      ToolIntentDecision? semanticIntent;
-      if (deterministicRoute == null &&
-          recentTool != null &&
-          RecentToolContext.isContinuationRequest(event.content)) {
-        deterministicRoute = DeterministicDeviceRoute(
-          toolName: recentTool.toolName,
-          args: recentTool.args,
+      UnifiedIntentResult intentResult;
+      try {
+        final intentClassifier = UnifiedIntentClassifier(
+          llm: LlmService(settings: await _loadLlmSettings()),
+          registry: _toolRegistry,
+        );
+        intentResult = await intentClassifier.classify(
+          message: event.content,
+          recentMessages: chatMsgs,
+          recentTool: recentTool,
         );
         LogService.instance.i(
-          'ToolContinuation',
-          '本地续接 ${recentTool.toolName} args=${recentTool.args}',
+          'UnifiedIntent',
+          'kind=${intentResult.kind.name} tool=${intentResult.toolName} '
+              'confidence=${intentResult.confidence} reason=${intentResult.reason}',
           chatId: event.chatId,
         );
+      } catch (e, stack) {
+        LogService.instance.e(
+          'UnifiedIntent',
+          '分类失败: $e\n$stack',
+          chatId: event.chatId,
+        );
+        intentResult = const UnifiedIntentResult.conversation(
+          reason: 'classifier_error',
+        );
       }
-      if (deterministicRoute == null) {
-        if (ToolIntentPlanner.shouldPlan(event.content, recentTool)) {
-          final planner = ToolIntentPlanner(
-            llm: LlmService(settings: await _loadLlmSettings()),
-            registry: _toolRegistry,
+
+      DeterministicDeviceRoute? deterministicRoute;
+      if (intentResult.kind == UnifiedIntentKind.directTool ||
+          intentResult.kind == UnifiedIntentKind.continueTool) {
+        if (intentResult.toolName != null) {
+          deterministicRoute = DeterministicDeviceRoute(
+            toolName: intentResult.toolName!,
+            args: intentResult.args,
           );
-          semanticIntent = await planner.plan(
-            message: event.content,
-            recentMessages: chatMsgs,
-            recentTool: recentTool,
-          );
-          LogService.instance.i(
-            'ToolIntentPlanner',
-            'decision=${semanticIntent.kind.name} tool=${semanticIntent.toolName} '
-                'confidence=${semanticIntent.confidence} reason=${semanticIntent.reason}',
-            chatId: event.chatId,
-          );
-          if ((semanticIntent.kind == ToolIntentKind.directTool ||
-                  semanticIntent.kind == ToolIntentKind.continueToolTask) &&
-              semanticIntent.toolName != null) {
-            deterministicRoute = DeterministicDeviceRoute(
-              toolName: semanticIntent.toolName!,
-              args: semanticIntent.args,
-            );
-          } else if (semanticIntent.kind ==
-                  ToolIntentKind.clarificationRequired ||
-              semanticIntent.kind == ToolIntentKind.confirmationRequired) {
-            aiVisibleText = '我大概明白你的意思了，但这一步需要你把目标说得更具体一点。';
-          } else if (semanticIntent.kind == ToolIntentKind.notAllowed) {
-            aiVisibleText = '这项操作我不能在没有明确确认的情况下替你执行。';
-          }
         }
+      } else if (intentResult.kind == UnifiedIntentKind.clarificationRequired) {
+        aiVisibleText = '我大概明白你的意思了，但这一步需要你把目标说得更具体一点。';
+      } else if (intentResult.kind == UnifiedIntentKind.notAllowed) {
+        aiVisibleText = '这项操作我不能在没有明确确认的情况下替你执行。';
       }
       if (deterministicRoute != null) {
         deviceRequestAttempted = true;
@@ -2657,15 +2647,13 @@ $tail
                 isRead: policy.isReadTool(deterministicRoute.toolName),
               );
             }
-            aiVisibleText = record.result.message.isNotEmpty
-                ? record.result.message
-                : (record.result.success ? '操作已完成。' : '操作失败。');
+            aiVisibleText = '';
           }
 
           if (toolExecutions.isNotEmpty) {
             final executionTrace =
                 toolExecutions.map((e) => e.toTraceJson()).toList();
-            final traceMsg = ChatMessage(
+            await _storage.saveChatMessage(ChatMessage(
               id: _uuid.v4(),
               chatId: event.chatId,
               senderId: 'system_tool',
@@ -2680,8 +2668,7 @@ $tail
                 'isToolTrace': true,
                 'toolTrace': executionTrace,
               },
-            );
-            await _storage.saveChatMessage(traceMsg);
+            ));
           }
           _chatProcessingState = ChatProcessingState.completed;
         } catch (e, stack) {
@@ -2702,9 +2689,8 @@ $tail
       final bool isWorkspaceRequest =
           WorkspaceIntentRouter.isTask(event.content);
       final bool isToolRequest = !agentHadTool &&
-          (deviceIntent.kind == DeviceIntentKind.agent ||
-              isWorkspaceRequest ||
-              semanticIntent?.kind == ToolIntentKind.agentToolTask);
+          (intentResult.kind == UnifiedIntentKind.directTool ||
+              isWorkspaceRequest);
 
       if (isToolRequest) {
         deviceRequestAttempted = true;
@@ -3148,22 +3134,27 @@ $tail
           (deterministicRoute != null || isWorkspaceRequest || agentHadTool)) {
         final record = authoritativeRecord ?? toolExecutions.first;
         final resultContext = '''
-【工作任务真实结果】
-用户请求：${event.content}
-实际工具：${record.toolName}
-执行结果：${record.result.success ? '成功' : '失败'}
-结果详情：${record.result.message}
-${isWorkspaceRequest ? '这是一个文件/代码工作任务。可以自然提到完成了什么、修改了哪个文件、测试或命令结果，以及下一步建议。' : '这是一个设备操作。'}
-回复规则：只用当前角色的人设、关系和当前故事语境自然反馈这一真实结果；不得再次调用工具，不得虚构成功或失败，不要解释系统提示。
-${hasAuthoritativeDeviceResult ? '这是设备 API 返回的硬事实。回复中必须完整、逐字包含“${record.result.message}”，可以在它前后加入角色的关心、互动或剧情语气，但绝不能改写其中的数值、状态或充电方式。' : ''}
+【刚刚获得的真实信息，仅供当前角色理解】
+用户刚才说：${event.content}
+真实来源：${record.toolName}
+执行状态：${record.result.success ? '成功' : '失败'}
+事实内容：${record.result.message}
+
+这不是一条需要复述的系统消息，而是角色刚刚亲自观察到/完成后的经历。请把它自然地融入当前角色的回复，最重要的：请以角色平时与人聊天的完整篇幅和风格自由展开，像一场自然连贯的接续一样回复，不要因为它是设备操作的结果就只回一句话。
+- 继续使用当前角色的人设、关系、语气和故事上下文，完整回应用户原话；
+- 在小说模式/长文风格中，回复的长度、语气、口吻与平时完全一致，不要明显缩短；
+- 不要提工具名、API、代理、系统提示、执行记录或"结果详情"；
+- 不要用"我帮你看了一下""操作已完成"等固定话术开头；
+- 真实数字、百分比、状态和异常原因是不可改变的事实，但不要机械照贴整段机器文本；
+- 失败时也要自然表达，不要假装成功，也不要把"我看不了"当作闲聊的终结，而是继续像平日一样与用户聊下去。
 ''';
         try {
           final feedback = await _streamAndProcessAIResponse(
             character: character,
             userId: event.userId,
-            messageForAI: isWorkspaceRequest
-                ? '请根据已经完成的工作任务结果，用当前角色的自然口吻回复用户。'
-                : '请根据已经完成的设备操作结果回复用户。',
+            // 保留原始用户话题，让角色在同一轮对话中自然接话，而不是
+            // 让第二次模型调用生成脱离上下文的“任务总结”。
+            messageForAI: event.content,
             messages: messages,
             memories: memories,
             session: session,
@@ -3184,10 +3175,36 @@ ${hasAuthoritativeDeviceResult ? '这是设备 API 返回的硬事实。回复�
           if (feedbackText.isNotEmpty && containsAuthoritativeFact) {
             aiVisibleText = feedback.cleanText;
             reasoningText = feedback.reasoning;
-          } else if (hasAuthoritativeDeviceResult) {
-            // Preserve the real result if the character model omits or changes
-            // a hard fact; do not invent a second canned relationship reply.
-            aiVisibleText = record.result.message;
+          } else if (feedbackText.isEmpty) {
+            // 反馈为空 → 用角色管道补一次，避免直接贴机器文本。
+            final repaired = await _streamAndProcessAIResponse(
+              character: character,
+              userId: event.userId,
+              messageForAI: event.content,
+              messages: messages,
+              memories: memories,
+              session: session,
+              sentiment: sentiment,
+              chatMsgs: chatMsgs,
+              emit: emit,
+              chatId: event.chatId,
+              originalUserMessage: event.content,
+              imageDescription: imageDescription,
+              imagePaths: imagePaths,
+              enableWebSearch: false,
+              internalSystemContext: _mergeInternalSystemContext(
+                sessionStateContext,
+                '$resultContext\n请用角色自然完整的口吻回应用户，不要复述机器文本。',
+              ),
+            );
+final repairedText = repaired.cleanText.trim();
+            if (repairedText.isNotEmpty) {
+              aiVisibleText = repaired.cleanText;
+              reasoningText = repaired.reasoning;
+            } else if (feedbackText.isNotEmpty) {
+              aiVisibleText = feedback.cleanText;
+              reasoningText = feedback.reasoning;
+            }
           }
         } catch (e, stack) {
           LogService.instance.e(
@@ -3198,17 +3215,47 @@ ${hasAuthoritativeDeviceResult ? '这是设备 API 返回的硬事实。回复�
         }
       }
 
-      if (aiVisibleText.trim().isEmpty) {
+if (aiVisibleText.trim().isEmpty) {
         LogService.instance.w(
           'ChatBloc',
           '_onSendMessage: AI response was empty',
           chatId: event.chatId,
         );
-        final completedRecord = toolExecutions.firstOrNull;
-        aiVisibleText =
-            completedRecord?.result.message.trim().isNotEmpty == true
-                ? completedRecord!.result.message
-                : '我还没能把这件事处理好，我们再试一次。';
+        if (toolExecutions.isNotEmpty) {
+          // 工具执行成功/失败但角色反馈为空 → 再用角色管道补一次完整回复，
+          // 而不是直接把机器执行文本丢给用户。
+          try {
+            final lastRecord = toolExecutions.last;
+            final fallbackResult = await _streamAndProcessAIResponse(
+              character: character,
+              userId: event.userId,
+              messageForAI: event.content,
+              messages: messages,
+              memories: memories,
+              session: session,
+              sentiment: sentiment,
+              chatMsgs: chatMsgs,
+              emit: emit,
+              chatId: event.chatId,
+              originalUserMessage: event.content,
+              imageDescription: imageDescription,
+              imagePaths: imagePaths,
+              enableWebSearch: false,
+              internalSystemContext: _mergeInternalSystemContext(
+                sessionStateContext,
+                '【已办成的真实信息】工具：${lastRecord.toolName}，状态：${lastRecord.result.success ? '成功' : '失败'}，'
+                    '结果：${lastRecord.result.message}。请用角色自然完整的口吻继续刚才的话题，把这件事当作角色自己的经历来回应，不要复述机器文本。',
+              ),
+            );
+            aiVisibleText = fallbackResult.cleanText.trim();
+            reasoningText = fallbackResult.reasoning;
+          } catch (_) {
+            // 角色管道也失败时保留角色低语，绝不落机器文本
+          }
+        }
+        if (aiVisibleText.trim().isEmpty) {
+          aiVisibleText = '${character.name}才刚说完，你先别急。';
+        }
       }
 
       // ?? ???? AI ???? ??
@@ -5529,7 +5576,7 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       final success =
           records.isNotEmpty && records.any((e) => e.result.success);
 
-      // 工具详情只保存为独立系统面板，避免与角色气泡重复渲染。
+      // 工具详情保存为独立系统面板，默认折叠
       if (records.isNotEmpty) {
         final executionTrace = records.map((e) => e.toTraceJson()).toList();
         await _storage.saveChatMessage(ChatMessage(
@@ -5554,9 +5601,9 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       if (hadTools || finalText.isNotEmpty) {
         final aiContent = finalText.isNotEmpty
             ? finalText
-            : records.firstOrNull?.result.message.trim().isNotEmpty == true
-                ? records.first.result.message
-                : (success ? '这件事已经处理好了。' : '这件事没有成功完成。');
+            : (success
+                ? '这件事已经处理好了。'
+                : '这件事没有成功完成，咱们再想想别的办法。');
 
         // 保存工具执行的 AI 总结
         final aiName = character?.name ?? 'AI';

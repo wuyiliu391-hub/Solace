@@ -1090,7 +1090,9 @@ class _ChatListTileState extends State<_ChatListTile> {
     } else if (messageDate == today.subtract(const Duration(days: 1))) {
       return '昨天';
     } else if (now.difference(time).inDays < 7) {
-      return DateFormat('E', 'zh_CN').format(time);
+      // 纯 Dart 计算星期几，避免依赖 intl locale data 初始化时序
+      const weekNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+      return weekNames[time.weekday - 1];
     } else {
       return DateFormat('MM/dd').format(time);
     }

@@ -5143,12 +5143,15 @@ class _MessageBubble extends StatelessWidget {
         final toolTrace = message.metadata?['toolTrace'];
         if (toolTrace is List && toolTrace.isNotEmpty) {
           final traces = toolTrace
-              .map((e) => Map<String, dynamic>.from(e as Map))
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
               .toList();
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: _hPad),
-            child: Center(child: ToolTraceCard(traces: traces)),
-          );
+          if (traces.isNotEmpty) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: _hPad),
+              child: Center(child: ToolTraceCard(traces: traces)),
+            );
+          }
         }
       }
       return Padding(
