@@ -117,6 +117,18 @@ void main() {
     expect(RecentToolContext.isContinuationRequest('不用再看了'), isFalse);
   });
 
+  test('detail-follow-up phrases are treated as continuation', () {
+    for (final message in [
+      '具体有什么 爸爸可以告诉我吗',
+      '详细说说什么情况',
+      '还有哪些要看看的',
+    ]) {
+      expect(RecentToolContext.isContinuationRequest(message), isTrue,
+          reason: message);
+    }
+    expect(RecentToolContext.isContinuationRequest('看看电量'), isFalse);
+  });
+
   test('natural continuation is a planner candidate', () {
     final context = RecentToolContext(
       toolName: 'get_battery_info',

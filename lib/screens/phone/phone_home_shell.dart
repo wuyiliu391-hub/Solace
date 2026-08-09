@@ -399,13 +399,6 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
       case 'love_lab':
         widget.onNavigate('/relationship');
         return;
-      case 'live2d':
-        if (_worldCharacter != null) {
-          _openTaPhone();
-        } else {
-          widget.onNavigate('/create_character');
-        }
-        return;
       default:
         if (routeHint != null && routeHint.isNotEmpty) {
           widget.onNavigate('/$routeHint');

@@ -276,15 +276,6 @@ class PhoneAppIconCatalog {
       fallbackColor: Color(0xFF30B0C7),
       priority: PhoneIconPriority.p2,
     ),
-    PhoneAppIconDef(
-      id: 'live2d',
-      label: '形象',
-      subject: 'cute avatar frame soft 3D',
-      fallbackIcon: Icons.face_retouching_natural,
-      fallbackColor: Color(0xFFFF9FCE),
-      priority: PhoneIconPriority.p2,
-      routeHint: 'live2d',
-    ),
   ];
 
   static PhoneAppIconDef? byId(String id) {

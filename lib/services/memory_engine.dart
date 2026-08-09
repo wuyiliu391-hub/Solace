@@ -138,6 +138,27 @@ class MemoryEngine {
   MemoryEngine(this._storage, {http.Client? httpClient})
       : _httpClient = httpClient;
 
+  /// 尽力解析 LLM 返回的单行记忆 JSON。模型偶尔截断字符串（未闭合引号），
+  /// 尝试补引号/括号后再解析；失败返回 null，由调用方丢弃该行。
+  static Map<String, dynamic>? _tryDecodeJsonLine(String line) {
+    var value = jsonDecodeOrNull(line);
+    if (value is Map) return Map<String, dynamic>.from(value);
+    // 常见截断：行以引号内容结尾但未闭合（缺尾部 " 或 "}）
+    for (final candidate in [line + '"', line + '"}', line + '"}']) {
+      value = jsonDecodeOrNull(candidate);
+      if (value is Map) return Map<String, dynamic>.from(value);
+    }
+    return null;
+  }
+
+  static dynamic jsonDecodeOrNull(String source) {
+    try {
+      return jsonDecode(source);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 统一保存入口：先存记忆，再异步生成摘要
   Future<void> _saveWithSummary(Memory memory) async {
     await _storage.saveMemory(memory);
@@ -634,7 +655,8 @@ $context
         if (trimmed.isEmpty || !trimmed.startsWith('{')) continue;
 
         try {
-          final map = jsonDecode(trimmed) as Map<String, dynamic>;
+          final map = _tryDecodeJsonLine(trimmed);
+          if (map == null) continue;
           final speaker = map['speaker'] as String? ?? '';
           final content = map['content'] as String? ?? '';
           if (content.isEmpty) continue;
@@ -1557,7 +1579,8 @@ ${userMessages.join('\n')}
       if (trimmed.isEmpty || !trimmed.startsWith('{')) continue;
 
       try {
-        final map = jsonDecode(trimmed) as Map<String, dynamic>;
+        final map = _tryDecodeJsonLine(trimmed);
+        if (map == null) continue;
         final typeStr = map['type'] as String? ?? '';
         final content = map['content'] as String? ?? '';
         if (content.isEmpty) continue;

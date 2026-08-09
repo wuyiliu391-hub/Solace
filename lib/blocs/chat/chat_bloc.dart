@@ -363,9 +363,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     return super.close();
   }
 
-  /// 音乐共情模式上下文 — 外部页面设置，每次发送消息自动注入 internalSystemContext
-  String? musicContext;
-
   // ═══════════════════════════════════════════════════════
   // 桥接层辅助方法（渐进迁移：优先用新适配器，回退到旧服务）
   // ═══════════════════════════════════════════════════════
@@ -2508,8 +2505,6 @@ $tail
           _mergeInternalSystemContext(sessionStateContext, ctxResults[1]);
       sessionStateContext =
           _mergeInternalSystemContext(sessionStateContext, ctxResults[2]);
-      sessionStateContext =
-          _mergeInternalSystemContext(sessionStateContext, musicContext);
       sessionStateContext =
           _mergeInternalSystemContext(sessionStateContext, ctxResults[3]);
       sessionStateContext =

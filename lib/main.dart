@@ -36,7 +36,6 @@ import 'screens/settings/ai_config_screen.dart';
 import 'screens/profile/settings_screen.dart';
 import 'screens/tarot/tarot_screen.dart';
 import 'screens/games/lucky_wheel_screen.dart';
-import 'screens/games/music_companion_screen.dart';
 import 'screens/novel/novel_shelf_screen.dart';
 import 'screens/phone/phone_home_shell.dart';
 import 'screens/shop/shop_screen.dart';
@@ -862,9 +861,6 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
           create: (_) => ShopBloc(storage),
           child: const ShopScreen(),
         );
-      case '/music':
-      case '/music_companion':
-        return const MusicCompanionScreen();
       // 已隐藏：日记模块前端入口暂不展示
       // case '/forum':
       //   return const ForumScreen();

@@ -46,8 +46,14 @@ class RecentToolContext {
         .trim();
     if (normalized.isEmpty || normalized.length > 25) return false;
 
-    final hasRefresh = RegExp(r'再|重新|刷新').hasMatch(normalized);
+    final hasRefresh = RegExp(r'再|重新|刷新|详细|具体|展开|还有什么|还有哪些')
+        .hasMatch(normalized);
     if (!hasRefresh) return false;
+
+    // 否定表述不算续接（不用、别、不要、不想再看）
+    if (RegExp(r'不用|别|不要|不想|免了|算了|不看了|别看了').hasMatch(normalized)) {
+      return false;
+    }
 
     // If it contains a device-specific term, it's a new query, not a refresh.
     if (RegExp(r'电量|电池|通知|进程|应用|截图|wifi|蓝牙|打开|关闭|安装|卸载|定位|音量|亮度')

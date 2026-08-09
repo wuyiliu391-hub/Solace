@@ -150,13 +150,6 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>
                   Text('更多娱乐', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 12),
                   _QuickEntryTile(
-                    icon: Icons.headphones_rounded,
-                    title: '音乐共情',
-                    subtitle: '和角色一起听歌，共享情绪共鸣',
-                    color: const Color(0xFFE91E63),
-                    onTap: () => widget.onNavigate?.call('/music_companion'),
-                  ),
-                  _QuickEntryTile(
                     icon: Icons.casino,
                     title: '幸运转盘',
                     subtitle: '转一转，看看今日运势',

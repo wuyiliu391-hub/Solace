@@ -87,18 +87,6 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
-        <!-- ═══ Live2D 崽崽桌面悬浮窗 — TYPE_APPLICATION_OVERLAY ═══ -->
-        <!-- 注册为 FGS（specialUse），Android 14+ 后台保活 + 用户可见通知 -->
-        <service
-            android:name=".live2d.Live2DOverlayService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="displays_the_companion_character_overlay_on_top_of_other_apps_this_is_a_core_feature_of_solace_companion_app" />
-        </service>
-
         <!-- ═══ 无障碍保活增强 — 前台服务 ═══ -->
         <service
             android:name=".accessibility.AccessibilityKeepAliveService"

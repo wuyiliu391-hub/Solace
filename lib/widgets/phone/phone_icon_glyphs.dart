@@ -109,9 +109,6 @@ class PhoneIconGlyphs {
       case 'map':
         _map(canvas, fill, stroke);
         break;
-      case 'live2d':
-        _face(canvas, fill, stroke);
-        break;
       default:
         _spark(canvas, fill);
         break;

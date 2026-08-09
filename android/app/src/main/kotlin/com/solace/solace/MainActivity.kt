@@ -20,9 +20,6 @@ import android.os.Handler
 import android.os.Looper
 import android.content.pm.PackageManager
 import android.graphics.Color
-import com.solace.solace.live2d.Live2DPlugin
-import com.solace.solace.live2d.Live2DStateManager
-import com.solace.solace.live2d.Live2DEngineCache
 import com.solace.solace.notification.NotificationStore
 import com.solace.solace.accessibility.SolaceAccessibilityService
 import com.solace.solace.accessibility.AccessibilityStateMonitor
@@ -65,9 +62,6 @@ class MainActivity : FlutterActivity() {
         // Match the native launch window to it so dark mode never flashes white.
         applySavedLaunchBackground()
         super.onCreate(savedInstanceState)
-
-        // 预缓存 Live2D 悬浮窗引擎
-        Live2DEngineCache.prepare(application)
 
         // ═══ Shizuku 生命周期初始化 ═══
         setupShizukuLifecycle()
@@ -298,11 +292,6 @@ class MainActivity : FlutterActivity() {
             handleDeviceMethodCall(call, result)
         }
 
-        // ═══ Live2D 桌宠 MethodChannel（主 App 调用 showOverlay/hideOverlay/syncAvatarConfig 等）═══
-        // 注意：MethodChannel 注册在主引擎，供主 App Dart 调用。
-        // EventChannel 不在这里注册 — 已迁移到 Live2DEngineCache.kt 的独立引擎上，
-        // 因为悬浮窗 Dart (live2d_entry.dart) 运行在独立引擎中，主引擎的 EventChannel 推送它收不到。
-        Live2DPlugin.registerWith(flutterEngine.dartExecutor.binaryMessenger, this)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
