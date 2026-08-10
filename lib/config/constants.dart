@@ -235,7 +235,6 @@ class PrefKeys {
   static const String coreHubTaskQueueCompleted =
       'core_hub_task_queue_completed';
   static const String siliconeApiKey = 'siliconflow_api_key';
-  static const String ttsApiKey = 'tts_api_key';
   static const String brevoApiKey = 'brevo_api_key';
   static const String brevoSenderEmail = 'brevo_sender_email';
   static const String brevoSenderName = 'brevo_sender_name';
@@ -391,8 +390,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-  static const String version = '17.8.0';
-  static const int build = 291;
+  static const String version = '17.9.0';
+  static const int build = 292;
 }
 
 class NotificationChannels {

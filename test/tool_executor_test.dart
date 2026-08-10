@@ -73,4 +73,15 @@ void main() {
     expect(trace['args'], isA<Map<String, dynamic>>());
     expect(trace['duration_ms'], isA<int>());
   });
+
+  test('missing permission checker denies declared permissions by default',
+      () async {
+    final tool = _PermissionTool();
+    final registry = ToolRegistry()..register(_PermissionPkg(tool));
+    final record = await ToolExecutor(registry).execute(tool.name, {});
+
+    expect(record.result.success, isFalse);
+    expect(record.result.errorCode, 'PERMISSION_REQUIRED');
+    expect(tool.executions, 0);
+  });
 }

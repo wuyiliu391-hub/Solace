@@ -20,8 +20,16 @@ import '../group_chat/group_chat_detail_screen.dart';
 import '../group_chat/group_chat_list_screen.dart';
 import 'chat_detail_screen.dart';
 
-class ChatListScreen extends StatelessWidget {
+class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
+
+  @override
+  State<ChatListScreen> createState() => _ChatListScreenState();
+}
+
+class _ChatListScreenState extends State<ChatListScreen> {
+  List<ChatSession> _hiddenSessions = [];
+  bool _showHiddenSessions = false;
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +51,11 @@ class ChatListScreen extends StatelessWidget {
         backgroundColor: colorScheme.surface,
         foregroundColor: colorScheme.onSurface,
         actions: [
+          IconButton(
+            tooltip: '查看隐藏聊天',
+            icon: const Icon(Icons.visibility_off_outlined),
+            onPressed: () => _showHiddenChatSessions(context),
+          ),
           IconButton(
             icon: Icon(Icons.add_circle_outline, size: 24,
                 color: colorScheme.onSurface),
@@ -102,6 +115,49 @@ class ChatListScreen extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Future<void> _showHiddenChatSessions(BuildContext context) async {
+    final auth = context.read<AuthBloc>().state;
+    if (auth is! AuthAuthenticated) return;
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final sessions = await storage.getChatSessions(auth.user.id, includeHidden: true);
+    _hiddenSessions = sessions.where((s) => s.isHidden).toList();
+    if (!context.mounted) return;
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              leading: Icon(Icons.visibility_off_outlined),
+              title: Text('已隐藏的聊天'),
+              subtitle: Text('隐藏聊天不会隐藏联系人，也不会删除聊天记录'),
+            ),
+            if (_hiddenSessions.isEmpty)
+              const ListTile(title: Text('暂无隐藏聊天记录')),
+            ..._hiddenSessions.map((session) => ListTile(
+                  leading: const Icon(Icons.chat_bubble_outline),
+                  title: Text(session.aiCharacterName),
+                  trailing: FilledButton(
+                    onPressed: () async {
+                      await storage.saveChatSession(session.copyWith(isHidden: false));
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (context.mounted) {
+                        context.read<ChatBloc>().add(ChatLoadSessions(auth.user.id));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('已恢复聊天')),
+                        );
+                      }
+                    },
+                    child: const Text('恢复'),
+                  ),
+                )),
+          ],
+        ),
       ),
     );
   }

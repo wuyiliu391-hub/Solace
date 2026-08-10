@@ -15,7 +15,6 @@ import 'repositories/local_storage_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/terms_agreement_screen.dart';
 import 'services/battery_service.dart';
-import 'services/voice_clone_service.dart';
 import 'screens/chat/chat_list_screen.dart';
 import 'screens/chat/chat_detail_screen.dart';
 import 'screens/contacts/contacts_screen.dart';
@@ -55,8 +54,6 @@ import 'services/workmanager_helper.dart'
 import 'widgets/age_declaration_screen.dart';
 import 'widgets/update_dialog.dart';
 import 'config/constants.dart';
-import 'config/tts_config.dart';
-import 'services/tts_service.dart';
 import 'services/log_service.dart';
 import 'services/ai_service.dart';
 import 'services/bridge/ai_service_adapter.dart';
@@ -161,13 +158,6 @@ void main() async {
   Future.delayed(const Duration(seconds: 6), () async {
     try {
       await Hive.initFlutter();
-      await TTSConfig.init();
-      try {
-        await TTSService().clearAllAudio();
-      } catch (e) {
-        debugPrint('Error: $e');
-      }
-      await VoiceCloneService().init();
     } catch (e) {
       debugPrint('Hive 初始化失败: $e');
     }

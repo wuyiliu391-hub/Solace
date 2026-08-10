@@ -13,7 +13,7 @@ class ToolPermissionPolicy {
 
   ToolPermissionMode mode(String toolName) {
     final saved = storage.getString('$_prefix$toolName');
-    if (saved == null && !_isHighRisk(toolName)) {
+    if (saved == null && !isHighRisk(toolName)) {
       return ToolPermissionMode.alwaysAllow;
     }
     switch (saved) {
@@ -26,7 +26,7 @@ class ToolPermissionPolicy {
     }
   }
 
-  bool _isHighRisk(String toolName) {
+  bool isHighRisk(String toolName) {
     final name = toolName.toLowerCase();
     return name.contains('shell') ||
         name.contains('exec') ||
@@ -54,7 +54,7 @@ class ToolPermissionPolicy {
       String taskId, String toolName, Map<String, dynamic> args) {
     return storage.setString(
       '$_pendingPrefix$taskId',
-      '${toolName}\n$args',
+      '$toolName\n$args',
     );
   }
 

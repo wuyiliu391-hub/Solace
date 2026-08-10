@@ -12,6 +12,13 @@ class ToolExecutor {
 
   const ToolExecutor(this.registry, {this.permissionChecker});
 
+  bool _hasPermission(Tool tool) {
+    final checker = permissionChecker;
+    if (checker != null) return checker(tool);
+    // 安全默认值：调用方没有提供权限检查器时，声明权限的工具不能执行。
+    return tool.requiredPermissions.isEmpty;
+  }
+
   /// 执行工具
   Future<ToolExecutionRecord> execute(
     String toolName,
@@ -32,9 +39,7 @@ class ToolExecutor {
 
     // Tool metadata is the last local safety boundary before execution. The
     // caller can still add a stricter policy through guardedExecute.
-    if (tool.requiredPermissions.isNotEmpty &&
-        permissionChecker != null &&
-        !permissionChecker!(tool)) {
+    if (tool.requiredPermissions.isNotEmpty && !_hasPermission(tool)) {
       return ToolExecutionRecord(
         toolName: toolName,
         args: args,

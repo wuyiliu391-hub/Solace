@@ -105,6 +105,7 @@ class ChatEmotionChanged extends ChatState {
 /// 每轮 AI 回复完成后更新的结构化心理状态。
 class ChatTurnStateUpdated extends ChatState {
   final String chatId;
+  final String emoji;
   final String emotion;
   final double intensity;
   final String thought;
@@ -112,6 +113,7 @@ class ChatTurnStateUpdated extends ChatState {
 
   const ChatTurnStateUpdated({
     required this.chatId,
+    required this.emoji,
     required this.emotion,
     required this.intensity,
     required this.thought,
@@ -119,7 +121,7 @@ class ChatTurnStateUpdated extends ChatState {
   });
 
   @override
-  List<Object?> get props => [chatId, emotion, intensity, thought, updatedAt];
+  List<Object?> get props => [chatId, emoji, emotion, intensity, thought, updatedAt];
 }
 
 class ChatTransferStatusUpdated extends ChatState {

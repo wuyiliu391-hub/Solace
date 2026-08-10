@@ -3119,7 +3119,7 @@ class LocalStorageRepository {
     }
   }
 
-  Future<List<AICharacter>> getAllAICharacters() async {
+  Future<List<AICharacter>> getAllAICharacters({bool includeHidden = false}) async {
     if (_isWeb) {
       final ids = _prefs?.getStringList('character_ids') ?? [];
       final characters = <AICharacter>[];
@@ -3132,8 +3132,10 @@ class LocalStorageRepository {
       return characters;
     } else {
       final db = await _ensureDb();
-      final maps = await db.query('ai_characters',
-          where: 'isHidden = 0', orderBy: 'createdAt DESC');
+      final maps = await db.query(
+          'ai_characters',
+          where: includeHidden ? null : 'isHidden = 0',
+          orderBy: 'createdAt DESC');
       return maps.map((map) => AICharacter.fromMap(map)).toList();
     }
   }
@@ -3624,7 +3626,8 @@ class LocalStorageRepository {
     }
   }
 
-  Future<List<ChatSession>> getChatSessions(String userId) async {
+  Future<List<ChatSession>> getChatSessions(String userId,
+      {bool includeHidden = false}) async {
     if (_isWeb) {
       final ids = _prefs?.getStringList('session_ids_$userId') ?? [];
       final sessions = <ChatSession>[];
@@ -3634,7 +3637,7 @@ class LocalStorageRepository {
         if (data != null) {
           final session = ChatSession.fromMap(jsonDecode(data));
           final character = await getAICharacter(session.aiCharacterId);
-          if (character != null) {
+          if (character != null && (includeHidden || !session.isHidden)) {
             sessions.add(session);
           } else {
             orphanIds.add(session.id);
@@ -3658,7 +3661,7 @@ class LocalStorageRepository {
       final db = await _ensureDb();
       final maps = await db.query(
         'chat_sessions',
-        where: 'userId = ? AND isHidden = 0',
+        where: includeHidden ? 'userId = ?' : 'userId = ? AND isHidden = 0',
         whereArgs: [userId],
         orderBy: 'lastMessageTime DESC',
       );

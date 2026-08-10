@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../services/tools/tool.dart';
 import '../../services/tools/tool_registry.dart';
 import '../../services/tools/tool_executor.dart';
+import '../../services/tools/agent_tool_gateway.dart';
 import '../../services/tools/conversation_turn.dart';
 import '../../services/llm_service.dart';
 
@@ -22,6 +23,7 @@ class ToolAwareService {
   final LlmService llmService;
   final ToolRegistry registry;
   final ToolExecutor executor;
+  final AgentToolGateway gateway;
   final Future<ToolExecutionRecord> Function(String, Map<String, dynamic>)?
       guardedExecute;
   final bool Function()? isCancelled;
@@ -30,12 +32,18 @@ class ToolAwareService {
     required this.llmService,
     required this.registry,
     ToolExecutor? executor,
+    AgentToolGateway? gateway,
     this.guardedExecute,
     this.isCancelled,
-  }) : executor = executor ?? ToolExecutor(registry);
+  })  : executor = executor ?? ToolExecutor(registry),
+        gateway = gateway ??
+            AgentToolGateway(
+              registry: registry,
+              executor: executor,
+            );
 
   Future<ToolExecutionRecord> _execute(String name, Map<String, dynamic> args) {
-    return guardedExecute?.call(name, args) ?? executor.execute(name, args);
+    return guardedExecute?.call(name, args) ?? gateway.execute(name, args);
   }
 
   // ── 状态机 ──

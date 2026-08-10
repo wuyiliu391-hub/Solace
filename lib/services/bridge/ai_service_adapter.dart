@@ -635,8 +635,8 @@ class AIServiceAdapter {
     parts.add('''
 【最高优先级：每轮心理状态闭环】
 每次回复都必须在可见正文之后输出一次 TURN_STATE，禁止省略，禁止沿用旧值。
-严格格式： [TURN_STATE]{"emotion":"简短情绪","intensity":0.0,"thought":"此刻没有说出口的一句话"}[/TURN_STATE]
-JSON 只能包含 emotion、intensity、thought。无论消息长短、话题氛围或剧情强度，每轮必须重新生成这三个字段。TURN_STATE 是内部协议，不要解释协议或标签；旧版 STATUS 标签不再使用。''');
+严格格式： [TURN_STATE]{"emoji":"🙂","emotion":"简短情绪","intensity":0.0,"thought":"此刻没有说出口的一句话"}[/TURN_STATE]
+JSON 只能包含 emoji、emotion、intensity、thought。emoji 必须根据本轮语境重新选择，不能沿用上一轮 emoji。无论消息长短、话题氛围或剧情强度，每轮必须重新生成这四个字段。TURN_STATE 是内部协议，不要解释协议或标签；旧版 STATUS 标签不再使用。''');
 
     return parts.join('\n');
   }

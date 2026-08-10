@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/theme/theme_bloc.dart';
 import '../../config/constants.dart';
-import '../../config/tts_config.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../settings/ai_config_screen.dart';
 import '../settings/about_screen.dart';
@@ -110,17 +109,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 12),
           _buildModeSettingsSection(colorScheme),
           const SizedBox(height: 12),
-          _buildSectionTitle('语音', colorScheme),
-          _buildCard([
-            _buildNavTile(
-              icon: Icons.key_outlined,
-              iconBgColor: Colors.orange.withOpacity(0.1),
-              title: 'TTS API Key',
-              subtitle: '配置小米 MiMo 语音合成密钥',
-              onTap: () => _showTTSApiKeyDialog(context),
-              colorScheme: colorScheme,
-            ),
-          ], colorScheme),
           _buildSectionTitle('AI 输出风格', colorScheme),
           _buildCard([
             _buildSwitchTile(
@@ -1375,89 +1363,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('确认退出并清除数据'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showTTSApiKeyDialog(BuildContext context) async {
-    final currentKey = await TTSConfig.getApiKey();
-    final controller = TextEditingController(text: currentKey ?? '');
-    final obscureNotifier = ValueNotifier<bool>(true);
-
-    if (!mounted) return;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('配置 TTS API Key'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '输入小米 MiMo TTS 的 API Key，用于语音合成和音色克隆。',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '模型：mimo-v2.5-tts-voiceclone',
-              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-            ),
-            const SizedBox(height: 16),
-            ValueListenableBuilder<bool>(
-              valueListenable: obscureNotifier,
-              builder: (ctx, obscure, _) => TextField(
-                controller: controller,
-                obscureText: obscure,
-                decoration: InputDecoration(
-                  labelText: 'API Key',
-                  hintText: 'sk-...',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon:
-                        Icon(obscure ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => obscureNotifier.value = !obscure,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          if (currentKey != null && currentKey.isNotEmpty)
-            TextButton(
-              onPressed: () async {
-                await TTSConfig.clearApiKey();
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已清除 TTS API Key')),
-                  );
-                }
-              },
-              child: const Text('清除', style: TextStyle(color: Colors.red)),
-            ),
-          FilledButton(
-            onPressed: () async {
-              final key = controller.text.trim();
-              if (key.isEmpty) return;
-              await TTSConfig.setApiKey(key);
-              if (ctx.mounted) Navigator.pop(ctx);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('TTS API Key 已保存'),
-                      backgroundColor: Colors.green),
-                );
-              }
-            },
-            child: const Text('保存'),
           ),
         ],
       ),

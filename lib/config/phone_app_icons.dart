@@ -43,7 +43,6 @@ class PhoneAppIconCatalog {
       fallbackIcon: Icons.phone_rounded,
       fallbackColor: Color(0xFF34C759),
       priority: PhoneIconPriority.p0,
-      routeHint: 'voice_call',
     ),
     PhoneAppIconDef(
       id: 'chat',

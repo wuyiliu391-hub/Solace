@@ -19,9 +19,6 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
   late TextEditingController _modelController;
   late TextEditingController _maxTokensController;
   late TextEditingController _temperatureController;
-  late TextEditingController _ttsApiKeyController;
-  late TextEditingController _ttsApiUrlController;
-  late TextEditingController _ttsModelIdController;
 
   bool _autoModelSwitch = false;
   bool _loading = true;
@@ -34,9 +31,6 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
     _modelController = TextEditingController();
     _maxTokensController = TextEditingController();
     _temperatureController = TextEditingController();
-    _ttsApiKeyController = TextEditingController();
-    _ttsApiUrlController = TextEditingController();
-    _ttsModelIdController = TextEditingController();
     _loadConfig();
   }
 
@@ -49,9 +43,6 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
       _maxTokensController.text = (prefs.getInt('llm_maxTokens') ?? 2048).toString();
       _temperatureController.text = (prefs.getDouble('llm_temperature') ?? 0.7).toString();
       _autoModelSwitch = prefs.getBool('llm_autoModelSwitch') ?? false;
-      _ttsApiKeyController.text = prefs.getString('tts_apiKey') ?? '';
-      _ttsApiUrlController.text = prefs.getString('tts_apiUrl') ?? '';
-      _ttsModelIdController.text = prefs.getString('tts_modelId') ?? '';
       _loading = false;
     });
   }
@@ -64,9 +55,6 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
     await prefs.setInt('llm_maxTokens', int.tryParse(_maxTokensController.text) ?? 2048);
     await prefs.setDouble('llm_temperature', double.tryParse(_temperatureController.text) ?? 0.7);
     await prefs.setBool('llm_autoModelSwitch', _autoModelSwitch);
-    await prefs.setString('tts_apiKey', _ttsApiKeyController.text.trim());
-    await prefs.setString('tts_apiUrl', _ttsApiUrlController.text.trim());
-    await prefs.setString('tts_modelId', _ttsModelIdController.text.trim());
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -82,9 +70,6 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
     _modelController.dispose();
     _maxTokensController.dispose();
     _temperatureController.dispose();
-    _ttsApiKeyController.dispose();
-    _ttsApiUrlController.dispose();
-    _ttsModelIdController.dispose();
     super.dispose();
   }
 
@@ -121,11 +106,6 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
               value: _autoModelSwitch,
               onChanged: (v) => setState(() => _autoModelSwitch = v),
             ),
-            const Divider(height: 32),
-            _buildSectionTitle('TTS 语音配置'),
-            _buildTextField(_ttsApiKeyController, 'TTS API Key', '输入 TTS API Key', obscure: true),
-            _buildTextField(_ttsApiUrlController, 'TTS API URL', 'https://api.fish.audio/v1/tts'),
-            _buildTextField(_ttsModelIdController, 'TTS 模型 ID', 'Fish Audio 模型 ID'),
             const SizedBox(height: 16),
           ],
         ),

@@ -39,7 +39,6 @@ import '../../blocs/shop/shop_bloc.dart';
 
 import '../../widgets/animated_list_item.dart';
 import '../../widgets/typing_indicator.dart';
-import '../../widgets/voice_message_bubble.dart';
 import '../../widgets/message_status_indicator.dart';
 import '../../widgets/message_actions_sheet.dart';
 import '../../utils/ui_utils.dart';
@@ -47,16 +46,11 @@ import '../../utils/avatar_resolver.dart';
 import '../../config/constants.dart';
 import '../../config/business_rules.dart';
 import '../../services/log_service.dart';
-import '../../services/tts_service.dart';
-import '../../services/voice_clone_service.dart';
-import '../../services/audio_transcription_service.dart';
 
 import '../../services/emotion_engine.dart';
 import '../../models/character_emotion.dart';
 import '../moments/moments_screen.dart';
-import 'package:record/record.dart';
 import 'chat_settings_screen.dart';
-import 'voice_call_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final ChatSession session;
@@ -89,6 +83,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Timer? _silenceTimer;
   bool _aiBrokeSilence = false;
   String? _aiPersonality;
+  // 使用 AI 为本轮选择的黄脸 emoji；不再使用固定的大脑图标。
+  String _turnEmoji = '🙂';
   String? _displayName;
   String _turnEmotion = '等待互动';
   String _turnThought = '下一轮对话结束后，这里会显示 TA 的最新想法。';
@@ -111,7 +107,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _isJumpedToMessage = false;
   ChatMessage? _jumpedToMessage;
   List<ChatMessage> _preservedSearchResults = [];
-  int _lastVoiceProcessedCount = 0;
   String _preservedSearchQuery = '';
   String? _highlightedMessageId;
   Timer? _highlightTimer;
@@ -148,14 +143,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   List<IntimacyEvent> _intimacyEvents = [];
   bool _isIntimacyExpanded = true;
-
-  // ── 语音录制 ──
-  final AudioRecorder _recorder = AudioRecorder();
-  bool _isRecording = false;
-  bool _showVoiceInput = false; // 是否显示语音输入模式
-  String? _recordPath;
-  Timer? _recordTimer;
-  int _recordSeconds = 0;
 
   /// 小说模式全局生效（会话级覆盖已随调色板下线移除）
   bool _isNovelModeEnabled() {
@@ -392,16 +379,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           itemBuilder: (context) => [
-            PopupMenuItem(
-              value: 'call',
-              child: Row(
-                children: [
-                  Icon(Icons.call, color: Colors.green, size: 20),
-                  const SizedBox(width: 12),
-                  const Text('语音通话'),
-                ],
-              ),
-            ),
             const PopupMenuItem(
               value: 'settings',
               child: Row(
@@ -414,9 +391,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
           ],
           onSelected: (value) {
-            if (value == 'call') {
-              _startVoiceCall();
-            } else if (value == 'settings') {
+            if (value == 'settings') {
               _openChatSettings(context);
             }
           },
@@ -446,6 +421,119 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       MaterialPageRoute(
         builder: (_) => const MomentsScreen(),
       ),
+    );
+  }
+
+  /// 放大查看 AI 当前完整内心状态
+  void _showFullStatus(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final colorScheme = Theme.of(ctx).colorScheme;
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        final name = _displayName ?? 'TA';
+        return Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: colorScheme.onSurfaceVariant.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Text(
+                  '$name 此刻的内心',
+                  style: TextStyle(
+                    fontSize: 12,
+                    letterSpacing: 1,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // 大号 emoji
+                Container(
+                  width: 88,
+                  height: 88,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withOpacity(0.08),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    _turnEmoji,
+                    style: const TextStyle(fontSize: 44, height: 1),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _turnEmotion,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // 情绪强度进度条
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: _turnIntensity.clamp(0.0, 1.0),
+                    minHeight: 6,
+                    backgroundColor: colorScheme.surfaceContainerHighest,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '情绪强度 ${(_turnIntensity * 100).round()}%',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.05)
+                        : Colors.black.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    _turnThought,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      height: 1.6,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.tonal(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('知道了'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -514,7 +602,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           current is ChatEmotionChanged ||
           current is ChatBlockedByAI ||
           current is ChatUnblockedByAI ||
-          current is ChatAIObserving,
+          current is ChatAIObserving ||
+          current is ChatTurnStateUpdated,
       listener: (context, state) {
         if (state is ChatBlockedByAI && state.chatId == widget.session.id) {
           setState(() => _isBlockedByAI = true);
@@ -524,6 +613,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
         if (state is ChatAIObserving && state.chatId == widget.session.id) {
           // setState 已移除，ChatAIObserving 由 BlocConsumer.buildWhen 处理重建
+        }
+        if (state is ChatTurnStateUpdated &&
+            state.chatId == widget.session.id) {
+          setState(() {
+            _turnEmoji = state.emoji;
+            _turnEmotion = state.emotion;
+            _turnIntensity = state.intensity;
+            _turnThought = state.thought;
+          });
         }
       },
       builder: (context, state) {
@@ -797,8 +895,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ),
       child: Row(
         children: [
-          Icon(Icons.psychology_alt_rounded,
-              size: 16, color: colorScheme.primary),
+          Text(
+            _turnEmoji,
+            style: const TextStyle(fontSize: 17, height: 1),
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -810,8 +910,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     height: 1.35,
                     color: isDark ? Colors.white70 : colorScheme.onSurface)),
           ),
-          Icon(Icons.open_in_full_rounded,
-              size: 14, color: colorScheme.onSurfaceVariant),
+          GestureDetector(
+            onTap: () => _showFullStatus(context),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(Icons.open_in_full_rounded,
+                  size: 14, color: colorScheme.onSurfaceVariant),
+            ),
+          ),
           const SizedBox(width: 4),
           // AI 手机快捷入口
           GestureDetector(
@@ -1079,19 +1186,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     _cachedMessages = state.messages;
                     _lastMessageCount = state.messages.length;
                     _cancelLoadingFallbackTimer();
-
-                    // 检测新 AI 消息并自动生成语音
-                    final aiMessages = state.messages
-                        .where((m) => m.isFromAI && m.type == MessageType.text)
-                        .toList();
-                    if (aiMessages.isNotEmpty &&
-                        state.messages.length > _lastVoiceProcessedCount) {
-                      final latestAI = aiMessages.last;
-                      _lastVoiceProcessedCount = state.messages.length;
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) _generateVoiceForAIMessage(latestAI);
-                      });
-                    }
                   } else if (state is ChatTransferStatusUpdated) {
                     _cachedMessages = state.messages;
                     _lastMessageCount = state.messages.length;
@@ -1626,9 +1720,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       _chatBloc.add(ChatLoadMessages(widget.session.id));
       _startLoadingFallbackTimer();
 
-      // 后台预生成常用回复音频（不阻塞 UI）
-      _pregenerateVoiceReplies();
-
       // 后台静默预生成该角色的虚拟手机内容（仅未生成过时，省 token）
       _pregenerateVirtualPhone();
 
@@ -1707,30 +1798,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         debugPrint('VirtualPhone: 后台预生成完成 -> ${character.name}');
       } catch (e) {
         debugPrint('VirtualPhone 后台预生成失败: $e');
-      }
-    });
-  }
-
-  /// 后台预生成角色常用回复的 TTS 音频（已禁用，避免阻塞 TTS 队列）
-  void _pregenerateVoiceReplies() {
-    // 跳过预生成：会占用 TTS 队列导致语音通话/回复延迟
-    return;
-    Future.microtask(() async {
-      try {
-        final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-        final character =
-            await storage.getAICharacter(widget.session.aiCharacterId);
-        if (character == null) return;
-        if (!(character.interactionConfig?.voiceReplyEnabled ?? false)) return;
-
-        final voiceClone = VoiceCloneService();
-        if (!voiceClone.hasVoice(character.id)) return;
-
-        debugPrint('VoicePregen: 开始预生成常用回复...');
-        await voiceClone.pregenerateCommonReplies(character.id);
-        debugPrint('VoicePregen: 预生成完成');
-      } catch (e) {
-        debugPrint('VoicePregen: 预生成失败 $e');
       }
     });
   }
@@ -1862,8 +1929,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _cancelLoadingFallbackTimer();
     _usageReminderTimer?.cancel();
     _highlightTimer?.cancel();
-    _recordTimer?.cancel();
-    _recorder.dispose();
     _messageController.dispose();
     _messageFocusNode.dispose();
     _scrollController.dispose();
@@ -1886,208 +1951,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _cancelReply() {
-    setState(() => _replyToMessage = null);
-  }
-
-  // ═══════════════════════════════════════════════════
-  // 语音录制
-  // ═══════════════════════════════════════════════════
-
-  Future<void> _startRecording() async {
-    try {
-      final hasPermission = await _recorder.hasPermission();
-      if (!hasPermission) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('请授予麦克风权限'), duration: Duration(seconds: 2)),
-          );
-        }
-        return;
-      }
-
-      final dir = await getTemporaryDirectory();
-      _recordPath =
-          '${dir.path}/voice_msg_${DateTime.now().millisecondsSinceEpoch}.wav';
-
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
-          numChannels: 1,
-          bitRate: 32000,
-          sampleRate: 16000,
-        ),
-        path: _recordPath!,
-      );
-
-      setState(() {
-        _isRecording = true;
-        _recordSeconds = 0;
-      });
-
-      _recordTimer?.cancel();
-      _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() => _recordSeconds++);
-      });
-    } catch (e) {
-      debugPrint('VoiceRecord: 开始录音失败: $e');
+      setState(() => _replyToMessage = null);
     }
-  }
 
-  Future<void> _stopRecording() async {
-    if (!_isRecording) return;
-    _recordTimer?.cancel();
-
-    try {
-      final path = await _recorder.stop();
-      setState(() {
-        _isRecording = false;
-        _showVoiceInput = false;
-      });
-
-      if (path == null || _recordSeconds < 1) {
-        _cleanupRecordFile();
-        return;
-      }
-
-      // 保存为永久文件
-      final appDir = await getApplicationDocumentsDirectory();
-      final voiceDir = Directory('${appDir.path}/voice_messages');
-      if (!await voiceDir.exists()) await voiceDir.create(recursive: true);
-      final permanentPath =
-          '${voiceDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.wav';
-      await File(path).copy(permanentPath);
-
-      // 语音转文字
-      final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      String transcript = '';
-      try {
-        final transcription = AudioTranscriptionService(storage);
-        transcript = await transcription.transcribe(permanentPath) ?? '';
-        debugPrint('VoiceRecord: 转写结果: $transcript');
-      } catch (e) {
-        debugPrint('VoiceRecord: 语音转文字失败: $e');
-      }
-
-      // 由 ChatSendVoiceMessage 一次性处理：保存语音 + 触发 AI
-      _chatBloc.add(ChatSendVoiceMessage(
-        chatId: widget.session.id,
-        userId: user.id,
-        characterId: widget.session.aiCharacterId,
-        audioPath: permanentPath,
-        duration: _recordSeconds,
-        transcript: transcript,
-      ));
-
-      _cleanupRecordFile();
-    } catch (e) {
-      debugPrint('VoiceRecord: 停止录音失败: $e');
-      setState(() {
-        _isRecording = false;
-        _showVoiceInput = false;
-      });
-      _cleanupRecordFile();
-    }
-  }
-
-  void _cancelRecording() {
-    _recordTimer?.cancel();
-    _recorder.stop();
-    setState(() {
-      _isRecording = false;
-      _showVoiceInput = false;
-    });
-    _cleanupRecordFile();
-  }
-
-  void _cleanupRecordFile() {
-    if (_recordPath != null) {
-      final file = File(_recordPath!);
-      if (file.existsSync()) file.deleteSync();
-      _recordPath = null;
-    }
-    _recordSeconds = 0;
-  }
-
-  Widget _buildVoiceInputArea(bool isDark, ColorScheme colorScheme) {
-    final minutes = (_recordSeconds ~/ 60).toString().padLeft(2, '0');
-    final seconds = (_recordSeconds % 60).toString().padLeft(2, '0');
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: GestureDetector(
-        onLongPressStart: (_) => _startRecording(),
-        onLongPressEnd: (_) => _stopRecording(),
-        onLongPressCancel: () => _cancelRecording(),
-        child: Container(
-          height: 48,
-          decoration: BoxDecoration(
-            color: _isRecording
-                ? Colors.red.withOpacity(0.15)
-                : (isDark ? const Color(0xFF2C2C2C) : const Color(0xFFEEEEEE)),
-            borderRadius: BorderRadius.circular(24),
-            border: _isRecording
-                ? Border.all(color: Colors.red.withOpacity(0.5), width: 1)
-                : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (_isRecording) ...[
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  '正在录音 $minutes:$seconds',
-                  style: TextStyle(
-                    color: colorScheme.onSurface,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  '松开发送',
-                  style: TextStyle(
-                    color: isDark
-                        ? Colors.white.withOpacity(0.4)
-                        : Colors.black.withOpacity(0.4),
-                    fontSize: 13,
-                  ),
-                ),
-              ] else ...[
-                Icon(
-                  Icons.mic_rounded,
-                  color: isDark
-                      ? Colors.white.withOpacity(0.6)
-                      : Colors.black.withOpacity(0.5),
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '按住说话',
-                  style: TextStyle(
-                    color: isDark
-                        ? Colors.white.withOpacity(0.6)
-                        : Colors.black.withOpacity(0.5),
-                    fontSize: 15,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _replyPreview(ChatMessage message) {
+    String _replyPreview(ChatMessage message) {
     switch (message.type) {
       case MessageType.image:
         return '[图片]';
@@ -2182,28 +2049,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                _MoreActionItem(
-                  icon: Icons.call,
-                  label: '语音通话',
-                  color: Colors.green,
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _startVoiceCall();
-                  },
-                ),
-                const SizedBox(width: 16),
-                _MoreActionItem(
-                  icon: Icons.photo_outlined,
-                  label: '图片',
-                  color: const Color(0xFF3B82F6),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _pickAndAttachImages();
-                  },
-                ),
-              ],
+            _MoreActionItem(
+              icon: Icons.photo_outlined,
+              label: '图片',
+              color: const Color(0xFF3B82F6),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAndAttachImages();
+              },
             ),
           ],
         ),
@@ -2337,73 +2190,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _syncCanSend();
   }
 
-  void _startVoiceCall() async {
-    final authState = context.read<AuthBloc>().state;
-    if (authState is! AuthAuthenticated) return;
-
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    final character =
-        await storage.getAICharacter(widget.session.aiCharacterId);
-    if (character == null || !mounted) return;
-
-    final startTime = DateTime.now();
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => VoiceCallScreen(
-          character: character,
-          userId: authState.user.id,
-          storage: storage,
-          chatId: widget.session.id,
-        ),
-      ),
-    );
-
-    // 通话结束后插入简短通话记录（不包含对话内容）
-    if (mounted) {
-      _insertCallRecord(character.name, startTime);
-    }
-  }
-
-  /// 插入通话记录到聊天页面
-  Future<void> _insertCallRecord(
-      String characterName, DateTime startTime) async {
-    final duration = DateTime.now().difference(startTime);
-    final minutes = duration.inMinutes;
-    final seconds = duration.inSeconds % 60;
-    final durationStr =
-        '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-
-    final recordText = '[语音通话]\n'
-        '通话时长 $durationStr\n';
-
-    // 直接写入存储（不触发 AI 回复）
-    try {
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      await storage.saveChatMessage(ChatMessage(
-        id: const Uuid().v4(),
-        chatId: widget.session.id,
-        senderId: 'system',
-        content: recordText,
-        type: MessageType.system,
-        isSystem: true,
-        isUser: false,
-        status: MessageStatus.delivered,
-        createdAt: DateTime.now(),
-      ));
-      // 刷新消息列表（重新加载以确保UI立即更新）
-      if (mounted) {
-        final bloc = context.read<ChatBloc>();
-        bloc.add(ChatLoadMessages(widget.session.id));
-        // 强制等待一帧确保状态更新
-        await Future.delayed(const Duration(milliseconds: 100));
-        // setState 已移除，BlocConsumer 已处理消息列表重建
-      }
-    } catch (e) {
-      debugPrint('保存通话记录失败: $e');
-    }
-  }
-
   void _sendMessage() {
     tapHaptic();
     final content = _messageController.text.trim();
@@ -2453,70 +2239,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _userScrolledUp = false;
     _scrollToBottom(force: true);
     _resetSilenceTimer();
-  }
-
-  /// 策略：先显示文本，再异步逐句生成语音作为单独的语音消息发送
-  Future<void> _generateVoiceForAIMessage(ChatMessage message) async {
-    try {
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final character =
-          await storage.getAICharacter(widget.session.aiCharacterId);
-      if (character == null ||
-          !(character.interactionConfig?.voiceReplyEnabled ?? false)) return;
-
-      final voiceClone = VoiceCloneService();
-      final voiceBase64 = voiceClone.getVoiceBase64(character.id);
-      if (voiceBase64 == null) return;
-
-      final tts = TTSService();
-      final styleInstruction = voiceClone.getStyleInstruction(character.id);
-
-      // 逐句流式合成，第一句合成完就发送语音消息
-      int sentenceIndex = 0;
-      await for (final audioPath in tts.synthesizeStream(
-        text: message.content,
-        voiceBase64: voiceBase64,
-        styleInstruction: styleInstruction,
-      )) {
-        if (!mounted) break;
-
-        // 永久保存音频文件
-        final permanentPath = await tts.saveToPermanentDir(
-            audioPath, '${message.id}_s$sentenceIndex');
-
-        // 作为单独的语音消息发送
-        await storage.saveChatMessage(ChatMessage(
-          id: '${message.id}_voice_$sentenceIndex',
-          chatId: message.chatId,
-          senderId: message.senderId,
-          senderName: message.senderName,
-          content: permanentPath ?? audioPath,
-          type: MessageType.voice,
-          status: MessageStatus.sent,
-          createdAt: message.createdAt
-              .add(Duration(milliseconds: 500 * sentenceIndex)),
-          metadata: {
-            'text': message.content,
-            'voiceGenerated': true,
-            'sentenceIndex': sentenceIndex,
-          },
-        ));
-
-        sentenceIndex++;
-
-        // 第一句发送后刷新列表，后续的异步发送
-        if (sentenceIndex == 1 && mounted) {
-          context.read<ChatBloc>().add(ChatLoadMessages(widget.session.id));
-        }
-      }
-
-      // 全部发送完后最终刷新
-      if (sentenceIndex > 0 && mounted) {
-        context.read<ChatBloc>().add(ChatLoadMessages(widget.session.id));
-      }
-    } catch (e) {
-      debugPrint('VoiceGenerate: 生成语音失败: $e');
-    }
   }
 
   void _sendSticker(String emoji) {
@@ -3711,37 +3433,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     ],
                   ),
                 ),
-                if (_showVoiceInput)
-                  _buildVoiceInputArea(isDark, colorScheme)
-                else
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        // 语音按钮（切换语音/键盘模式）
-                        GestureDetector(
-                          onTap: () {
-                            setState(() => _showVoiceInput = !_showVoiceInput);
-                            if (!_showVoiceInput && _isRecording) {
-                              _cancelRecording();
-                            }
-                          },
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            margin: const EdgeInsets.only(right: 8, bottom: 2),
-                            child: Icon(
-                              _showVoiceInput
-                                  ? Icons.keyboard
-                                  : Icons.mic_rounded,
-                              color: isDark
-                                  ? Colors.white.withOpacity(0.7)
-                                  : Colors.black.withOpacity(0.6),
-                              size: 24,
-                            ),
-                          ),
-                        ),
                         // 括号快捷按钮（语c动作描写）
                         Tooltip(
                           message: '输入括号（语C动作描写）',
@@ -5148,7 +4844,8 @@ class _MessageBubble extends StatelessWidget {
               .toList();
           if (traces.isNotEmpty) {
             return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: _hPad),
+              padding:
+                  const EdgeInsets.symmetric(vertical: 4, horizontal: _hPad),
               child: Center(child: ToolTraceCard(traces: traces)),
             );
           }
@@ -5360,10 +5057,20 @@ class _MessageBubble extends StatelessWidget {
                   )
                 else if (message.type == MessageType.voice)
                   Flexible(
-                    child: _VoiceMessageWithTranscript(
-                      audioPath: message.content,
-                      isFromAI: isAI,
-                      transcript: message.metadata?['text'] as String?,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isAI ? aiBubbleColor : userBubbleColor,
+                        borderRadius: BorderRadius.circular(_bubbleRadius),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.mic_rounded, color: isAI ? Theme.of(context).colorScheme.onSurface : Colors.white),
+                          const SizedBox(width: 8),
+                          Text('语音消息', style: TextStyle(color: isAI ? Theme.of(context).colorScheme.onSurface : Colors.white)),
+                        ],
+                      ),
                     ),
                   )
                 else
@@ -6299,7 +6006,7 @@ class _ReasoningSectionState extends State<_ReasoningSection> {
   }
 }
 
-/// 语音消息 + 转文字切换
+
 class _WebSearchSection extends StatefulWidget {
   final Map<String, dynamic> trace;
 
@@ -6397,82 +6104,5 @@ class _WebSearchSectionState extends State<_WebSearchSection> {
     final snippet = item['snippet']?.toString() ?? '';
     final text = snippet.isEmpty ? title : '$title\n$snippet';
     return url.isEmpty ? text : '$text\n$url';
-  }
-}
-
-class _VoiceMessageWithTranscript extends StatefulWidget {
-  final String audioPath;
-  final bool isFromAI;
-  final String? transcript;
-
-  const _VoiceMessageWithTranscript({
-    required this.audioPath,
-    required this.isFromAI,
-    this.transcript,
-  });
-
-  @override
-  State<_VoiceMessageWithTranscript> createState() =>
-      _VoiceMessageWithTranscriptState();
-}
-
-class _VoiceMessageWithTranscriptState
-    extends State<_VoiceMessageWithTranscript> {
-  bool _showTranscript = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        VoiceMessageBubble(
-          audioPath: widget.audioPath,
-          isFromAI: widget.isFromAI,
-        ),
-        if (widget.transcript != null && widget.transcript!.isNotEmpty)
-          GestureDetector(
-            onTap: () => setState(() => _showTranscript = !_showTranscript),
-            child: Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _showTranscript
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
-                    size: 16,
-                    color: colorScheme.onSurfaceVariant.withOpacity(0.6),
-                  ),
-                  const SizedBox(width: 2),
-                  Text(
-                    _showTranscript ? '收起文字' : '转文字',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: colorScheme.onSurfaceVariant.withOpacity(0.6),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        if (_showTranscript &&
-            widget.transcript != null &&
-            widget.transcript!.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              widget.transcript!,
-              style: TextStyle(
-                color: colorScheme.onSurface,
-                fontSize: 14,
-                height: 1.4,
-              ),
-            ),
-          ),
-      ],
-    );
   }
 }

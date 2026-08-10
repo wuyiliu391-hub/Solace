@@ -324,7 +324,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     on<ChatLoadMoreMessages>(_onLoadMoreMessages);
     on<ChatLoadUntilMessage>(_onLoadUntilMessage);
     on<ChatSendMessage>(_onSendMessage);
-    on<ChatSendVoiceMessage>(_onSendVoiceMessage);
     on<ChatSendSticker>(_onSendSticker);
     on<ChatCreateSession>(_onCreateSession);
     on<ChatDeleteSession>(_onDeleteSession);
@@ -1408,13 +1407,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     }
 
     // 流式链路不经过 AIService.sendMessage 的最终解析，必须在完整流结束后自行提取。
-    _completedTurnStates[chatId] = AiTurnState.parse(finalContent) ??
-        _bridgeLastTurnState ??
-        AiTurnState.fallback(
-          emotion: sentiment.label,
-          intensity: (sentiment.score.abs() / 100).clamp(0.0, 1.0),
-          thought: 'TA 正在消化你刚才说的话，情绪偏${sentiment.label}。',
-        );
+    _completedTurnStates[chatId] =
+        AiTurnState.parse(finalContent) ?? _bridgeLastTurnState;
 
     return (
       cleanText: cleanText,
@@ -1427,17 +1421,46 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     required String chatId,
     required AICharacter character,
     required String userId,
+    required String userMessage,
+    required String aiReply,
+    required String sentimentLabel,
     required Emitter<ChatState> emit,
   }) async {
     final state = _completedTurnStates.remove(chatId) ?? _bridgeLastTurnState;
     final now = DateTime.now();
-    final effectiveState = state?.isValid == true
-        ? state!
-        : AiTurnState.fallback(
-            emotion: '平静',
-            intensity: 0.2,
-            thought: 'TA 正在消化这一轮对话。',
-          );
+    var effectiveState =
+        state?.isValid == true && state?.hasExplicitEmoji == true
+            ? state!
+            : AiTurnState.fallbackForTurn(
+                userMessage: userMessage,
+                aiReply: aiReply,
+                sentimentLabel: sentimentLabel,
+                previous: state,
+              );
+    String? previousEmoji;
+    try {
+      final raw = _storage.getString('turn_state_$chatId');
+      if (raw != null && raw.isNotEmpty) {
+        final data = jsonDecode(raw);
+        if (data is Map) previousEmoji = data['emoji']?.toString().trim();
+      }
+    } catch (_) {
+      // 状态历史损坏时不影响当前回合保存。
+    }
+    if (previousEmoji != null &&
+        previousEmoji.isNotEmpty &&
+        effectiveState.emoji == previousEmoji) {
+      effectiveState = AiTurnState.fallbackForTurn(
+        userMessage: userMessage,
+        aiReply: aiReply,
+        sentimentLabel: effectiveState.emotion,
+        previous: effectiveState,
+      ).copyWith(
+        emotion: effectiveState.emotion,
+        intensity: effectiveState.intensity,
+        thought: effectiveState.thought,
+      );
+    }
 
     // 每轮均写入独立记录，不覆盖旧内心状态，也不把用户可见回复混入内部状态。
     await _storage.saveInnerThought({
@@ -1454,6 +1477,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     await _storage.setString(
         'turn_state_$chatId',
         jsonEncode({
+          'emoji': effectiveState.emoji,
           'emotion': effectiveState.emotion,
           'intensity': effectiveState.intensity,
           'thought': effectiveState.thought,
@@ -1466,6 +1490,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     );
     emit(ChatTurnStateUpdated(
       chatId: chatId,
+      emoji: effectiveState.emoji,
       emotion: effectiveState.emotion,
       intensity: effectiveState.intensity,
       thought: effectiveState.thought,
@@ -2754,7 +2779,10 @@ $tail
                 }
               }
               if (isWorkspaceRequest) {
-                return ToolExecutor(toolRegistry).execute(toolName, args);
+                // 权限已由上方 guardedExecute 的 ToolPermissionPolicy 把关，
+                // 这里放行以避免工具元权限（workspace_write/command）被二次拦截。
+                return ToolExecutor(toolRegistry,
+                    permissionChecker: (_) => true).execute(toolName, args);
               }
               final action = await _deviceAgentExecutionService.executeFromJson(
                 jsonEncode({
@@ -2818,6 +2846,9 @@ $tail
           systemPrompt.writeln('## 角色反馈风格');
           systemPrompt.writeln(
               '角色名：${character.name}\n角色人设：${character.personality ?? ''}');
+          systemPrompt.writeln('每次角色反馈也必须在可见正文之后输出一次 TURN_STATE：'
+              '[TURN_STATE]{"emoji":"🙂","emotion":"简短情绪","intensity":0.0,"thought":"本轮新想法"}[/TURN_STATE]。'
+              'emoji 必须根据本轮语境重新选择，不能沿用上一轮。');
           if (sessionStateContext != null && sessionStateContext.isNotEmpty) {
             systemPrompt.writeln(
                 '以下是只用于生成执行后反馈的关系与剧情上下文，不得替代工具调用，也不得声称未执行的操作已完成：\n$sessionStateContext');
@@ -3192,7 +3223,7 @@ $tail
                 '$resultContext\n请用角色自然完整的口吻回应用户，不要复述机器文本。',
               ),
             );
-final repairedText = repaired.cleanText.trim();
+            final repairedText = repaired.cleanText.trim();
             if (repairedText.isNotEmpty) {
               aiVisibleText = repaired.cleanText;
               reasoningText = repaired.reasoning;
@@ -3210,7 +3241,7 @@ final repairedText = repaired.cleanText.trim();
         }
       }
 
-if (aiVisibleText.trim().isEmpty) {
+      if (aiVisibleText.trim().isEmpty) {
         LogService.instance.w(
           'ChatBloc',
           '_onSendMessage: AI response was empty',
@@ -3239,7 +3270,7 @@ if (aiVisibleText.trim().isEmpty) {
               internalSystemContext: _mergeInternalSystemContext(
                 sessionStateContext,
                 '【已办成的真实信息】工具：${lastRecord.toolName}，状态：${lastRecord.result.success ? '成功' : '失败'}，'
-                    '结果：${lastRecord.result.message}。请用角色自然完整的口吻继续刚才的话题，把这件事当作角色自己的经历来回应，不要复述机器文本。',
+                '结果：${lastRecord.result.message}。请用角色自然完整的口吻继续刚才的话题，把这件事当作角色自己的经历来回应，不要复述机器文本。',
               ),
             );
             aiVisibleText = fallbackResult.cleanText.trim();
@@ -3288,6 +3319,9 @@ if (aiVisibleText.trim().isEmpty) {
         chatId: event.chatId,
         character: character,
         userId: event.userId,
+        userMessage: event.content,
+        aiReply: aiVisibleText,
+        sentimentLabel: sentiment.label,
         emit: emit,
       );
 
@@ -3602,6 +3636,9 @@ if (aiVisibleText.trim().isEmpty) {
         chatId: event.chatId,
         character: character,
         userId: event.userId,
+        userMessage: silencePrompt,
+        aiReply: parts.join('\n'),
+        sentimentLabel: '平静',
         emit: emit,
       );
       if (activeCommitment?.isDue == true) {
@@ -3887,144 +3924,6 @@ if (aiVisibleText.trim().isEmpty) {
     }
   }
 
-  Future<void> _onSendVoiceMessage(
-    ChatSendVoiceMessage event,
-    Emitter<ChatState> emit,
-  ) async {
-    final now = DateTime.now();
-
-    // 1. 保存语音消息（转写文本存在 metadata 里，不单独显示）
-    final voiceMsg = ChatMessage(
-      id: _uuid.v4(),
-      chatId: event.chatId,
-      senderId: event.userId,
-      content: event.audioPath,
-      type: MessageType.voice,
-      status: MessageStatus.sent,
-      createdAt: now,
-      isUser: true,
-      metadata: {
-        'duration': event.duration,
-        'text': event.transcript,
-      },
-    );
-
-    try {
-      await _storage.saveChatMessage(voiceMsg);
-    } catch (_) {
-      emit(ChatError('保存语音消息失败'));
-      return;
-    }
-
-    // 2. 加载消息列表
-    final messages = await _storage.getChatMessages(event.chatId);
-    emit(ChatMessagesLoaded(messages));
-
-    if (event.transcript.isEmpty) return;
-
-    // 3. 触发 AI 回复（用转写文本）
-    AICharacter? character;
-    try {
-      character = await _storage.getAICharacter(event.characterId);
-    } catch (e) {
-      debugPrint('Error: $e');
-    }
-    if (character == null) return;
-
-    final session = await _storage.getChatSession(event.chatId);
-    final memories = await _storage.getMemories(
-      characterId: character.id,
-      userId: event.userId,
-      limit: Limit.memoryFetch,
-    );
-    final sentiment = SentimentAnalyzer.analyze(event.transcript);
-
-    String finalReasoning = '';
-    String finalContent = '';
-
-    emit(ChatAITyping(messages, character.name));
-
-    try {
-      await for (final chunk in _bridgeSendMessageStream(
-        character: character,
-        userId: event.userId,
-        userMessage: event.transcript,
-        chatHistory: messages,
-        memories: memories,
-        intimacyLevel: session?.intimacyLevel ?? 0,
-        sentiment: sentiment,
-      )) {
-        finalReasoning = chunk.reasoning;
-        finalContent = chunk.content;
-        emit(ChatAIStreaming(messages, chunk.content, character.name,
-            reasoning: chunk.reasoning));
-      }
-    } catch (e) {
-      LogService.instance
-          .e('Chat', 'Voice AI stream error: $e', chatId: event.chatId);
-      finalContent = '...';
-    }
-
-    if (finalContent.isEmpty) return;
-
-    // 从 content 中提取推理内容，合并到 reasoning，并从正文移除。
-    final voiceReasoningParts = MessageSanitizer.stripReasoningTags(
-      finalContent,
-    );
-    final extractedVoiceReasoning = voiceReasoningParts[1];
-    if (extractedVoiceReasoning.isNotEmpty) {
-      finalReasoning +=
-          (finalReasoning.isNotEmpty ? '\n' : '') + extractedVoiceReasoning;
-    }
-    finalContent = voiceReasoningParts[0];
-
-    final cleanedVoiceContent = MessageSanitizer.removeRepeatedContent(
-      finalContent,
-      fallback: MessageSanitizer.failureFallbackText(),
-    );
-
-    final aiMsg = ChatMessage(
-      id: _uuid.v4(),
-      chatId: event.chatId,
-      senderId: event.characterId,
-      content: cleanedVoiceContent,
-      type: MessageType.text,
-      status: MessageStatus.sent,
-      createdAt: DateTime.now(),
-      isUser: false,
-      reasoning: finalReasoning.isNotEmpty ? finalReasoning : null,
-    );
-
-    try {
-      await _storage.saveChatMessage(aiMsg);
-      await _markUserMessagesAsRead(event.chatId, event.userId);
-      if (session != null) {
-        try {
-          await _applyIntimacyAfterReply(
-            session: session,
-            messageContent: event.transcript,
-            sentiment: sentiment,
-            source: 'voice',
-            emit: emit,
-            lastMessagePreview: cleanedVoiceContent.length > 80
-                ? cleanedVoiceContent.substring(0, 80)
-                : cleanedVoiceContent,
-          );
-        } catch (e) {
-          LogService.instance.e(
-            'Bloc',
-            'voice intimacy update failed: $e',
-            chatId: event.chatId,
-          );
-        }
-      }
-      final updatedMessages = await _storage.getChatMessages(event.chatId);
-      emit(ChatMessagesLoaded(updatedMessages));
-    } catch (_) {
-      emit(ChatError('保存AI回复失败'));
-    }
-  }
-
   int _getTypingDelay(String personality) => getTypingDelay(personality);
 
   Future<void> _onSendSticker(
@@ -4304,6 +4203,9 @@ if (aiVisibleText.trim().isEmpty) {
         chatId: event.chatId,
         character: character,
         userId: event.userId,
+        userMessage: userMessageForAI,
+        aiReply: cleanedAIResponse,
+        sentimentLabel: sentimentResult.label,
         emit: emit,
       );
       _errorSessions.remove(event.chatId);
@@ -5596,9 +5498,7 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       if (hadTools || finalText.isNotEmpty) {
         final aiContent = finalText.isNotEmpty
             ? finalText
-            : (success
-                ? '这件事已经处理好了。'
-                : '这件事没有成功完成，咱们再想想别的办法。');
+            : (success ? '这件事已经处理好了。' : '这件事没有成功完成，咱们再想想别的办法。');
 
         // 保存工具执行的 AI 总结
         final aiName = character?.name ?? 'AI';

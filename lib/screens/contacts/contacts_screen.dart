@@ -10,6 +10,7 @@ import '../../models/group_chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/memory_engine.dart';
 import '../../services/permission_service.dart';
+import '../../services/character_recovery_resolver.dart';
 import '../chat/chat_detail_screen.dart';
 import '../group_chat/group_chat_detail_screen.dart';
 import '../../blocs/chat/chat_bloc.dart';
@@ -26,6 +27,7 @@ class ContactsScreen extends StatefulWidget {
 
 class _ContactsScreenState extends State<ContactsScreen> {
   List<AICharacter> _characters = [];
+  List<AICharacter> _hiddenCharacters = [];
   List<GroupChatSession> _groupChats = [];
   bool _isLoading = true;
   StreamSubscription? _chatSub;
@@ -45,10 +47,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Future<void> _loadCharacters() async {
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
     final characters = await storage.getAllAICharacters();
+    final allCharacters = await storage.getAllAICharacters(includeHidden: true);
     final groupChats = await storage.getGroupChatSessions('local_user');
     if (!mounted) return;
     setState(() {
       _characters = characters;
+      _hiddenCharacters = CharacterRecoveryResolver.recoverableHiddenCharacters(
+        allCharacters,
+      );
       _groupChats = groupChats;
       _isLoading = false;
     });
@@ -63,6 +69,17 @@ class _ContactsScreenState extends State<ContactsScreen> {
         elevation: 0,
         backgroundColor: Theme.of(context).colorScheme.surface,
         foregroundColor: Theme.of(context).colorScheme.onSurface,
+        actions: [
+          if (_hiddenCharacters.isNotEmpty)
+            IconButton(
+              tooltip: '恢复隐藏联系人',
+              icon: Badge(
+                label: Text('${_hiddenCharacters.length}'),
+                child: const Icon(Icons.visibility_off_outlined),
+              ),
+              onPressed: () => _showHiddenCharacters(context),
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -323,6 +340,77 @@ class _ContactsScreenState extends State<ContactsScreen> {
       debugPrint('复制头像失败: $e');
       return sourcePath;
     }
+  }
+
+  Future<void> _restoreCharacter(AICharacter character) async {
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final allCharacters = await storage.getAllAICharacters(includeHidden: true);
+    final candidates = CharacterRecoveryResolver.equivalents(
+      character,
+      allCharacters,
+    );
+    final messageCounts = <String, int>{};
+    for (final candidate in candidates) {
+      final sessions = await storage.getChatSessionsByCharacterId(candidate.id);
+      var count = 0;
+      for (final session in sessions) {
+        count +=
+            (await storage.getChatMessages(session.id, limit: 1 << 20)).length;
+      }
+      messageCounts[candidate.id] = count;
+    }
+    final canonical = CharacterRecoveryResolver.chooseCanonical(
+      candidates,
+      messageCounts,
+    );
+    for (final candidate in candidates) {
+      await storage.saveAICharacter(candidate.copyWith(
+        isHidden: candidate.id != canonical.id,
+        updatedAt: DateTime.now(),
+      ));
+    }
+    if (mounted) {
+      Navigator.pop(context);
+      await _loadCharacters();
+      final duplicateCount = candidates.length - 1;
+      final suffix = duplicateCount > 0 ? '，已保留聊天记录最多的版本' : '';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '已恢复“${canonical.userNickname ?? canonical.name}”$suffix',
+          ),
+        ),
+      );
+    }
+  }
+
+  void _showHiddenCharacters(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              leading: Icon(Icons.visibility_off_outlined),
+              title: Text('已隐藏的联系人'),
+              subtitle: Text('恢复后会重新出现在通讯录中'),
+            ),
+            ..._hiddenCharacters.map((character) => ListTile(
+                  leading: CircleAvatar(
+                    child:
+                        Text(character.name.isEmpty ? '?' : character.name[0]),
+                  ),
+                  title: Text(character.userNickname ?? character.name),
+                  trailing: FilledButton(
+                    onPressed: () => _restoreCharacter(character),
+                    child: const Text('恢复'),
+                  ),
+                )),
+          ],
+        ),
+      ),
+    );
   }
 
   void _hideCharacter(BuildContext context, AICharacter character) async {

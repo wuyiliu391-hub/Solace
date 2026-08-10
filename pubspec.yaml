@@ -1,5 +1,5 @@
 name: solace
-version: 17.8.0+291
+version: 17.9.0+292
 publish_to: none
 description: Solace - AI 陪伴应用，多角色聊天、语音回复、心情日记、从回忆创建角色。纯本地存储，隐私安全。
 
@@ -34,9 +34,7 @@ dependencies:
   crypto: ^3.0.3
   encrypt: ^5.0.3
   web_socket_channel: ^3.0.3
-  audioplayers: ^6.1.0
-  speech_to_text: ^7.0.0
-  record: ^6.2.1
+
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
   geolocator: ^11.0.0

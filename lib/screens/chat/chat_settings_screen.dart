@@ -7,7 +7,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../config/business_rules.dart';
-import '../../config/tts_config.dart';
 import '../../models/ai_character.dart';
 import '../../models/ai_wallet.dart';
 import '../../models/chat_session.dart';
@@ -15,9 +14,6 @@ import '../../repositories/local_storage_repository.dart';
 
 import '../../services/memory_engine.dart';
 import '../../data/builtin_characters.dart';
-import '../../services/voice_clone_service.dart';
-import '../../services/tts_service.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../services/permission_service.dart';
@@ -168,14 +164,65 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     );
     if (path == null || path.trim().isEmpty || !mounted) return;
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    await WorkspaceService(storage).bind(_localSession.id, path);
-    setState(() {
-      _workspacePath = path;
-      _hasChanges = true;
-    });
+
+    if (_workspacePath != null &&
+        _workspacePath!.trim() != path.trim() &&
+        !await _confirmWorkspaceAction(
+          title: '切换工作区？',
+          message: '当前聊天将改为访问：\n$path\n\n原目录不会被删除，也不会被移动。',
+          confirmText: '切换',
+        )) {
+      return;
+    }
+
+    try {
+      final workspace = WorkspaceService(storage);
+      await workspace.bind(_localSession.id, path);
+      if (!mounted) return;
+      setState(() {
+        _workspacePath = workspace.pathForChat(_localSession.id);
+        _hasChanges = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('绑定工作区失败：$e')),
+      );
+    }
   }
 
-  Future<void> _clearWorkspace() async {
+  Future<bool> _confirmWorkspaceAction({
+    required String title,
+    required String message,
+    required String confirmText,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(confirmText),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
+  Future<void> _restoreDefaultWorkspace() async {
+    final confirmed = await _confirmWorkspaceAction(
+      title: '恢复默认目录？',
+      message: '这只会解除当前聊天的工作区绑定，保留原目录和其中的全部文件。\n\n不会删除、清空或移动任何文件。',
+      confirmText: '恢复默认目录',
+    );
+    if (!confirmed || !mounted) return;
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);
     await storage.remove('workspace_path_${_localSession.id}');
     if (!mounted) return;
@@ -1281,16 +1328,17 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         _SettingsItem(
           icon: Icons.folder_outlined,
           title: '工作区与代码 Agent',
-          subtitle:
-              _workspacePath == null ? '未绑定项目目录，代码/文件任务不会执行' : _workspacePath,
+          subtitle: _workspacePath == null
+              ? '未绑定项目目录，代码/文件任务不会执行'
+              : '当前目录：$_workspacePath',
           onTap: _pickWorkspace,
         ),
         if (_workspacePath != null)
           _SettingsItem(
             icon: Icons.link_off_outlined,
-            title: '解除工作区绑定',
-            subtitle: '保留本地文件，不再让当前聊天访问该目录',
-            onTap: _clearWorkspace,
+            title: '恢复默认目录（解除绑定）',
+            subtitle: '只清除当前聊天的绑定；保留目录、代码和所有文件',
+            onTap: _restoreDefaultWorkspace,
           ),
         if (_character != null) ...[
           _SettingsItem(
@@ -1678,12 +1726,6 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
     super.initState();
     _character = widget.character;
     _initControllers();
-    _checkTtsApiKey();
-  }
-
-  Future<void> _checkTtsApiKey() async {
-    final hasKey = await TTSConfig.hasApiKey();
-    if (mounted) setState(() => _hasTtsApiKey = hasKey);
   }
 
   void _initControllers() {
@@ -1727,8 +1769,6 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
 
   @override
   void dispose() {
-    _previewCompleteSub?.cancel();
-    _previewPlayer?.dispose();
     _personalityController.dispose();
     _backgroundStoryController.dispose();
     _coreDesireController.dispose();
@@ -2160,7 +2200,6 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
               ),
             ),
             _buildEvolutionHistorySection(context),
-            _buildVoiceSampleSection(context),
           ],
           const SizedBox(height: 20),
         ],
@@ -2312,196 +2351,6 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
         '成长记录功能暂时不可用。',
       ),
     );
-  }
-
-  bool _hasTtsApiKey = false;
-
-  Widget _buildVoiceSampleSection(BuildContext context) {
-    final voiceClone = VoiceCloneService();
-    final hasVoice = voiceClone.hasVoice(_character.id);
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildCollapsibleInfoSection(
-            context,
-            '音色克隆',
-            Icons.record_voice_over,
-            hasVoice
-                ? '已设置音色样本。可试听或重新上传。'
-                : '上传音频后，AI 回复可朗读为语音。\n支持 mp3/wav 格式，最大 10MB。',
-          ),
-          if (!_hasTtsApiKey)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.warning, size: 18, color: Colors.orange[700]),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      '未配置 TTS API Key，试听和语音合成功能不可用。请在设置 → 语音 → TTS API Key 中配置。',
-                      style: TextStyle(fontSize: 12, color: Colors.orange[700]),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () => _uploadVoiceSample(voiceClone),
-                  icon: Icon(hasVoice ? Icons.refresh : Icons.upload_file,
-                      size: 18),
-                  label: Text(hasVoice ? '更换音色' : '上传音色样本'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colorScheme.primaryContainer,
-                    foregroundColor: colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                if (hasVoice) ...[
-                  ElevatedButton.icon(
-                    onPressed: _isPreviewPlaying
-                        ? null
-                        : () => _playPreview(voiceClone),
-                    icon: Icon(
-                        _isPreviewPlaying ? Icons.stop : Icons.play_arrow,
-                        size: 18),
-                    label: Text(_isPreviewPlaying ? '播放中...' : '试听'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: colorScheme.secondaryContainer,
-                      foregroundColor: colorScheme.onSecondaryContainer,
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () => _deleteVoiceSample(voiceClone),
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    label: const Text('删除'),
-                    style: TextButton.styleFrom(foregroundColor: Colors.red),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  bool _isPreviewPlaying = false;
-  AudioPlayer? _previewPlayer;
-  StreamSubscription? _previewCompleteSub;
-
-  Future<void> _playPreview(VoiceCloneService voiceClone) async {
-    if (!_hasTtsApiKey) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('请先配置 TTS API Key'), backgroundColor: Colors.orange),
-      );
-      return;
-    }
-    setState(() => _isPreviewPlaying = true);
-    try {
-      final path = await voiceClone.generatePreview(_character.id);
-      if (path != null && mounted) {
-        _previewCompleteSub?.cancel();
-        _previewPlayer?.dispose();
-        _previewPlayer = AudioPlayer();
-        await _previewPlayer!.play(DeviceFileSource(path));
-        _previewCompleteSub = _previewPlayer!.onPlayerComplete.listen((_) {
-          if (mounted) setState(() => _isPreviewPlaying = false);
-        });
-        return;
-      }
-    } catch (e) {
-      debugPrint('试听失败: $e');
-    }
-    if (mounted) {
-      setState(() => _isPreviewPlaying = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('试听失败，可能被限流，请稍后重试'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  Future<void> _uploadVoiceSample(VoiceCloneService voiceClone) async {
-    try {
-      final previewText = '你好，我是${_character.name}。';
-      final result = await voiceClone.pickAndSaveVoice(
-        _character.id,
-        previewText: previewText,
-      );
-      if (result != null && mounted) {
-        // 立即刷新 UI，显示试听按钮
-        setState(() {});
-        // 检查 API Key 状态
-        _checkTtsApiKey();
-        // 自动播放试听
-        if (result.previewPath != null) {
-          _previewCompleteSub?.cancel();
-          _previewPlayer?.dispose();
-          _previewPlayer = AudioPlayer();
-          await _previewPlayer!.play(DeviceFileSource(result.previewPath!));
-          setState(() => _isPreviewPlaying = true);
-          _previewCompleteSub = _previewPlayer!.onPlayerComplete.listen((_) {
-            if (mounted) setState(() => _isPreviewPlaying = false);
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('音色已上传，正在试听'), backgroundColor: Colors.green),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('音色已上传，但试听失败（可能未配置 API Key 或被限流）'),
-                backgroundColor: Colors.orange),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('上传失败: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteVoiceSample(VoiceCloneService voiceClone) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除音色样本'),
-        content: const Text('确定删除该角色的音色样本吗？删除后将无法朗读语音。'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('删除')),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await voiceClone.deleteVoice(_character.id);
-      if (mounted) {
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('音色样本已删除')),
-        );
-      }
-    }
   }
 
   Widget _buildDefaultAvatar() {

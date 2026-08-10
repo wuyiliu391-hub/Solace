@@ -5,7 +5,6 @@ import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../services/proactive_scheduler.dart';
-import '../../services/voice_clone_service.dart';
 import '../../data/builtin_characters.dart';
 
 class InteractionSettingsScreen extends StatefulWidget {
@@ -33,7 +32,6 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
   int _activeMessageFrequency = 2;
   ReplyMode _replyMode = ReplyMode.normal;
   int _replyDelaySeconds = 5;
-  bool _voiceReplyEnabled = false;
   bool _enableStickerReply = true;
   bool _enableProactiveDevice = true;
   bool _enableReadNotifications = true;
@@ -65,7 +63,6 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
     _activeMessageFrequency = config?.activeMessageFrequency ?? 2;
     _replyMode = config?.replyMode ?? ReplyMode.normal;
     _replyDelaySeconds = config?.replyDelaySeconds ?? 5;
-    _voiceReplyEnabled = config?.voiceReplyEnabled ?? false;
     _enableStickerReply = config?.enableStickerReply ?? true;
     _enableProactiveDevice = config?.enableProactiveDevice ?? true;
     _enableReadNotifications = config?.enableReadNotifications ?? true;
@@ -133,7 +130,6 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
       nightGreetingTime: nightStr,
       replyMode: _replyMode,
       replyDelaySeconds: _replyDelaySeconds,
-      voiceReplyEnabled: _voiceReplyEnabled,
       enableStickerReply: _enableStickerReply,
       enableProactiveDevice: _enableProactiveDevice,
       enableReadNotifications: _enableReadNotifications,
@@ -779,38 +775,6 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
                           ),
                         ],
                       ]),
-
-                      // AI 语音回复（始终显示，让用户自主选择）
-                      const SizedBox(height: 16),
-                      Text('语音回复',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: colorScheme.primary)),
-                      const SizedBox(height: 8),
-                      buildSettingsCard(children: [
-                        buildSwitchTile(
-                          title: 'AI 语音回复',
-                          subtitle:
-                              VoiceCloneService().hasVoice(widget.character.id)
-                                  ? '开启后AI会发送语音消息（像微信语音条）'
-                                  : '尚未配置音色，请先上传音色样本',
-                          value: _voiceReplyEnabled,
-                          onChanged:
-                              VoiceCloneService().hasVoice(widget.character.id)
-                                  ? (v) async {
-                                      setState(() {
-                                        _dirty = true;
-                                        _voiceReplyEnabled = v;
-                                      });
-                                      await _saveSettingsWithFeedback(
-                                          v ? '已开启语音回复' : '已关闭语音回复');
-                                    }
-                                  : (_) {}, // 无音色时点击无效果
-                        ),
-                      ]),
-
-                      const SizedBox(height: 16),
 
                       const SizedBox(height: 24),
                       buildSaveButton(),

@@ -181,7 +181,6 @@ class MediaSettings {
   final bool imageGeneration;
   final bool textToSpeech;
   final String? ttsProvider;
-  final String? ttsApiKey;
   final String? ttsApiUrl;
   final String? ttsModelId;
 
@@ -190,7 +189,6 @@ class MediaSettings {
     this.imageGeneration = false,
     this.textToSpeech = false,
     this.ttsProvider,
-    this.ttsApiKey,
     this.ttsApiUrl,
     this.ttsModelId,
   });
@@ -200,7 +198,6 @@ class MediaSettings {
         'imageGeneration': imageGeneration,
         'textToSpeech': textToSpeech,
         'ttsProvider': ttsProvider,
-        'ttsApiKey': ttsApiKey,
         'ttsApiUrl': ttsApiUrl,
         'ttsModelId': ttsModelId,
       };
@@ -211,7 +208,6 @@ class MediaSettings {
       imageGeneration: json['imageGeneration'] as bool? ?? false,
       textToSpeech: json['textToSpeech'] as bool? ?? false,
       ttsProvider: json['ttsProvider'] as String?,
-      ttsApiKey: json['ttsApiKey'] as String?,
       ttsApiUrl: json['ttsApiUrl'] as String?,
       ttsModelId: json['ttsModelId'] as String?,
     );

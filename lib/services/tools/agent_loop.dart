@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../../services/llm_service.dart';
 import 'tool.dart';
 import 'tool_registry.dart';
 import 'tool_executor.dart';
+import 'agent_tool_gateway.dart';
 
 /// 安全将任意 Map 转换为 Map<String, dynamic>
 Map<String, dynamic>? _safeCastMap(dynamic raw) {
@@ -32,11 +32,16 @@ Map<String, dynamic>? _safeCastMap(dynamic raw) {
 class AgentLoop {
   final ToolRegistry registry;
   final ToolExecutor executor;
+  final AgentToolGateway gateway;
 
   AgentLoop({
     required this.registry,
     ToolExecutor? executor,
-  }) : executor = executor ?? ToolExecutor(registry);
+  })  : executor = executor ?? ToolExecutor(registry),
+        gateway = AgentToolGateway(
+          registry: registry,
+          executor: executor,
+        );
 
   /// 执行用户请求
   ///
@@ -129,7 +134,7 @@ class AgentLoop {
           status: 'running',
         ));
 
-        final record = await executor.execute(call.name, call.args);
+        final record = await gateway.execute(call.name, call.args);
         executions.add(record);
 
         final result = record.result;
@@ -171,7 +176,8 @@ class AgentLoop {
 
   String _formatExecutions(List<ToolExecutionRecord> executions) {
     return executions
-        .map((e) => '- ${e.toolName}: ${e.result.success ? "成功" : "失败"} — ${e.result.message}')
+        .map((e) =>
+            '- ${e.toolName}: ${e.result.success ? "成功" : "失败"} — ${e.result.message}')
         .join('\n');
   }
 }

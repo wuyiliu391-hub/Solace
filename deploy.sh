@@ -38,9 +38,8 @@ if command -v sha1sum >/dev/null 2>&1; then
   sha1sum "$APK_DST" | awk '{print $1}' > "$APK_DST.sha1"
 fi
 
-APK_MB=$(node -e "console.log((require('fs').statSync(process.argv[1]).size/1024/1024).toFixed(1))" "$APK_DST")
-GZ_MB=$(node -e "console.log((require('fs').statSync(process.argv[1]).size/1024/1024).toFixed(1))" "$APK_GZ")
-echo "APK: ${APK_MB}MB -> GZ: ${GZ_MB}MB"
+echo "APK artifact prepared: $APK_DST"
+echo "GZ artifact prepared: $APK_GZ"
 rm -f "$APK_DST"
 
 cd "$PAGES_DIR"

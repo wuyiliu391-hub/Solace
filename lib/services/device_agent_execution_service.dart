@@ -7,6 +7,7 @@ import 'device_action_policy.dart';
 import 'tools/tool_executor.dart';
 import 'tools/tool_registry.dart';
 import 'tools/tools.dart';
+import 'tools/agent_tool_gateway.dart';
 
 /// Device Agent 执行服务（BT 同构 · 全量工具）
 ///
@@ -21,7 +22,7 @@ import 'tools/tools.dart';
 /// 7. 审计 + 回灌队列
 class DeviceAgentExecutionService {
   final LocalStorageRepository _repo;
-  final ToolExecutor _executor;
+  late final AgentToolGateway _gateway;
   final DeviceActionPolicy _policy = DeviceActionPolicy.instance;
 
   static const int maxActionsPerReply = 1;
@@ -30,7 +31,14 @@ class DeviceAgentExecutionService {
     this._repo, {
     ToolRegistry? registry,
     ToolExecutor? executor,
-  }) : _executor = executor ?? ToolExecutor(registry ?? createToolRegistry());
+  }) {
+    final toolRegistry = registry ?? executor?.registry ?? createToolRegistry();
+    _gateway = AgentToolGateway(
+      registry: toolRegistry,
+      permissionChecker: (tool) => isToolPermitted(tool.name),
+      executor: executor,
+    );
+  }
 
   bool isRolePathAllowed() {
     if (!_repo.isDeviceAgentMasterEnabled()) return false;
@@ -246,7 +254,7 @@ class DeviceAgentExecutionService {
     final stateBefore = 'tool=$toolName args=$toolArgs';
 
     try {
-      final record = await _executor.execute(toolName, toolArgs);
+      final record = await _gateway.execute(toolName, toolArgs);
       final result = record.result;
       final log = DeviceAgentAction(
         actionType: actionType,

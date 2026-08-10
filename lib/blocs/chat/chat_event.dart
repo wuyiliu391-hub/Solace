@@ -97,28 +97,6 @@ class ChatDeleteSession extends ChatEvent {
   List<Object?> get props => [chatId, userId];
 }
 
-class ChatSendVoiceMessage extends ChatEvent {
-  final String chatId;
-  final String userId;
-  final String characterId;
-  final String audioPath;
-  final int duration;
-  final String transcript;
-
-  const ChatSendVoiceMessage({
-    required this.chatId,
-    required this.userId,
-    required this.characterId,
-    required this.audioPath,
-    required this.duration,
-    required this.transcript,
-  });
-
-  @override
-  List<Object?> get props =>
-      [chatId, userId, characterId, audioPath, duration, transcript];
-}
-
 class ChatSendSticker extends ChatEvent {
   final String chatId;
   final String userId;
