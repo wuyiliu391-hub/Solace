@@ -65,9 +65,10 @@ import '../../models/tool_task_state.dart';
 import '../../services/tool_permission_policy.dart';
 import '../../services/recent_tool_context.dart';
 import '../../services/unified_intent_classifier.dart';
-import '../../services/workspace_intent_router.dart';
-import '../../services/workspace_service.dart';
 import '../../services/tool_task_store.dart';
+import '../../services/story_state_service.dart';
+import '../../services/proactive_decision_engine.dart';
+import '../../services/proactive_action_executor.dart';
 
 part 'chat_event.dart';
 part 'chat_state.dart';
@@ -121,6 +122,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   late final CharacterDesireEngine _desireEngine;
   late final ToolPermissionPolicy _toolPermissionPolicy;
   late final ToolTaskStore _toolTaskStore;
+  late final StoryStateService _storyStateService;
+  late final ProactiveDecisionEngine _proactiveDecisionEngine;
   final Set<String> _cancelledToolTasks = {};
   final Map<String, Completer<bool>> _toolPermissionWaiters = {};
   final AIServiceAdapter? _aiAdapter;
@@ -318,6 +321,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     _desireEngine = CharacterDesireEngine(_storage);
     _commitmentService = CharacterCommitmentService(_storage);
     _relationshipService = RelationshipContextService(_storage);
+    _storyStateService = StoryStateService(_storage);
+    _proactiveDecisionEngine = ProactiveDecisionEngine();
     _toolAwareService = null; // 延迟到第一次使用时初始化（需要在 onSendMessage 中拿到 LlmService）
     on<ChatLoadSessions>(_onLoadSessions);
     on<ChatLoadMessages>(_onLoadMessages);
@@ -2706,11 +2711,8 @@ $tail
       // 2) 未命中确定性路由时，再尝试 LLM 工具路径
       // 工具请求走 ToolAwareService（纯工具助手，无角色人设干扰）
       // 普通聊天走 _streamAndProcessAIResponse（角色扮演，无工具干扰）
-      final bool isWorkspaceRequest =
-          WorkspaceIntentRouter.isTask(event.content);
       final bool isToolRequest = !agentHadTool &&
-          (intentResult.kind == UnifiedIntentKind.directTool ||
-              isWorkspaceRequest);
+          (intentResult.kind == UnifiedIntentKind.directTool);
 
       if (isToolRequest) {
         deviceRequestAttempted = true;
@@ -2721,13 +2723,7 @@ $tail
         try {
           // 创建 ToolAwareService（使用数据库中的 AI 配置）
           final toolLlm = LlmService(settings: await _loadLlmSettings());
-          final toolRegistry = isWorkspaceRequest
-              ? createWorkspaceToolRegistry(
-                  workspace: WorkspaceService(_storage),
-                  chatId: event.chatId,
-                  llm: toolLlm,
-                )
-              : _toolRegistry;
+          final toolRegistry = _toolRegistry;
           final toolAwareService = ToolAwareService(
             llmService: toolLlm,
             registry: toolRegistry,
@@ -2777,12 +2773,6 @@ $tail
                     endedAt: DateTime.now(),
                   );
                 }
-              }
-              if (isWorkspaceRequest) {
-                // 权限已由上方 guardedExecute 的 ToolPermissionPolicy 把关，
-                // 这里放行以避免工具元权限（workspace_write/command）被二次拦截。
-                return ToolExecutor(toolRegistry,
-                    permissionChecker: (_) => true).execute(toolName, args);
               }
               final action = await _deviceAgentExecutionService.executeFromJson(
                 jsonEncode({
@@ -3062,7 +3052,59 @@ $tail
       // （非工具请求也会走到这里，aiVisibleText 为空，触发 normal AI response）
       List<RegExpMatch> aiStickerMatches = const [];
       if (aiVisibleText.isEmpty && !agentHadTool && !deviceRequestAttempted) {
+        // ── 主动决策引擎：在普通聊天前评估是否需要主动执行动作 ──
+        ProactiveDecisionResult? proactiveDecision;
+        ProactiveActionResult? proactiveAction;
+        try {
+          // 读取角色配置中的主动调用开关和敏感度
+          final interactionConfig = character.interactionConfig;
+          _proactiveDecisionEngine.enabled =
+              interactionConfig?.enableProactiveToolCalling ?? false;
+          _proactiveDecisionEngine.sensitivity =
+              interactionConfig?.proactiveSensitivity ?? 'medium';
+
+          if (_proactiveDecisionEngine.enabled) {
+            final proactiveLlm =
+                LlmService(settings: await _loadLlmSettings());
+            proactiveDecision = await _proactiveDecisionEngine.evaluate(
+              character: character,
+              userId: event.userId,
+              recentMessages: chatMsgs,
+              storyStateService: _storyStateService,
+              llm: proactiveLlm,
+            );
+
+            if (proactiveDecision.shouldAct &&
+                proactiveDecision.actionType != null) {
+              // 执行主动动作
+              final executor = ProactiveActionExecutor(
+                storyStateService: _storyStateService,
+                characterId: character.id,
+                userId: event.userId,
+              );
+              proactiveAction = await executor.execute(
+                proactiveDecision.actionType!,
+                proactiveDecision.actionArgs,
+                event.content,
+              );
+
+              LogService.instance.i(
+                'ProactiveAction',
+                '${proactiveAction.actionType.name}: ${proactiveAction.log}',
+                chatId: event.chatId,
+              );
+            }
+          }
+        } catch (e) {
+          debugPrint('[ProactiveAction] 执行异常: $e');
+        }
+
         // 非工具请求或工具路径未返回内容，走角色聊天路径
+        // 将主动动作的上下文注入追加到系统提示中
+        final effectiveContext = proactiveAction?.contextInjection != null
+            ? '$sessionStateContext\n${proactiveAction!.contextInjection}'
+            : sessionStateContext;
+
         try {
           final normalResult = await _streamAndProcessAIResponse(
             character: character,
@@ -3079,7 +3121,7 @@ $tail
             imageDescription: imageDescription,
             imagePaths: imagePaths,
             enableWebSearch: event.enableWebSearch,
-            internalSystemContext: sessionStateContext,
+            internalSystemContext: effectiveContext,
           );
           aiVisibleText = normalResult.cleanText;
           reasoningText = normalResult.reasoning;
@@ -3157,7 +3199,7 @@ $tail
 
       // 本地工具的执行记录是事实源；角色只负责把真实结果融入关系语境。
       if (toolExecutions.isNotEmpty &&
-          (deterministicRoute != null || isWorkspaceRequest || agentHadTool)) {
+          (deterministicRoute != null || agentHadTool)) {
         final record = authoritativeRecord ?? toolExecutions.first;
         final resultContext = '''
 【刚刚获得的真实信息，仅供当前角色理解】

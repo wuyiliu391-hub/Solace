@@ -50,6 +50,10 @@ class AIInteractionConfig extends Equatable {
   final bool enableReadNotifications;
   /// 是否用 LLM 精炼欲望画像（人设变更时）
   final bool enableLlmDesireRefine;
+  /// 该角色是否允许主动调用工具（根据上下文自主判断）
+  final bool enableProactiveToolCalling;
+  /// 主动调用敏感度（low/medium/high）
+  final String proactiveSensitivity;
 
   const AIInteractionConfig({
     this.enableMorningGreeting = true,
@@ -68,6 +72,8 @@ class AIInteractionConfig extends Equatable {
     this.enableProactiveDevice = true,
     this.enableReadNotifications = true,
     this.enableLlmDesireRefine = true,
+    this.enableProactiveToolCalling = false,
+    this.proactiveSensitivity = 'medium',
   });
 
   Map<String, dynamic> toMap() {
@@ -88,6 +94,8 @@ class AIInteractionConfig extends Equatable {
       'enableProactiveDevice': enableProactiveDevice ? 1 : 0,
       'enableReadNotifications': enableReadNotifications ? 1 : 0,
       'enableLlmDesireRefine': enableLlmDesireRefine ? 1 : 0,
+      'enableProactiveToolCalling': enableProactiveToolCalling ? 1 : 0,
+      'proactiveSensitivity': proactiveSensitivity,
     };
   }
 
@@ -143,6 +151,10 @@ class AIInteractionConfig extends Equatable {
           _asBool(map['enableReadNotifications'], defaultValue: true),
       enableLlmDesireRefine:
           _asBool(map['enableLlmDesireRefine'], defaultValue: true),
+      enableProactiveToolCalling:
+          _asBool(map['enableProactiveToolCalling'], defaultValue: false),
+      proactiveSensitivity:
+          map['proactiveSensitivity'] as String? ?? 'medium',
     );
   }
 
@@ -163,6 +175,8 @@ class AIInteractionConfig extends Equatable {
     bool? enableProactiveDevice,
     bool? enableReadNotifications,
     bool? enableLlmDesireRefine,
+    bool? enableProactiveToolCalling,
+    String? proactiveSensitivity,
   }) {
     return AIInteractionConfig(
       enableMorningGreeting:
@@ -189,6 +203,10 @@ class AIInteractionConfig extends Equatable {
           enableReadNotifications ?? this.enableReadNotifications,
       enableLlmDesireRefine:
           enableLlmDesireRefine ?? this.enableLlmDesireRefine,
+      enableProactiveToolCalling:
+          enableProactiveToolCalling ?? this.enableProactiveToolCalling,
+      proactiveSensitivity:
+          proactiveSensitivity ?? this.proactiveSensitivity,
     );
   }
 
@@ -210,6 +228,8 @@ class AIInteractionConfig extends Equatable {
         enableProactiveDevice,
         enableReadNotifications,
         enableLlmDesireRefine,
+        enableProactiveToolCalling,
+        proactiveSensitivity,
       ];
 }
 
@@ -271,6 +291,9 @@ class AICharacter extends Equatable {
   /// 结构化特征（兴趣/作息/口癖/时区）— JSON 编码
   final String? structuredTraits;
 
+  /// 故事状态 — JSON 编码（StoryState 对象序列化后存储）
+  final String? storyState;
+
   const AICharacter({
     required this.id,
     required this.name,
@@ -310,6 +333,7 @@ class AICharacter extends Equatable {
     this.styleLock = 'anime',
     this.age,
     this.structuredTraits,
+    this.storyState,
   });
 
   AICharacter copyWith({
@@ -352,6 +376,7 @@ class AICharacter extends Equatable {
     String? styleLock,
     int? age,
     String? structuredTraits,
+    String? storyState,
     bool clearBackgroundStory = false,
     bool clearWorldSetting = false,
     bool clearLanguageStyle = false,
@@ -360,6 +385,7 @@ class AICharacter extends Equatable {
     bool clearUserAlias = false,
     bool clearUserPersona = false,
     bool clearCharacterTag = false,
+    bool clearStoryState = false,
   }) {
     return AICharacter(
       id: id ?? this.id,
@@ -407,6 +433,7 @@ class AICharacter extends Equatable {
       styleLock: styleLock ?? this.styleLock,
       age: age ?? this.age,
       structuredTraits: structuredTraits ?? this.structuredTraits,
+      storyState: clearStoryState ? null : (storyState ?? this.storyState),
     );
   }
 
@@ -454,6 +481,7 @@ class AICharacter extends Equatable {
       'styleLock': styleLock,
       'age': age,
       'structuredTraits': structuredTraits,
+      'storyState': storyState,
     };
   }
 
@@ -530,6 +558,7 @@ class AICharacter extends Equatable {
       styleLock: (map['styleLock'] as String?) ?? 'anime',
       age: map['age'] as int?,
       structuredTraits: map['structuredTraits'] as String?,
+      storyState: map['storyState'] as String?,
     );
   }
 
@@ -580,5 +609,7 @@ class AICharacter extends Equatable {
         characterTag,
         styleLock,
         age,
+        structuredTraits,
+        storyState,
       ];
 }

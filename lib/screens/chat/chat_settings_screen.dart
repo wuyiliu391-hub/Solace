@@ -17,7 +17,6 @@ import '../../data/builtin_characters.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../services/permission_service.dart';
-import '../../services/workspace_service.dart';
 import '../../widgets/ai_wallet_card.dart';
 import 'interaction_settings_screen.dart';
 import '../../blocs/auth/auth_bloc.dart';
@@ -51,7 +50,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   TextEditingController? _statusController;
   late bool _isBlockedByUser;
   AIWallet? _aiWallet;
-  String? _workspacePath;
 
   bool get _isBuiltinCharacter =>
       BuiltinCharacters.isBuiltin(_localSession.aiCharacterId);
@@ -65,8 +63,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     _isMuted = _localSession.isMuted;
     _isPinned = _localSession.isPinned;
     _backgroundImage = _localSession.backgroundImage;
-    _workspacePath = RepositoryProvider.of<LocalStorageRepository>(context)
-        .getString('workspace_path_${_localSession.id}');
     _isBlockedByUser =
         _localSession.isBlocked && _localSession.blockedBy == BlockedBy.user;
     _loadAIStatus();
@@ -156,80 +152,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         debugPrint('自动保存失败: $e');
       }
     }
-  }
-
-  Future<void> _pickWorkspace() async {
-    final path = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: '选择当前聊天的工作区',
-    );
-    if (path == null || path.trim().isEmpty || !mounted) return;
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-
-    if (_workspacePath != null &&
-        _workspacePath!.trim() != path.trim() &&
-        !await _confirmWorkspaceAction(
-          title: '切换工作区？',
-          message: '当前聊天将改为访问：\n$path\n\n原目录不会被删除，也不会被移动。',
-          confirmText: '切换',
-        )) {
-      return;
-    }
-
-    try {
-      final workspace = WorkspaceService(storage);
-      await workspace.bind(_localSession.id, path);
-      if (!mounted) return;
-      setState(() {
-        _workspacePath = workspace.pathForChat(_localSession.id);
-        _hasChanges = true;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('绑定工作区失败：$e')),
-      );
-    }
-  }
-
-  Future<bool> _confirmWorkspaceAction({
-    required String title,
-    required String message,
-    required String confirmText,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(confirmText),
-          ),
-        ],
-      ),
-    );
-    return result == true;
-  }
-
-  Future<void> _restoreDefaultWorkspace() async {
-    final confirmed = await _confirmWorkspaceAction(
-      title: '恢复默认目录？',
-      message: '这只会解除当前聊天的工作区绑定，保留原目录和其中的全部文件。\n\n不会删除、清空或移动任何文件。',
-      confirmText: '恢复默认目录',
-    );
-    if (!confirmed || !mounted) return;
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    await storage.remove('workspace_path_${_localSession.id}');
-    if (!mounted) return;
-    setState(() {
-      _workspacePath = null;
-      _hasChanges = true;
-    });
   }
 
   bool _isLocalBackgroundPath(String path) {
@@ -1325,21 +1247,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             }
           },
         ),
-        _SettingsItem(
-          icon: Icons.folder_outlined,
-          title: '工作区与代码 Agent',
-          subtitle: _workspacePath == null
-              ? '未绑定项目目录，代码/文件任务不会执行'
-              : '当前目录：$_workspacePath',
-          onTap: _pickWorkspace,
-        ),
-        if (_workspacePath != null)
-          _SettingsItem(
-            icon: Icons.link_off_outlined,
-            title: '恢复默认目录（解除绑定）',
-            subtitle: '只清除当前聊天的绑定；保留目录、代码和所有文件',
-            onTap: _restoreDefaultWorkspace,
-          ),
         if (_character != null) ...[
           _SettingsItem(
             icon: Icons.badge_outlined,

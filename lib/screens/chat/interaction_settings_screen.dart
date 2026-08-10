@@ -36,6 +36,8 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
   bool _enableProactiveDevice = true;
   bool _enableReadNotifications = true;
   bool _enableLlmDesireRefine = true;
+  bool _enableProactiveToolCalling = false;
+  String _proactiveSensitivity = 'medium';
   TimeOfDay? _morningGreetingTime;
   TimeOfDay? _nightGreetingTime;
   bool _ready = false;
@@ -67,6 +69,8 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
     _enableProactiveDevice = config?.enableProactiveDevice ?? true;
     _enableReadNotifications = config?.enableReadNotifications ?? true;
     _enableLlmDesireRefine = config?.enableLlmDesireRefine ?? true;
+    _enableProactiveToolCalling = config?.enableProactiveToolCalling ?? false;
+    _proactiveSensitivity = config?.proactiveSensitivity ?? 'medium';
 
     if (config?.morningGreetingTime != null) {
       final parts = config!.morningGreetingTime!.split(':');
@@ -134,6 +138,8 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
       enableProactiveDevice: _enableProactiveDevice,
       enableReadNotifications: _enableReadNotifications,
       enableLlmDesireRefine: _enableLlmDesireRefine,
+      enableProactiveToolCalling: _enableProactiveToolCalling,
+      proactiveSensitivity: _proactiveSensitivity,
     );
   }
 
@@ -480,6 +486,64 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
       );
     }
 
+    Widget _buildSensitivityTile() {
+      final colorScheme = Theme.of(context).colorScheme;
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '主动调用敏感度',
+              style: TextStyle(
+                fontSize: 15,
+                color: colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '控制 AI 主动调用工具的频率',
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: 'low',
+                  label: Text('低'),
+                ),
+                ButtonSegment(
+                  value: 'medium',
+                  label: Text('中'),
+                ),
+                ButtonSegment(
+                  value: 'high',
+                  label: Text('高'),
+                ),
+              ],
+              selected: {_proactiveSensitivity},
+              onSelectionChanged: (Set<String> selected) async {
+                final value = selected.first;
+                setState(() {
+                  _dirty = true;
+                  _proactiveSensitivity = value;
+                });
+                final label = value == 'low'
+                    ? '低'
+                    : value == 'medium'
+                        ? '中'
+                        : '高';
+                await _saveSettingsWithFeedback('敏感度已设为：$label');
+              },
+            ),
+          ],
+        ),
+      );
+    }
+
     Widget buildSaveButton() {
       return SizedBox(
         width: double.infinity,
@@ -759,6 +823,24 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
                                 v ? '已开启LLM精炼欲望画像' : '已关闭LLM精炼欲望画像');
                           },
                         ),
+                        buildDivider(),
+                        buildSwitchTile(
+                          title: '主动调用工具',
+                          subtitle: 'AI 根据对话上下文、故事进展和角色人设，自主判断是否需要调用工具',
+                          value: _enableProactiveToolCalling,
+                          onChanged: (v) async {
+                            setState(() {
+                              _dirty = true;
+                              _enableProactiveToolCalling = v;
+                            });
+                            await _saveSettingsWithFeedback(
+                                v ? '已开启主动调用工具' : '已关闭主动调用工具');
+                          },
+                        ),
+                        if (_enableProactiveToolCalling) ...[
+                          buildDivider(),
+                          _buildSensitivityTile(),
+                        ],
                         if (_replyMode == ReplyMode.normal) ...[
                           buildDivider(),
                           buildNumberInputTile(

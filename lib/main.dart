@@ -43,6 +43,10 @@ import 'blocs/group_chat/group_chat_bloc.dart';
 
 import 'screens/usage/usage_screen.dart';
 import 'screens/operit/operit_home_screen.dart';
+import 'screens/error/storage_recovery_screen.dart';
+import 'services/storage/storage_recovery_controller.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart' as p;
 import 'blocs/chat/chat_bloc.dart';
 import 'blocs/pure_ai/pure_ai_chat_bloc.dart';
 import 'blocs/shop/shop_bloc.dart';
@@ -70,8 +74,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   Intl.defaultLocale = 'zh_CN';
   try {
-    await initializeDateFormatting('zh_CN')
-        .timeout(const Duration(seconds: 5));
+    await initializeDateFormatting('zh_CN').timeout(const Duration(seconds: 5));
   } catch (e) {
     debugPrint('初始化日期区域失败: $e');
   }
@@ -109,13 +112,16 @@ void main() async {
 
   // 初始化数据库（核心，必须成功）
   final storageRepo = LocalStorageRepository();
+  var storageReady = false;
   try {
     await storageRepo.initialize().timeout(const Duration(seconds: 10));
+    storageReady = true;
   } catch (e) {
     debugPrint('数据库初始化超时/失败: $e');
     // 重试一次
     try {
       await storageRepo.initialize().timeout(const Duration(seconds: 10));
+      storageReady = true;
     } catch (e2) {
       debugPrint('数据库初始化重试失败: $e2');
     }
@@ -132,7 +138,7 @@ void main() async {
 
   // 性能优化 -- 耗电与老手机兼容
   // 关键服务已就绪，立即启动 App 显示首屏
-  runApp(SolaceApp(storageRepo: storageRepo));
+  runApp(SolaceApp(storageRepo: storageRepo, storageReady: storageReady));
 
   // 以下全部是非关键服务，延迟初始化以加速首屏渲染
   Future.delayed(const Duration(seconds: 3), () async {
@@ -1150,8 +1156,13 @@ class _ChatLauncherState extends State<_ChatLauncher> {
 
 class SolaceApp extends StatelessWidget {
   final LocalStorageRepository storageRepo;
+  final bool storageReady;
 
-  const SolaceApp({super.key, required this.storageRepo});
+  const SolaceApp({
+    super.key,
+    required this.storageRepo,
+    this.storageReady = true,
+  });
 
   // QQ 极简深色 + 微信白色 配色方案
   static final defaultLightColorScheme = ColorScheme(
@@ -1303,6 +1314,33 @@ class SolaceApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 数据库初始化/迁移失败时，进入恢复页而不是静默启动空数据主界面。
+    if (!storageReady) {
+      return MaterialApp(
+        title: 'Solace',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1A73E8)),
+          useMaterial3: true,
+          fontFamily: 'Roboto',
+        ),
+        home: StorageRecoveryScreen(
+          controller: StorageRecoveryController(
+            initialize: () => storageRepo.initialize(),
+            databasePath: () async => p.join(
+              await getDatabasesPath(),
+              DbDefaults.dbName,
+            ),
+          ),
+          onRecovered: () {
+            runApp(
+              SolaceApp(storageRepo: storageRepo, storageReady: true),
+            );
+          },
+        ),
+      );
+    }
+
     final aiService = AIService(storageRepo);
     final aiAdapter = AIServiceAdapter(storage: storageRepo); // 桥接适配器，懒加载配置
     // v2 情绪+记忆系统
