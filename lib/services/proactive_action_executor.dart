@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
-import '../models/story_state.dart';
+import 'tools/agent_tool_gateway.dart';
+import 'tools/tool.dart';
 
 /// 主动动作类型 — 定义 AI 可以主动执行的内部动作
 ///
@@ -34,11 +35,19 @@ class ProactiveActionResult {
   /// 人类可读的执行日志
   final String log;
 
+  /// 是否经过统一 AgentToolGateway 执行。
+  final bool executedThroughGateway;
+
+  /// Gateway 的结构化执行记录。
+  final ToolExecutionRecord? toolExecution;
+
   const ProactiveActionResult({
     required this.actionType,
     this.success = true,
     this.contextInjection,
     required this.log,
+    this.executedThroughGateway = false,
+    this.toolExecution,
   });
 
   /// 无需执行
@@ -46,7 +55,9 @@ class ProactiveActionResult {
       : actionType = ProactiveActionType.emotionCare,
         success = false,
         contextInjection = null,
-        log = reason;
+        log = reason,
+        executedThroughGateway = false,
+        toolExecution = null;
 }
 
 /// 主动动作执行器 — 将主动决策转化为实际的服务调用和上下文注入
@@ -55,11 +66,13 @@ class ProactiveActionExecutor {
     required this.storyStateService,
     required this.characterId,
     required this.userId,
+    this.toolGateway,
   });
 
   final dynamic storyStateService; // StoryStateService
   final String characterId;
   final String userId;
+  final AgentToolGateway? toolGateway;
 
   /// 执行主动动作
   Future<ProactiveActionResult> execute(
@@ -67,6 +80,10 @@ class ProactiveActionExecutor {
     Map<String, dynamic> args,
     String userMessage,
   ) async {
+    final gateway = toolGateway;
+    if (gateway != null) {
+      return _executeThroughGateway(gateway, actionType, args, userMessage);
+    }
     switch (actionType) {
       case ProactiveActionType.emotionCare:
         return _executeEmotionCare(args, userMessage);
@@ -76,6 +93,40 @@ class ProactiveActionExecutor {
         return _executeStoryProgression(args, userMessage);
       case ProactiveActionType.proactiveTopic:
         return _executeProactiveTopic(args, userMessage);
+    }
+  }
+
+  Future<ProactiveActionResult> _executeThroughGateway(
+    AgentToolGateway gateway,
+    ProactiveActionType actionType,
+    Map<String, dynamic> args,
+    String userMessage,
+  ) async {
+    final record = await gateway.execute(
+      _toolName(actionType),
+      {...args, 'user_message': userMessage},
+    );
+    final context = record.result.data?['context_injection']?.toString();
+    return ProactiveActionResult(
+      actionType: actionType,
+      success: record.result.success,
+      contextInjection: context,
+      log: record.result.message,
+      executedThroughGateway: true,
+      toolExecution: record,
+    );
+  }
+
+  String _toolName(ProactiveActionType actionType) {
+    switch (actionType) {
+      case ProactiveActionType.emotionCare:
+        return 'proactive_emotion_care';
+      case ProactiveActionType.intimacyBoost:
+        return 'proactive_intimacy_boost';
+      case ProactiveActionType.storyProgression:
+        return 'proactive_story_progression';
+      case ProactiveActionType.proactiveTopic:
+        return 'proactive_topic';
     }
   }
 
@@ -190,8 +241,7 @@ class ProactiveActionExecutor {
     }
   }
 
-  String _buildIntimacyContext(
-      Map<String, dynamic> args, String userMessage) {
+  String _buildIntimacyContext(Map<String, dynamic> args, String userMessage) {
     final type = args['type'] ?? 'miss_response';
     if (type == 'miss_response') {
       return '[系统提示] 用户表达了对你的思念，请用温暖、亲密的语气回复。'
@@ -202,15 +252,13 @@ class ProactiveActionExecutor {
     }
   }
 
-  String _buildStoryContext(
-      Map<String, dynamic> args, String userMessage) {
+  String _buildStoryContext(Map<String, dynamic> args, String userMessage) {
     return '[系统提示] 故事中存在未完成的约定或承诺，'
         '可以在回复中自然地提及或推进这些剧情线，'
         '但不要生硬地切换话题。';
   }
 
-  String _buildTopicContext(
-      Map<String, dynamic> args, String userMessage) {
+  String _buildTopicContext(Map<String, dynamic> args, String userMessage) {
     final type = args['type'] ?? 'topic_initiate';
     if (type == 'welcome_back') {
       return '[系统提示] 用户很久没来了，'

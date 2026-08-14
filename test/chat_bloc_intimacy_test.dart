@@ -67,7 +67,7 @@ void main() {
       final today = DateTime.now().toIso8601String().substring(0, 10);
       final session = _makeSession(
         intimacyLevel: 10,
-        dailyIntimacyCount: 5, // at cap
+        dailyIntimacyCount: 10, // at cap (dailyCap = 10)
         lastIntimacyDate: today,
       );
       final result = intimacy.calculateIntimacy(
@@ -80,7 +80,7 @@ void main() {
       expect(result.newLevel, 10); // no increase
     });
 
-    test('negative sentiment deducts points when faMode is off', () {
+    test('negative sentiment does not deduct points', () {
       final session = _makeSession(intimacyLevel: 50);
       final result = intimacy.calculateIntimacy(
         session: session,
@@ -89,7 +89,8 @@ void main() {
             score: -2, label: 'negative', type: SentimentType.negative),
         faModeActive: false,
       );
-      expect(result.newLevel, lessThan(50));
+      // 新规则：负面情绪不再扣分；带情绪的消息反而算「交心」加分
+      expect(result.newLevel, greaterThanOrEqualTo(50));
     });
 
     test('negative sentiment does NOT deduct when faMode is on', () {
@@ -104,7 +105,24 @@ void main() {
       expect(result.newLevel, greaterThanOrEqualTo(50)); // no deduction
     });
 
-    test('decay after 48 hours of inactivity', () {
+    test('decays after 7 days of inactivity', () {
+      final eightDaysAgo =
+          DateTime.now().subtract(const Duration(hours: 8 * 24));
+      final session = _makeSession(
+        intimacyLevel: 50,
+        lastMessageTime: eightDaysAgo,
+      );
+      final result = intimacy.calculateIntimacy(
+        session: session,
+        messageContent: '嗯', // 短消息：衰减后直接返回，不再额外加分
+        sentiment: SentimentResult(
+            score: 0, label: 'neutral', type: SentimentType.neutral),
+        faModeActive: false,
+      );
+      expect(result.newLevel, lessThan(50));
+    });
+
+    test('does not decay before 7 days of inactivity', () {
       final twoDaysAgo = DateTime.now().subtract(const Duration(hours: 50));
       final session = _makeSession(
         intimacyLevel: 50,
@@ -112,12 +130,13 @@ void main() {
       );
       final result = intimacy.calculateIntimacy(
         session: session,
-        messageContent: '好久不见，想你了',
+        messageContent: '嗯',
         sentiment: SentimentResult(
-            score: 1, label: 'positive', type: SentimentType.positive),
+            score: 0, label: 'neutral', type: SentimentType.neutral),
         faModeActive: false,
       );
-      expect(result.newLevel, lessThanOrEqualTo(50));
+      // 50 小时未聊未达 7 天阈值，不衰减
+      expect(result.newLevel, 50);
     });
 
     test('clamps level to 0-100 range', () {

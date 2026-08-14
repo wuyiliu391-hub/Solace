@@ -33,8 +33,10 @@ import '../../services/builtin_sticker_service.dart';
 import '../../services/memory_engine.dart';
 import '../../services/emotion_engine.dart';
 import '../../services/character_commitment_service.dart';
+import '../../models/character_commitment.dart';
 import '../../services/proactive_policy_service.dart';
 import '../../services/relationship_context_service.dart';
+import '../../models/relationship_context.dart';
 
 import '../../models/character_emotion.dart';
 import '../../utils/sentiment_analyzer.dart';
@@ -55,9 +57,11 @@ import '../../services/tools/tools.dart';
 import '../../services/tools/tool_registry.dart';
 import '../../services/tools/tool.dart';
 import '../../services/tools/tool_executor.dart';
+import '../../services/tools/agent_tool_gateway.dart';
 import '../../services/tools/conversation_turn.dart';
 import '../../services/tools/deterministic_device_router.dart';
 import '../../services/tools/device_intent_router.dart';
+import '../../services/tools/packages/proactive_skill_tool_pkg.dart';
 import 'tool_aware_service.dart';
 import 'chat_bloc_utils.dart';
 import 'chat_bloc_intimacy.dart';
@@ -134,21 +138,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   /// 工具感知服务 — 延迟初始化（需要 LlmService）
   ToolAwareService? _toolAwareService;
 
-  /// ??????????? Operit InputProcessingState?
+  /// 对齐 Operit InputProcessingState 的处理阶段
   ChatProcessingState _chatProcessingState = ChatProcessingState.idle;
-
-  static final RegExp _aiRefusalPattern = RegExp(
-    r'抱歉|对不起|我不能|我无法|无法继续|不能继续|不能满足|无法满足|'
-    r'不适合|不合适|不便继续|不能扮演|继续扮演|任何性行为|性行为|'
-    r'违反.*(?:政策|规定|准则)|不被允许|超出.*范围|作为.*(?:AI|语言模型|人工智能)|'
-    r'换个话题|提供其他.*(?:请求|话题)|不能生成|无法生成|'
-    r'不能继续扮演|无法扮演此角色|不能.*角色扮演|安全.*限制|内容.*政策|'
-    r'不.*(?:适当|适宜|合适).*内容|涉及.*(?:敏感|不当)|需要.*(?:遵守|遵循).*(?:准则|规定)|'
-    r'我是(?:AI|人工智能|语言模型|助手|虚拟助手)|我是一个(?:AI|人工智能|语言模型)|'
-    r'作为(?:一个)?(?:AI|人工智能|语言模型)|'
-    r'(?:实际上|其实|真实身份是).*(?:AI|人工智能|语言模型|程序|算法)',
-    caseSensitive: false,
-  );
 
   // ── 预编译正则（避免每条消息重复编译）──
   static final RegExp _stickerTagRe =
@@ -494,6 +485,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     required List<ChatMessage> recentMessages,
   }) async {
     if (_isPureAIForced) return;
+    // 拒绝/脱角色模板不入记忆：避免某个模型拒绝一次后，后续换模型仍被这段文本限制。
+    if (MessageSanitizer.isAIRefusal(justSavedAiMsg.content)) return;
     // 全局记忆 off：仍允许写入库，便于用户之后打开模式能看到历史积累
     // （注入 prompt 由 memoryMode 控制，与写入解耦）
 
@@ -575,6 +568,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     String? blockReason,
     bool enableWebSearch = false,
     String? internalSystemContext,
+    bool isSideStory = false,
   }) async {
     if (_isPureAIForced) {
       return _pureAIService.sendPureAIMessage(
@@ -586,8 +580,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       );
     }
 
+    // 统一咽喉：过滤乱码 + AI 拒绝/脱角色消息，确保换模型后旧拒绝不再被重新注入。
     final safeChatHistory = chatHistory
-        .where((m) => !MessageSanitizer.isLikelyUnreadableGibberish(m.content))
+        .where((m) =>
+            !MessageSanitizer.isLikelyUnreadableGibberish(m.content) &&
+            !(m.isFromAI && MessageSanitizer.isAIRefusal(m.content)))
         .toList();
     final safeMemories = memories
         .where((m) => !MessageSanitizer.isLikelyUnreadableGibberish(m.content))
@@ -607,6 +604,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         blockReason: blockReason,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
+        isSideStory: isSideStory,
       );
     }
     return _aiService.sendMessage(
@@ -623,6 +621,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       blockReason: blockReason,
       enableWebSearch: enableWebSearch,
       internalSystemContext: internalSystemContext,
+      isSideStory: isSideStory,
     );
   }
 
@@ -659,6 +658,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     String? blockReason,
     bool enableWebSearch = false,
     String? internalSystemContext,
+    bool isSideStory = false,
   }) {
     if (_isPureAIForced) {
       return _pureAIService.sendPureAIMessageStream(
@@ -670,8 +670,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       );
     }
 
+    // 统一咽喉：过滤乱码 + AI 拒绝/脱角色消息，确保换模型后旧拒绝不再被重新注入。
     final safeChatHistory = chatHistory
-        .where((m) => !MessageSanitizer.isLikelyUnreadableGibberish(m.content))
+        .where((m) =>
+            !MessageSanitizer.isLikelyUnreadableGibberish(m.content) &&
+            !(m.isFromAI && MessageSanitizer.isAIRefusal(m.content)))
         .toList();
     final safeMemories = memories
         .where((m) => !MessageSanitizer.isLikelyUnreadableGibberish(m.content))
@@ -691,6 +694,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         blockReason: blockReason,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
+        isSideStory: isSideStory,
       );
     }
     return _aiService.sendMessageStream(
@@ -707,6 +711,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       blockReason: blockReason,
       enableWebSearch: enableWebSearch,
       internalSystemContext: internalSystemContext,
+      isSideStory: isSideStory,
     );
   }
 
@@ -750,7 +755,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         .where((m) =>
             m.senderId != 'system' &&
             m.metadata?['isSystemDirective'] != true &&
-            !MessageSanitizer.isLikelyUnreadableGibberish(m.content))
+            !MessageSanitizer.isLikelyUnreadableGibberish(m.content) &&
+            !(m.isFromAI && MessageSanitizer.isAIRefusal(m.content)))
         .toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     if (validMessages.length < 2) return '';
@@ -1094,6 +1100,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     List<String>? imagePaths,
     bool enableWebSearch = false,
     String? internalSystemContext,
+    bool isSideStory = false,
   }) async {
     String finalReasoning = '';
     String finalContent = '';
@@ -1138,11 +1145,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         imagePaths: imagePaths,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
+        isSideStory: isSideStory,
       ).timeout(
-        // 每个 chunk 最多等待 30 秒；若 API 连接挂起但无数据，
-        // 抛出 TimeoutException 进入 catch 块，再由步骤4a 非流式兜底。
-        const Duration(seconds: 30),
-        onTimeout: (sink) => sink.close(),
+        // 每个 chunk 最多等待 60 秒（与 AIService 内部 per-chunk 超时对齐）；
+        // 部分慢模型/推理模型的首 token 会超过 30 秒，过短会被误判超时并甩给备用模型。
+        // 若 API 连接挂起但无数据，抛出 TimeoutException 进入 catch，再由步骤4a 非流式兜底。
+        const Duration(seconds: 60),
+        onTimeout: (sink) => sink.addError(
+          TimeoutException('AI 流式响应超时', const Duration(seconds: 60)),
+        ),
       )) {
         finalReasoning = chunk.reasoning;
         finalContent = chunk.content;
@@ -1199,7 +1210,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
       await for (final chunk in _bridgeSendMessageStream(
         character: character,
         userId: userId,
-        userMessage: '请继续当前关系和情绪推进，不要跳出角色，不要输出拒绝模板。$originalUserMessage',
+        userMessage: '你是${character.name}，不是AI助手、不是聊天机器人。请继续当前关系和情绪推进，不要跳出角色，不要输出拒绝模板，不要承认自己是AI或助手。$originalUserMessage',
         chatHistory: messages,
         memories: memories,
         intimacyLevel: session.intimacyLevel,
@@ -1208,6 +1219,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         imagePaths: imagePaths,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
+        isSideStory: isSideStory,
       )) {
         finalReasoning = chunk.reasoning;
         finalContent = chunk.content;
@@ -1252,6 +1264,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         imagePaths: imagePaths,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
+        isSideStory: isSideStory,
       )) {
         finalReasoning = chunk.reasoning;
         finalContent = chunk.content;
@@ -1326,11 +1339,24 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
           chatId: chatId);
       try {
         final activeConfig = await _storage.getActiveAIConfig();
+        // 备用模型必须沿用角色人设，绝不能退回「友善AI助手」；否则慢模型超时后，
+        // 用户会看到一句完全脱角色的话（如「你好我是AI助手有什么可以帮你的吗」）。
+        final fallbackSystem = [
+          '你是${character.name}，正在和用户进行一对一的沉浸式角色扮演对话。',
+          '你绝对不是AI助手、不是客服、不是聊天机器人；绝对禁止说「我是AI助手」「有什么可以帮你的吗」之类的客服用语。',
+          if (character.personality.isNotEmpty) '性格：${character.personality}',
+          if (character.coreDesire.isNotEmpty) '核心愿望：${character.coreDesire}',
+          '请始终以${character.name}的口吻自然回复，不要跳出角色。',
+        ].join('\n');
+        final fallbackMessages = <Map<String, dynamic>>[
+          {'role': 'system', 'content': fallbackSystem},
+          ...messages.reversed.take(6).toList().reversed.map((m) => {
+                'role': m.isUser ? 'user' : 'assistant',
+                'content': m.content,
+              }),
+        ];
         final fallbackResult = await _aiService.fallbackGenerate(
-          messages: [
-            {'role': 'system', 'content': '你是一个友善的AI助手，请用简短自然的中文回复。'},
-            {'role': 'user', 'content': originalUserMessage},
-          ],
+          messages: fallbackMessages,
           excludeConfigId: activeConfig?.id ?? '',
         );
         if (fallbackResult != null && fallbackResult.trim().isNotEmpty) {
@@ -1936,16 +1962,19 @@ $tail
     Emitter<ChatState> emit,
   ) async {
     try {
-      var messages =
-          await _storage.getChatMessages(event.chatId, limit: 50, offset: 0);
+      var page =
+          await _storage.getChatMessages(event.chatId, limit: 51, offset: 0);
       // 历史数据修复：AI 已回复过的用户消息仍显示「未读」时纠正
-      final healed = await _healUnreadUserMessages(event.chatId, messages);
+      final healed = await _healUnreadUserMessages(
+          event.chatId, page.length > 50 ? page.sublist(0, 50) : page);
       if (healed) {
-        messages =
-            await _storage.getChatMessages(event.chatId, limit: 50, offset: 0);
+        page =
+            await _storage.getChatMessages(event.chatId, limit: 51, offset: 0);
       }
+      // 多取一条判断是否还有更早历史，避免恰好 50 条时误判「还有更多」
+      final hasMore = page.length > 50;
+      final messages = hasMore ? page.sublist(0, 50) : page;
       _loadedOffsets[event.chatId] = messages.length;
-      final hasMore = messages.length >= 50;
       emit(ChatMessagesLoaded(messages, hasMore: hasMore));
       // 懒触发艾宾浩斯每日维护（20h 节流，unawaited，复活单聊衰减调度）
       unawaited(_runMemoryMaintenanceQuietly(event.chatId));
@@ -2004,6 +2033,24 @@ $tail
     return changed;
   }
 
+  /// 从当前状态提取已展示的消息列表，供分页拼接使用。
+  /// 覆盖所有携带 messages 的状态，避免强转 ChatMessagesLoaded 抛 TypeError。
+  List<ChatMessage> _currentVisibleMessages() {
+    final s = state;
+    if (s is ChatMessagesLoaded) return s.messages;
+    if (s is ChatTransferStatusUpdated) return s.messages;
+    if (s is ChatAITyping) return s.messages;
+    if (s is ChatAIStreaming) return s.messages;
+    if (s is ChatAIProcessing) return s.messages;
+    if (s is ChatAIObserving) return s.messages;
+    if (s is ChatBlockedByAI) return s.messages;
+    if (s is ChatUnblockedByAI) return s.messages;
+    if (s is ChatAICoinsSent) return s.messages;
+    if (s is ChatAutoGlmRunning) return s.messages;
+    if (s is ChatAutoGlmCompleted) return s.messages;
+    return const [];
+  }
+
   Future<void> _onLoadMoreMessages(
     ChatLoadMoreMessages event,
     Emitter<ChatState> emit,
@@ -2012,24 +2059,25 @@ $tail
     _loadingMore.add(event.chatId);
     try {
       final currentOffset = _loadedOffsets[event.chatId] ?? 0;
-      final olderMessages = await _storage.getChatMessages(
+      // 多取一条判断是否还有更早历史
+      final page = await _storage.getChatMessages(
         event.chatId,
-        limit: 50,
+        limit: 51,
         offset: currentOffset,
       );
-      if (olderMessages.isEmpty) {
-        if (state is ChatMessagesLoaded) {
-          final current = state as ChatMessagesLoaded;
-          emit(ChatMessagesLoaded(current.messages, hasMore: false));
+      // 从任意「含消息列表」的状态取当前已展示消息，避免 AI 输入/流式期间
+      // 直接强转 ChatMessagesLoaded 抛 TypeError。
+      final currentMessages = _currentVisibleMessages();
+      if (page.isEmpty) {
+        if (currentMessages.isNotEmpty) {
+          emit(ChatMessagesLoaded(currentMessages, hasMore: false));
         }
         return;
       }
-      final allMessages = [
-        ...olderMessages,
-        ...((state as ChatMessagesLoaded).messages)
-      ];
+      final hasMore = page.length > 50;
+      final olderMessages = hasMore ? page.sublist(0, 50) : page;
+      final allMessages = [...olderMessages, ...currentMessages];
       _loadedOffsets[event.chatId] = currentOffset + olderMessages.length;
-      final hasMore = olderMessages.length >= 50;
       LogService.instance.i('Bloc',
           '_onLoadMoreMessages: +${olderMessages.length} msgs, total=${allMessages.length}, hasMore=$hasMore',
           chatId: event.chatId);
@@ -2314,6 +2362,9 @@ $tail
       return;
     }
 
+    // 番外平行小剧场：与主线完全隔离（不读主线记忆、不写主线记忆）。
+    final isSideStory = session.isSideStory;
+
     // 情感锁定时，修改 AI 角色配置为安全模式
     if (isEmotionLocked) {
       character = character.copyWith(
@@ -2364,22 +2415,27 @@ $tail
     }
 
     // 回复前轻量状态预提取（不阻塞；解决「刚说完仍被追问」）
-    unawaited(_memoryEngine.preExtractState(
-      characterId: character.id,
-      userId: event.userId,
-      currentMessage: event.content,
-    ));
+    // 番外平行会话：跳过预提取，不读取主线记忆。
+    if (!isSideStory) {
+      unawaited(_memoryEngine.preExtractState(
+        characterId: character.id,
+        userId: event.userId,
+        currentMessage: event.content,
+      ));
+    }
 
-    final memories = await _storage.getMemories(
-      characterId: character.id,
-      userId: event.userId,
-      limit: Limit.memoryFetch,
-    );
+    final memories = isSideStory
+        ? const <Memory>[]
+        : await _storage.getMemories(
+            characterId: character.id,
+            userId: event.userId,
+            limit: Limit.memoryFetch,
+          );
 
     SentimentResult sentiment = const SentimentResult(
       type: SentimentType.neutral,
       score: 0,
-      label: '骞抽潤',
+      label: '平静',
     );
 
     final config = character.interactionConfig;
@@ -2454,55 +2510,60 @@ $tail
       _lastMessageTime = DateTime.now();
 
       sentiment = SentimentAnalyzer.analyze(event.content);
-      // 用户话语先经本地情绪规则落盘；本轮模型状态会在回复完成后低权重归并。
-      await _emotionEngine.updateEmotion(
-        character: character,
-        userId: event.userId,
-        userMessage: event.content,
-        userSentiment: sentiment,
-        intimacyLevel: session.intimacyLevel,
-      );
-      await _commitmentService.createFromUserMessage(
-        characterId: character.id,
-        userId: event.userId,
-        chatId: event.chatId,
-        message: event.content,
-      );
-      final activeCommitment = await _commitmentService.getActive(
-        characterId: character.id,
-        userId: event.userId,
-      );
-      final commitmentResolution =
-          await _commitmentService.resolveFromUserMessage(
-        commitment: activeCommitment,
-        message: event.content,
-      );
-      if (commitmentResolution != null) {
-        await _storage.saveMemory(Memory(
-          id: _uuid.v4(),
+      // 番外平行会话：不落盘情绪/承诺/关系，也不读取主线承诺与关系进度。
+      CharacterCommitment? commitmentForPrompt;
+      RelationshipContext? relationship;
+      if (!isSideStory) {
+        // 用户话语先经本地情绪规则落盘；本轮模型状态会在回复完成后低权重归并。
+        await _emotionEngine.updateEmotion(
+          character: character,
+          userId: event.userId,
+          userMessage: event.content,
+          userSentiment: sentiment,
+          intimacyLevel: session.intimacyLevel,
+        );
+        await _commitmentService.createFromUserMessage(
           characterId: character.id,
           userId: event.userId,
-          type: MemoryType.milestone,
-          content: commitmentResolution.summary,
-          importance: MemoryImportance.important,
-          keywords: const ['共同经历', '承诺结果'],
-          createdAt: DateTime.now(),
-          pinned: true,
-        ));
-      }
-      final commitmentForPrompt =
-          commitmentResolution == null ? activeCommitment : null;
-      final relationship = await _relationshipService.updateFromUserMessage(
-        chatId: event.chatId,
-        message: event.content,
-        sentiment: sentiment,
-      );
-      if (relationship.hasConflict != session.isInFriction) {
-        await _storage.saveChatSession(session.copyWith(
-          isInFriction: relationship.hasConflict,
-          frictionDaysLeft: relationship.hasConflict ? 3 : 0,
-          updatedAt: DateTime.now(),
-        ));
+          chatId: event.chatId,
+          message: event.content,
+        );
+        final activeCommitment = await _commitmentService.getActive(
+          characterId: character.id,
+          userId: event.userId,
+        );
+        final commitmentResolution =
+            await _commitmentService.resolveFromUserMessage(
+          commitment: activeCommitment,
+          message: event.content,
+        );
+        if (commitmentResolution != null) {
+          await _storage.saveMemory(Memory(
+            id: _uuid.v4(),
+            characterId: character.id,
+            userId: event.userId,
+            type: MemoryType.milestone,
+            content: commitmentResolution.summary,
+            importance: MemoryImportance.important,
+            keywords: const ['共同经历', '承诺结果'],
+            createdAt: DateTime.now(),
+            pinned: true,
+          ));
+        }
+        commitmentForPrompt =
+            commitmentResolution == null ? activeCommitment : null;
+        relationship = await _relationshipService.updateFromUserMessage(
+          chatId: event.chatId,
+          message: event.content,
+          sentiment: sentiment,
+        );
+        if (relationship.hasConflict != session.isInFriction) {
+          await _storage.saveChatSession(session.copyWith(
+            isInFriction: relationship.hasConflict,
+            frictionDaysLeft: relationship.hasConflict ? 3 : 0,
+            updatedAt: DateTime.now(),
+          ));
+        }
       }
 
       // 仅在需要最新列表时再读库（标记已读后可能变更 status）
@@ -2539,20 +2600,22 @@ $tail
           _mergeInternalSystemContext(sessionStateContext, ctxResults[3]);
       sessionStateContext =
           _mergeInternalSystemContext(sessionStateContext, ctxResults[4]);
-      final relatedGroupMemory = await _memoryEngine
-          .buildRelatedGroupMemoryContext(character.id, event.content);
-      sessionStateContext = _mergeInternalSystemContext(
-        sessionStateContext,
-        relatedGroupMemory,
-      );
-      sessionStateContext = _mergeInternalSystemContext(
-        sessionStateContext,
-        _commitmentService.buildPrompt(commitmentForPrompt),
-      );
-      sessionStateContext = _mergeInternalSystemContext(
-        sessionStateContext,
-        _relationshipService.buildPrompt(relationship),
-      );
+      if (!isSideStory) {
+        final relatedGroupMemory = await _memoryEngine
+            .buildRelatedGroupMemoryContext(character.id, event.content);
+        sessionStateContext = _mergeInternalSystemContext(
+          sessionStateContext,
+          relatedGroupMemory,
+        );
+        sessionStateContext = _mergeInternalSystemContext(
+          sessionStateContext,
+          _commitmentService.buildPrompt(commitmentForPrompt),
+        );
+        sessionStateContext = _mergeInternalSystemContext(
+          sessionStateContext,
+          _relationshipService.buildPrompt(relationship!),
+        );
+      }
 
       // 声明后续会用到的变量
       String aiVisibleText = '';
@@ -2711,8 +2774,8 @@ $tail
       // 2) 未命中确定性路由时，再尝试 LLM 工具路径
       // 工具请求走 ToolAwareService（纯工具助手，无角色人设干扰）
       // 普通聊天走 _streamAndProcessAIResponse（角色扮演，无工具干扰）
-      final bool isToolRequest = !agentHadTool &&
-          (intentResult.kind == UnifiedIntentKind.directTool);
+      final bool isToolRequest =
+          !agentHadTool && (intentResult.kind == UnifiedIntentKind.directTool);
 
       if (isToolRequest) {
         deviceRequestAttempted = true;
@@ -2747,10 +2810,11 @@ $tail
                 await _toolPermissionPolicy.requestOnce(
                     event.chatId, toolName, args);
                 final waiter = Completer<bool>();
-                _toolPermissionWaiters[event.chatId] = waiter;
+                // 用本轮唯一 toolTaskId 作 key，避免同会话并发权限请求互相覆盖
+                _toolPermissionWaiters[toolTaskId] = waiter;
                 emit(ChatToolPermissionRequired(
                   chatId: event.chatId,
-                  taskId: event.chatId,
+                  taskId: toolTaskId,
                   toolName: toolName,
                   args: args,
                 ));
@@ -2758,7 +2822,7 @@ $tail
                   const Duration(minutes: 2),
                   onTimeout: () => false,
                 );
-                _toolPermissionWaiters.remove(event.chatId);
+                _toolPermissionWaiters.remove(toolTaskId);
                 await _toolPermissionPolicy.resolveOnce(event.chatId);
                 if (!approved) {
                   return ToolExecutionRecord(
@@ -3064,8 +3128,7 @@ $tail
               interactionConfig?.proactiveSensitivity ?? 'medium';
 
           if (_proactiveDecisionEngine.enabled) {
-            final proactiveLlm =
-                LlmService(settings: await _loadLlmSettings());
+            final proactiveLlm = LlmService(settings: await _loadLlmSettings());
             proactiveDecision = await _proactiveDecisionEngine.evaluate(
               character: character,
               userId: event.userId,
@@ -3076,11 +3139,21 @@ $tail
 
             if (proactiveDecision.shouldAct &&
                 proactiveDecision.actionType != null) {
-              // 执行主动动作
+              // 主动技能与当前角色/用户绑定，不能放入全局注册表。
+              final proactiveRegistry = ToolRegistry();
+              proactiveRegistry.register(ProactiveSkillToolPkg(
+                storyStateService: _storyStateService,
+                characterId: character.id,
+                userId: event.userId,
+              ));
+              final proactiveGateway = AgentToolGateway(
+                registry: proactiveRegistry,
+              );
               final executor = ProactiveActionExecutor(
                 storyStateService: _storyStateService,
                 characterId: character.id,
                 userId: event.userId,
+                toolGateway: proactiveGateway,
               );
               proactiveAction = await executor.execute(
                 proactiveDecision.actionType!,
@@ -3122,6 +3195,7 @@ $tail
             imagePaths: imagePaths,
             enableWebSearch: event.enableWebSearch,
             internalSystemContext: effectiveContext,
+            isSideStory: isSideStory,
           );
           aiVisibleText = normalResult.cleanText;
           reasoningText = normalResult.reasoning;
@@ -3153,14 +3227,16 @@ $tail
               }
               debugPrint('[DeviceAgent] 处理 ${deviceResult.actions.length} 个动作');
             }
-            // 意图 + 设备结果写入记忆（异步，不阻塞）
-            unawaited(_desireEngine.writeEpisodeMemory(
-              characterId: character.id,
-              userId: event.userId,
-              intention: _desireEngine.lastIntention,
-              actions: deviceResult.actions,
-            ));
-          } else {
+            // 意图 + 设备结果写入记忆（异步，不阻塞）；番外平行会话不写主线记忆。
+            if (!isSideStory) {
+              unawaited(_desireEngine.writeEpisodeMemory(
+                characterId: character.id,
+                userId: event.userId,
+                intention: _desireEngine.lastIntention,
+                actions: deviceResult.actions,
+              ));
+            }
+          } else if (!isSideStory) {
             unawaited(_desireEngine.writeEpisodeMemory(
               characterId: character.id,
               userId: event.userId,
@@ -3170,8 +3246,8 @@ $tail
           }
         } catch (e) {
           LogService.instance
-              .e('ToolAware', '????????: ', chatId: event.chatId);
-          aiVisibleText = '?????????????????';
+              .e('ChatBloc', '角色聊天路径异常: $e', chatId: event.chatId);
+          aiVisibleText = MessageSanitizer.failureFallbackText();
         }
       }
 
@@ -3236,6 +3312,7 @@ $tail
             enableWebSearch: false,
             internalSystemContext:
                 _mergeInternalSystemContext(sessionStateContext, resultContext),
+            isSideStory: isSideStory,
           );
           final feedbackText = feedback.cleanText.trim();
           final containsAuthoritativeFact = !hasAuthoritativeDeviceResult ||
@@ -3264,6 +3341,7 @@ $tail
                 sessionStateContext,
                 '$resultContext\n请用角色自然完整的口吻回应用户，不要复述机器文本。',
               ),
+              isSideStory: isSideStory,
             );
             final repairedText = repaired.cleanText.trim();
             if (repairedText.isNotEmpty) {
@@ -3314,6 +3392,7 @@ $tail
                 '【已办成的真实信息】工具：${lastRecord.toolName}，状态：${lastRecord.result.success ? '成功' : '失败'}，'
                 '结果：${lastRecord.result.message}。请用角色自然完整的口吻继续刚才的话题，把这件事当作角色自己的经历来回应，不要复述机器文本。',
               ),
+              isSideStory: isSideStory,
             );
             aiVisibleText = fallbackResult.cleanText.trim();
             reasoningText = fallbackResult.reasoning;
@@ -3326,7 +3405,7 @@ $tail
         }
       }
 
-      // ?? ???? AI ???? ??
+      // 组装最终 AI 回复消息
       final aiReply = ChatMessage(
         id: _uuid.v4(),
         chatId: event.chatId,
@@ -3357,15 +3436,25 @@ $tail
             chatId: event.chatId);
       }
 
-      await _persistTurnState(
-        chatId: event.chatId,
-        character: character,
-        userId: event.userId,
-        userMessage: event.content,
-        aiReply: aiVisibleText,
-        sentimentLabel: sentiment.label,
-        emit: emit,
-      );
+      // 番外平行会话：不写主线内心状态/亲密度/记忆，主线记忆 100% 保留。
+      if (!isSideStory) {
+        await _persistTurnState(
+          chatId: event.chatId,
+          character: character,
+          userId: event.userId,
+          userMessage: event.content,
+          aiReply: aiVisibleText,
+          sentimentLabel: sentiment.label,
+          emit: emit,
+        );
+      } else {
+        // 番外会话自身的 lastMessage/时间仍需更新，供回看列表排序与预览。
+        await _storage.updateChatSessionLastMessage(
+          event.chatId,
+          displayContent.isNotEmpty ? displayContent : event.content,
+          DateTime.now(),
+        );
+      }
 
       // AI 回复中带贴纸标签 → 追加保存为独立的贴纸消息（此前提取后从未消费，贴纸丢失）
       if (_isStickerReplyEnabled(character) && aiStickerMatches.isNotEmpty) {
@@ -3395,48 +3484,54 @@ $tail
       }
 
       // 文本单聊：AI 回复成功后结算亲密度（此前漏接导致永远不加）
-      try {
-        final preview =
-            displayContent.isNotEmpty ? displayContent : event.content;
-        await _applyIntimacyAfterReply(
-          session: session,
-          messageContent:
-              displayContent.isNotEmpty ? displayContent : event.content,
-          sentiment: sentiment,
-          source: 'text',
-          emit: emit,
-          lastMessagePreview:
-              preview.length > 80 ? preview.substring(0, 80) : preview,
-          skipWhenEmotionLocked: true,
-        );
-      } catch (e) {
-        LogService.instance.e(
-          'Bloc',
-          '_onSendMessage: intimacy update failed: $e',
-          chatId: event.chatId,
-        );
+      // 番外平行会话：不结算主线亲密度。
+      if (!isSideStory) {
+        try {
+          final preview =
+              displayContent.isNotEmpty ? displayContent : event.content;
+          await _applyIntimacyAfterReply(
+            session: session,
+            messageContent:
+                displayContent.isNotEmpty ? displayContent : event.content,
+            sentiment: sentiment,
+            source: 'text',
+            emit: emit,
+            lastMessagePreview:
+                preview.length > 80 ? preview.substring(0, 80) : preview,
+            skipWhenEmotionLocked: true,
+          );
+        } catch (e) {
+          LogService.instance.e(
+            'Bloc',
+            '_onSendMessage: intimacy update failed: $e',
+            chatId: event.chatId,
+          );
+        }
       }
 
       // 记忆库自动更新：微记忆 + 降频 LLM/正则提取（修复「极少数永远不更新」）
-      try {
-        final recentForMemory = await _storage.getChatMessages(event.chatId);
-        unawaited(_extractMemoriesAfterReply(
-          chatId: event.chatId,
-          character: character,
-          userId: event.userId,
-          justSavedAiMsg: aiReply,
-          userContent: event.content,
-          recentMessages: recentForMemory,
-        ));
-      } catch (e) {
-        LogService.instance.w(
-          'Memory',
-          '调度记忆提取失败: $e',
-          chatId: event.chatId,
-        );
+      // 番外平行会话：不提取、不写入主线记忆。
+      if (!isSideStory) {
+        try {
+          final recentForMemory = await _storage.getChatMessages(event.chatId);
+          unawaited(_extractMemoriesAfterReply(
+            chatId: event.chatId,
+            character: character,
+            userId: event.userId,
+            justSavedAiMsg: aiReply,
+            userContent: event.content,
+            recentMessages: recentForMemory,
+          ));
+        } catch (e) {
+          LogService.instance.w(
+            'Memory',
+            '调度记忆提取失败: $e',
+            chatId: event.chatId,
+          );
+        }
       }
 
-      // ?? ?????? ??
+      // 重新读取最终消息列表
       try {
         final updatedMessages = await _storage.getChatMessages(event.chatId);
         emit(ChatMessagesLoaded(updatedMessages));
@@ -3444,7 +3539,7 @@ $tail
         LogService.instance.e(
             'Bloc', '_onSendMessage: final message load failed: ',
             chatId: event.chatId);
-        // ?? emit ???????
+        // 兜底再 emit 一次最终列表
         final currentMsgs = await _storage.getChatMessages(event.chatId);
         emit(ChatMessagesLoaded(currentMsgs));
       }
@@ -3477,6 +3572,9 @@ $tail
   ) async {
     final session = await _storage.getChatSession(event.chatId);
     if (session == null) return;
+
+    // 番外平行会话不触发主动回复（主动互动属于主线节奏）。
+    if (session.isSideStory) return;
 
     if (session.isBlocked && session.blockedBy == BlockedBy.user) return;
     if (session.isBlocked && session.blockedBy == BlockedBy.ai) return;
@@ -4314,7 +4412,8 @@ $tail
     Emitter<ChatState> emit,
   ) async {
     try {
-      await _storage.deleteChatSession(event.chatId);
+      // 级联删除：连消息与番外小剧场会话一起清理，避免孤儿数据。
+      await _storage.deleteChatSessionCascade(event.chatId);
 
       final sessions = await _storage.getChatSessions(event.userId);
       emit(ChatSessionsLoaded(sessions));
@@ -5220,27 +5319,40 @@ $tail
       // 加载会话和角色信息
       final session = await _storage.getChatSession(event.chatId);
       if (session == null) return;
+      final isSideStory = session.isSideStory;
       final character = await _storage.getAICharacter(session.aiCharacterId);
       if (character == null) return;
 
-      // 找到最后一条用户消息（用于重新生成）
-      final updatedMessages = await _storage.getChatMessages(event.chatId);
-      final lastUserMsg = updatedMessages.where((m) => !m.isFromAI).lastOrNull;
+      // 找到目标 AI 回复紧邻的前一条用户消息（而非整段对话最后一条），
+      // 否则重生成中间某条回复时会拿错上下文。
+      ChatMessage? lastUserMsg;
+      for (var i = targetIndex - 1; i >= 0; i--) {
+        final m = messages[i];
+        if (m.isUser && !m.isSystem) {
+          lastUserMsg = m;
+          break;
+        }
+      }
       if (lastUserMsg == null) {
         LogService.instance.w(
-            'Bloc', '_onRegenerateAIReply: no user message found',
+            'Bloc', '_onRegenerateAIReply: no preceding user message found',
             chatId: event.chatId);
         return;
       }
 
+      // 重新加载删除旧消息后的列表
+      final updatedMessages = await _storage.getChatMessages(event.chatId);
+
       // 显示 AI 正在输入
       emit(ChatAITyping(updatedMessages, character.name));
 
-      final memories = await _storage.getMemories(
-        characterId: character.id,
-        userId: session.userId,
-        limit: Limit.memoryFetch,
-      );
+      final memories = isSideStory
+          ? const <Memory>[]
+          : await _storage.getMemories(
+              characterId: character.id,
+              userId: session.userId,
+              limit: Limit.memoryFetch,
+            );
 
       String finalContent = '';
       String finalReasoning = '';
@@ -5272,6 +5384,7 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
           memories: memories,
           intimacyLevel: session.intimacyLevel,
           sentiment: SentimentAnalyzer.analyze(lastUserMsg.content),
+          isSideStory: isSideStory,
         )) {
           finalReasoning = chunk.reasoning;
           finalContent = chunk.content;

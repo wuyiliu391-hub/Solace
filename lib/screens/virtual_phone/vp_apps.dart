@@ -300,6 +300,23 @@ class _ChatThreadPage extends StatelessWidget {
         ? _avatar(ownerAvatarUrl, ownerName, isOwner: true)
         : _avatar(null, chat.title, isOwner: false);
 
+    // 「撤回」消息：整行灰色居中，不带气泡，像真人聊天里的撤回提示
+    final isRecall = m.content.trim() == '（撤回了一条消息）' ||
+        m.content.trim() == '撤回了一条消息';
+    if (isRecall) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Center(
+          child: Text(
+            '撤回了一条消息',
+            style: TextStyle(
+                color: isDark ? Colors.white38 : Colors.black38,
+                fontSize: 11),
+          ),
+        ),
+      );
+    }
+
     final bubble = Container(
       constraints:
           BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.68),

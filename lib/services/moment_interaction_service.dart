@@ -41,6 +41,8 @@ class MomentInteractionService {
     for (final character in characters) {
       if (character.isHidden) continue;
       if (!character.isOnline) continue;
+      // 「不让谁看」：被作者拉黑的角色看不到这条动态
+      if (moment.blockedUserIds.contains(character.id)) continue;
       final cfg = character.interactionConfig ?? const AIInteractionConfig();
       if (!cfg.enableUserMomentInteraction) continue;
 
@@ -121,6 +123,8 @@ class MomentInteractionService {
       for (final c in chars) {
         if (!aiCommenters.contains(c.id)) continue;
         if (c.isHidden) continue;
+        // 「不让谁看」：被拉黑的角色不再接话
+        if (moment.blockedUserIds.contains(c.id)) continue;
         if (!(c.interactionConfig?.enableMomentInteraction ?? true)) continue;
         // 仅当用户评论是对角色的回复，或本轮未指定 reply 时按概率再回
         final isDirectReply = comment.replyToUserId == c.id;
@@ -156,6 +160,176 @@ class MomentInteractionService {
         ),
       );
     }
+  }
+
+  /// AI 发布动态后：邀请其他在线角色按人设来评论（AI→AI 社交闭环）。
+  /// 让朋友圈不只对用户开放，角色之间也会互相点赞评论、多轮互动。
+  Future<void> onAiPostedMoment({
+    required LocalStorageRepository storage,
+    required Moment moment,
+    required String authorId,
+  }) async {
+    if (moment.source != MomentSource.normal) return;
+
+    final characters = await storage.getAllAICharacters();
+    final candidates = characters
+        .where((c) =>
+            c.id != authorId &&
+            !c.isHidden &&
+            c.isOnline &&
+            (c.interactionConfig?.enableMomentInteraction ?? true))
+        .toList();
+    if (candidates.isEmpty) return;
+    candidates.shuffle(_rng);
+
+    // 每条动态 1~2 个角色来评论，避免刷屏
+    final maxCommenters = 1 + _rng.nextInt(2);
+    var scheduled = 0;
+    final scheduler = ProactiveScheduler(storage);
+    for (final c in candidates) {
+      if (scheduled >= maxCommenters) break;
+      if (moment.blockedUserIds.contains(c.id)) continue;
+      if (!_aiCanSeeMoment(moment)) continue;
+      if (_rng.nextDouble() > _aiCommentProbability(c.personality)) continue;
+
+      final intimacy = await _intimacyFor(storage, '', c.id);
+      final delay = _commentReplyDelay(c.personality);
+      final key = 'aipost_${moment.id}_${c.id}';
+      debugPrint(
+          'MomentAI: 安排 ${c.name} 评论 AI 动态 ${moment.id}，${delay.inSeconds}s 后');
+
+      await scheduler.scheduleMomentInteraction(
+        momentId: moment.id,
+        characterId: c.id,
+        intimacyLevel: intimacy,
+        delay: delay,
+      );
+      _scheduleForegroundFallback(
+        key: key,
+        delay: delay,
+        run: () => _runMomentInteractFallback(
+          momentId: moment.id,
+          characterId: c.id,
+          intimacyLevel: intimacy,
+        ),
+      );
+      scheduled++;
+    }
+  }
+
+  /// AI 评论/回复后：按人设决定是否让「对方」继续回，形成 AI↔AI 多轮。
+  /// 触发条件：
+  /// 1. 评论回复了另一个 AI → 让那个 AI 接着回；
+  /// 2. 评论的是一条 AI 发的动态 → 让动态作者回。
+  Future<void> onAiCommentAdded({
+    required LocalStorageRepository storage,
+    required Moment moment,
+    required MomentComment comment,
+  }) async {
+    if (moment.source != MomentSource.normal) return;
+
+    final characters = await storage.getAllAICharacters();
+    final aiIds = characters.map((c) => c.id).toSet();
+
+    // 多轮上限：这条动态上 AI 评论总数达到上限就不再续
+    final aiCommentCount =
+        moment.comments.where((c) => aiIds.contains(c.userId)).length;
+    if (aiCommentCount >= MomentRules.maxAiCommentRounds) return;
+
+    final scheduler = ProactiveScheduler(storage);
+
+    // 1) 评论回复了另一个 AI → 让那个 AI 接着回
+    final replyToId = comment.replyToUserId;
+    if (replyToId != null &&
+        replyToId.isNotEmpty &&
+        replyToId != comment.userId &&
+        aiIds.contains(replyToId)) {
+      final target = characters.firstWhere((c) => c.id == replyToId);
+      if (!target.isHidden &&
+          target.isOnline &&
+          (target.interactionConfig?.enableMomentInteraction ?? true) &&
+          !moment.blockedUserIds.contains(target.id)) {
+        final intimacy = await _intimacyFor(storage, '', target.id);
+        final delay = _commentReplyDelay(target.personality);
+        final key = 'aichain_${moment.id}_${comment.id}_${target.id}';
+        debugPrint('MomentAI: 安排 ${target.name} 接续 AI 互评，${delay.inSeconds}s 后');
+        await scheduler.scheduleCommentReply(
+          momentId: moment.id,
+          commentId: comment.id,
+          characterId: target.id,
+          intimacyLevel: intimacy,
+          delay: delay,
+        );
+        _scheduleForegroundFallback(
+          key: key,
+          delay: delay,
+          run: () => _runCommentReplyFallback(
+            momentId: moment.id,
+            commentId: comment.id,
+            characterId: target.id,
+            intimacyLevel: intimacy,
+          ),
+        );
+      }
+    }
+
+    // 2) 评论的是一条 AI 动态 → 让动态作者回
+    if (moment.isFromAI) {
+      final authorId = moment.userId;
+      if (authorId != comment.userId && aiIds.contains(authorId)) {
+        final author = characters.firstWhere((c) => c.id == authorId);
+        if (!author.isHidden &&
+            author.isOnline &&
+            (author.interactionConfig?.enableMomentInteraction ?? true)) {
+          final intimacy = await _intimacyFor(storage, '', author.id);
+          final delay = _commentReplyDelay(author.personality);
+          final key = 'aichain_${moment.id}_${comment.id}_${author.id}';
+          debugPrint('MomentAI: 安排动态作者 ${author.name} 回复评论，${delay.inSeconds}s 后');
+          await scheduler.scheduleCommentReply(
+            momentId: moment.id,
+            commentId: comment.id,
+            characterId: author.id,
+            intimacyLevel: intimacy,
+            delay: delay,
+          );
+          _scheduleForegroundFallback(
+            key: key,
+            delay: delay,
+            run: () => _runCommentReplyFallback(
+              momentId: moment.id,
+              commentId: comment.id,
+              characterId: author.id,
+              intimacyLevel: intimacy,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  /// AI→AI 视角的可见性：
+  /// - private：仅作者自己可见 → 其他角色不可见；
+  /// - intimate：仅你和最喜欢/最亲近的人可见（对用户来说是"只给你看"）→ 其他角色不评论；
+  /// - public / normal：其他角色可见（角色之间没有亲密概念，近似视为一个朋友圈）。
+  bool _aiCanSeeMoment(Moment moment) {
+    if (moment.visibility == MomentVisibility.private) return false;
+    if (moment.visibility == MomentVisibility.intimate) return false;
+    return true;
+  }
+
+  /// 评论 AI 动态的概率：话多/活泼更爱凑热闹，高冷/沉默更少发言。
+  double _aiCommentProbability(String? personality) {
+    final p = (personality ?? '').toLowerCase();
+    if (p.contains('活泼') || p.contains('热情') || p.contains('开朗') || p.contains('话多')) {
+      return 0.85;
+    }
+    if (p.contains('高冷') || p.contains('冷淡') || p.contains('沉默') || p.contains('话少')) {
+      return 0.35;
+    }
+    if (p.contains('害羞') || p.contains('内向')) {
+      return 0.45;
+    }
+    return 0.6;
   }
 
   // ─── delays ───

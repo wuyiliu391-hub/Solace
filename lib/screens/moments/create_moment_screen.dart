@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 import '../../blocs/auth/auth_bloc.dart';
+import '../../models/ai_character.dart';
 import '../../models/moment.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/permission_service.dart';
@@ -25,6 +26,10 @@ class _CreateMomentScreenState extends State<CreateMomentScreen> {
   final List<String> _selectedImages = [];
   bool _isLoading = false;
   MomentVisibility _visibility = MomentVisibility.public;
+
+  /// 「不让谁看」：被屏蔽的角色 id
+  final Set<String> _blockedCharacterIds = {};
+  List<AICharacter>? _characters;
 
   @override
   void dispose() {
@@ -210,6 +215,7 @@ class _CreateMomentScreenState extends State<CreateMomentScreen> {
         createdAt: DateTime.now(),
         visibility: _visibility,
         source: MomentSource.normal,
+        blockedUserIds: _blockedCharacterIds.toList(),
       );
 
       await storage.saveMoment(moment);
@@ -264,6 +270,8 @@ class _CreateMomentScreenState extends State<CreateMomentScreen> {
                     _buildPrivacyRow(),
                     const SizedBox(height: 12),
                     _buildVisibilityRow(),
+                    const SizedBox(height: 12),
+                    _buildBlockedRow(),
                     const SizedBox(height: 24),
                   ],
                 ),
@@ -538,6 +546,164 @@ class _CreateMomentScreenState extends State<CreateMomentScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildBlockedRow() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final count = _blockedCharacterIds.length;
+    return GestureDetector(
+      onTap: () => _showBlockedPicker(),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(_cardRadius),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.visibility_off_rounded,
+                size: 20, color: colorScheme.error),
+            const SizedBox(width: 12),
+            Text('不让谁看',
+                style: TextStyle(fontSize: 15, color: colorScheme.onSurface)),
+            const Spacer(),
+            Text(
+              count == 0 ? '所有人可见' : '已屏蔽 $count 位角色',
+              style: TextStyle(
+                fontSize: 14,
+                color: count == 0
+                    ? colorScheme.onSurfaceVariant
+                    : colorScheme.error,
+                fontWeight: count == 0 ? FontWeight.w400 : FontWeight.w500,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right, size: 22, color: colorScheme.error),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showBlockedPicker() async {
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final colorScheme = Theme.of(context).colorScheme;
+    _characters ??= await storage.getAllAICharacters();
+    final chars = (_characters ?? [])
+        .where((c) => !c.isHidden)
+        .toList();
+    if (chars.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('还没有可选的 AI 角色')),
+      );
+      return;
+    }
+
+    // 打开选择器时同步一次最新名单（可能已有角色新增）
+    if (!mounted) return;
+    final selected = await showModalBottomSheet<Set<String>>(
+      context: context,
+      backgroundColor: colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: Text('不让谁看到这条动态',
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSurface)),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      ...chars.map((c) {
+                        final checked =
+                            _blockedCharacterIds.contains(c.id);
+                        return CheckboxListTile(
+                          value: checked,
+                          title: Text(c.name,
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  color: colorScheme.onSurface)),
+                          subtitle: Text('屏蔽后 TA 看不到这条动态，也不会来互动',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: colorScheme.onSurfaceVariant)),
+                          onChanged: (v) {
+                            setSheetState(() {
+                              if (v == true) {
+                                _blockedCharacterIds.add(c.id);
+                              } else {
+                                _blockedCharacterIds.remove(c.id);
+                              }
+                            });
+                          },
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () =>
+                          Navigator.pop(ctx, Set.of(_blockedCharacterIds)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: colorScheme.primary,
+                        foregroundColor: colorScheme.onPrimary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text('完成',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (selected != null && mounted) {
+      setState(() {
+        _blockedCharacterIds
+          ..clear()
+          ..addAll(selected);
+      });
+    }
   }
 
   void _showImagePickerOptions() {

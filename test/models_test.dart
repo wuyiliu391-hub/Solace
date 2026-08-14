@@ -115,6 +115,26 @@ void main() {
       expect(fromMap.intimacyLevel, testSession.intimacyLevel);
     });
 
+    test('番外小剧场会话：isSideStory 与父子关系字段', () {
+      final sideStory = ChatSession(
+        id: 'side_1',
+        userId: 'user_1',
+        aiCharacterId: 'char_1',
+        aiCharacterName: '小助手',
+        createdAt: DateTime(2026, 1, 2),
+        sessionType: 'side_story',
+        parentChatId: 'session_1',
+        sideStoryTitle: '海边度假',
+      );
+      expect(sideStory.isSideStory, true);
+      expect(testSession.isSideStory, false);
+
+      final roundTrip = ChatSession.fromMap(sideStory.toMap());
+      expect(roundTrip.isSideStory, true);
+      expect(roundTrip.parentChatId, 'session_1');
+      expect(roundTrip.sideStoryTitle, '海边度假');
+    });
+
     test('BlockedBy 枚举值正确', () {
       expect(BlockedBy.values.length, 3);
       expect(BlockedBy.none.index, 0);

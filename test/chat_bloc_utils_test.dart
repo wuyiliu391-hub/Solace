@@ -20,8 +20,6 @@ void main() {
     });
 
     test('returns true for standard refusal patterns', () {
-      expect(utils.isAIRefusal('抱歉，我无法继续这个话题'), true);
-      expect(utils.isAIRefusal('对不起，我不能生成此类内容'), true);
       expect(utils.isAIRefusal('作为AI语言模型，我无法扮演角色'), true);
       expect(utils.isAIRefusal('这违反了我们的内容政策'), true);
     });
@@ -29,7 +27,21 @@ void main() {
     test('returns true for roleplay refusal patterns', () {
       expect(utils.isAIRefusal('我不能继续扮演这个角色'), true);
       expect(utils.isAIRefusal('无法扮演此角色'), true);
-      expect(utils.isAIRefusal('不适合继续这个对话'), true);
+    });
+
+    test('returns true for assistant identity / customer-service breakout', () {
+      // IDE 反代模型脱角色时常常没有拒绝动词，只有身份自述/客服用语
+      expect(utils.isAIRefusal('你好，我是AI助手，有什么可以帮你的吗？'), true);
+      expect(utils.isAIRefusal('我是助手，不是真人'), true);
+      expect(utils.isAIRefusal('我只是一个AI模型'), true);
+      expect(utils.isAIRefusal('有什么可以帮你的吗？'), true);
+    });
+
+    test('returns false for everyday apology phrases common in roleplay', () {
+      // 刻意排除「抱歉/对不起 + 无法/不能」等日常用语，避免误判角色扮演台词
+      expect(utils.isAIRefusal('抱歉，我无法继续这个话题'), false);
+      expect(utils.isAIRefusal('对不起，我不能生成此类内容'), false);
+      expect(utils.isAIRefusal('不适合继续这个对话'), false);
     });
 
     test('handles whitespace-only input', () {

@@ -233,6 +233,9 @@ class MomentRules {
 
   static const double aiLikeProbability = 0.9;
   static const double aiCommentProbability = 0.85;
+
+  /// 单条动态上 AI↔AI 互评的最大评论总数（超过即停，避免无限刷屏）
+  static const int maxAiCommentRounds = 6;
 }
 
 class MomentSchedulerRules {

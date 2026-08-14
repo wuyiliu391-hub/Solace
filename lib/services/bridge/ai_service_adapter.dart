@@ -101,6 +101,7 @@ class AIServiceAdapter {
     String? blockReason,
     bool enableWebSearch = false,
     String? internalSystemContext,
+    bool isSideStory = false,
   }) async {
     _lastTurnState = null;
     _lastParsedStatus = null;
@@ -119,6 +120,7 @@ class AIServiceAdapter {
       userId: userId,
       currentMessage: userMessage,
       memories: memories,
+      isSideStory: isSideStory,
     );
     final privateContext = internalSystemContext?.trim();
     if (privateContext != null && privateContext.isNotEmpty) {
@@ -171,6 +173,7 @@ class AIServiceAdapter {
         blockReason: blockReason,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
+        isSideStory: isSideStory,
       );
     }
 
@@ -216,6 +219,7 @@ class AIServiceAdapter {
     String? blockReason,
     bool enableWebSearch = false,
     String? internalSystemContext,
+    bool isSideStory = false,
   }) async* {
     // 带图时委托主 AIService 流式（含 OpenAI vision content 数组）
     if (imagePaths != null && imagePaths.isNotEmpty && _storage != null) {
@@ -234,6 +238,7 @@ class AIServiceAdapter {
         blockReason: blockReason,
         enableWebSearch: enableWebSearch,
         internalSystemContext: internalSystemContext,
+        isSideStory: isSideStory,
       );
       return;
     }
@@ -254,6 +259,7 @@ class AIServiceAdapter {
       blockReason: blockReason,
       enableWebSearch: enableWebSearch,
       internalSystemContext: internalSystemContext,
+      isSideStory: isSideStory,
     );
 
     yield AIStreamChunk(content: result);
@@ -647,7 +653,10 @@ JSON 只能包含 emoji、emotion、intensity、thought。emoji 必须根据本�
     required String userId,
     required String currentMessage,
     required List<Memory> memories,
+    bool isSideStory = false,
   }) async {
+    // 番外平行会话：不注入任何主线记忆/跨角色上下文，只靠角色卡 + 番外历史。
+    if (isSideStory) return [];
     final prefs = await PrefsHelper.instance;
     final memoryMode = prefs.getString(PrefKeys.globalMemoryMode) ?? 'full';
     if (memoryMode == 'off') return [];

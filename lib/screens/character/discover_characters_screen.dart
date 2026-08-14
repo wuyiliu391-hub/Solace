@@ -16,9 +16,13 @@ class DiscoverCharactersScreen extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final templates = CharacterTemplates.templates;
 
-    // 病娇（高阶）vs 日常
+    // 病娇（高阶）置顶，其余按分类分组展示
     final yandereTemplates = templates.where((t) => t.hasAltMode).toList();
-    final normalTemplates = templates.where((t) => !t.hasAltMode).toList();
+    final others = templates.where((t) => !t.hasAltMode).toList();
+    final byCategory = <String, List<CharacterTemplate>>{};
+    for (final t in others) {
+      byCategory.putIfAbsent(t.category, () => []).add(t);
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -42,20 +46,23 @@ class DiscoverCharactersScreen extends StatelessWidget {
               ),
             ),
             ...yandereTemplates.map((t) => _CharacterCard(template: t)),
-            const SizedBox(height: 24),
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 8),
-              child: Text(
-                '陪伴角色',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: colorScheme.onSurface.withOpacity(0.45),
-                ),
-              ),
-            ),
+            const SizedBox(height: 20),
           ],
-          ...normalTemplates.map((t) => _CharacterCard(template: t)),
+          ...byCategory.entries.expand((entry) => [
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
+                  child: Text(
+                    entry.key,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                ),
+                ...entry.value.map((t) => _CharacterCard(template: t)),
+                const SizedBox(height: 16),
+              ]),
         ],
       ),
     );
@@ -117,12 +124,38 @@ class _CharacterCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        template.name,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              template.name,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          if (template.isNew) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: colorScheme.error.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '新',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: colorScheme.error,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Text(

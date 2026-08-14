@@ -30,6 +30,7 @@ pubspec.lock
 .agents/
 .zcode/
 .wrangler/
+.freebuff/
 *.iml
 *.swp
 *.swo

@@ -156,7 +156,7 @@ class ChatAICoinsSent extends ChatState {
 
 /// AI 正在生成图片（显示在消息列表中，类似 TypingIndicator）
 
-/// ??????????? Operit InputProcessingState
+/// 对齐 Operit InputProcessingState 的处理阶段
 enum ChatProcessingState {
   idle,
   preparing,
@@ -168,7 +168,7 @@ enum ChatProcessingState {
   error,
 }
 
-/// AI ???????????????
+/// AI 处理中（工具执行等状态反馈）
 class ChatAIProcessing extends ChatState {
   final List<ChatMessage> messages;
   final String statusText;

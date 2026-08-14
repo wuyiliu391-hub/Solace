@@ -18,6 +18,7 @@ import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/log_service.dart';
 import '../../services/memory_engine.dart';
+import '../../services/moment_context_service.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../utils/content_filter.dart';
 import 'group_chat_speaker.dart';
@@ -759,6 +760,18 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         groupId: groupId,
       );
     }
+    // 朋友圈/动态闭环：让群聊里的角色也知道自己在朋友圈做过/看到过什么
+    String momentCtx = '';
+    try {
+      momentCtx = await MomentContextService(_storage)
+          .buildCharacterMomentContext(
+        characterId: character.id,
+        characterName: character.name,
+        userId: userId.isNotEmpty ? userId : 'local_user',
+      );
+    } catch (e) {
+      LogService.instance.w('GroupChat', '构建朋友圈上下文失败: $e');
+    }
     final nudge = buildGroupNudge(character.name);
     final recentReplies = history
         .where((message) => !message.isUser && !message.isSystem)
@@ -790,6 +803,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       segments: [
         GroupPromptSegment(id: 'intro', content: intro, priority: 100),
         GroupPromptSegment(id: 'member_voice', content: voice, priority: 110),
+        if (momentCtx.isNotEmpty)
+          GroupPromptSegment(
+              id: 'moment_context', content: momentCtx, priority: 55),
         GroupPromptSegment(id: 'shared_memory', content: shared, priority: 60),
         GroupPromptSegment(id: 'nudge', content: nudge, priority: 90),
       ],
@@ -850,6 +866,17 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     }
     if (cleanText.isEmpty) {
       _replyingGroups[groupId] = false;
+      return;
+    }
+    // 拒绝/脱角色模板不入群聊记录与记忆：避免某个模型拒绝一次后，
+    // 后续（含换模型后）群聊上下文持续被这段拒绝文本限制。
+    if (MessageSanitizer.isAIRefusal(cleanText)) {
+      _replyingGroups[groupId] = false;
+      LogService.instance.w(
+        'GroupChat',
+        '检测到拒绝模板，跳过保存以防污染上下文',
+        chatId: groupId,
+      );
       return;
     }
 
@@ -1262,6 +1289,15 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
           limit: 12, chatId: session.chatId);
       if (recent.length < 2) return;
 
+      // 拒绝/脱角色模板不参与群聊记忆与事件提取（旧拒绝不再污染新上下文）。
+      final safeRecent = recent
+          .where((m) =>
+              !(m.isUser == false &&
+                  m.isSystem == false &&
+                  MessageSanitizer.isAIRefusal(m.content)))
+          .toList();
+      if (safeRecent.length < 2) return;
+
       // 角色名 → 角色 id 映射（反查 LLM 输出的 speaker）
       final members = await _loadMembers(session.aiCharacterIds);
       final speakerMap = <String, String>{
@@ -1269,7 +1305,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       };
 
       await _memoryEngine.extractGroupMemories(
-        messages: recent,
+        messages: safeRecent,
         groupName: session.name,
         speakerCharacterIds: speakerMap,
         groupId: groupId,
@@ -1279,7 +1315,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
           await _storage.getGroupChatSummary(groupId, session.chatId);
       final events = await _aiService.extractGroupPublicEvents(
         groupName: session.name,
-        messages: _toChatHistory(recent, ''),
+        messages: _toChatHistory(safeRecent, ''),
         existingSummary: summary?.summary,
       );
       for (final characterId in session.aiCharacterIds) {
@@ -1382,6 +1418,9 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     final result = <ChatMessage>[];
     for (final m in history) {
       if (m.isSystem) continue;
+      // 拒绝/脱角色模板不进模型上下文、滚动总结或事件提取，
+      // 避免某个模型拒绝/报助手身份一次后，换模型也洗不掉。
+      if (!m.isUser && MessageSanitizer.isAIRefusal(m.content)) continue;
       final isAi = !m.isUser;
       // 自己是说话人时用 content；他人消息标注说话人
       final content = isAi

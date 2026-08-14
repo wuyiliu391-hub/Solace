@@ -355,6 +355,15 @@ void main() {
           groupId: any(named: 'groupId'),
           chatId: any(named: 'chatId'),
         )).thenAnswer((_) async => '');
+    when(() => memEngine.saveSocialMemory(
+          characterId: any(named: 'characterId'),
+          targetCharacterId: any(named: 'targetCharacterId'),
+          interactionType: any(named: 'interactionType'),
+          content: any(named: 'content'),
+          emotionTag: any(named: 'emotionTag'),
+          importance: any(named: 'importance'),
+          keywords: any(named: 'keywords'),
+        )).thenAnswer((_) async {});
     when(() => aiService.sendMessageStream(
               character: any(named: 'character'),
               userId: any(named: 'userId'),

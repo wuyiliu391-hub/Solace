@@ -37,6 +37,16 @@ class ChatSession extends Equatable {
   /// 小说模式：-1=跟随全局设置，0=关闭，1=开启
   final int novelMode;
 
+  /// 番外小剧场：指向所属主线会话的 id；非空表示这是一个平行番外会话层。
+  /// 番外内的事件、互动永不写入主线人物记忆，退出后主线 100% 原样保留。
+  final String? parentChatId;
+
+  /// 番外小剧场标题（可选，用于回看列表展示）。
+  final String? sideStoryTitle;
+
+  /// 是否为番外小剧场会话（与主线隔离的平行会话层）。
+  bool get isSideStory => sessionType == 'side_story';
+
   const ChatSession({
     required this.id,
     required this.userId,
@@ -69,6 +79,8 @@ class ChatSession extends Equatable {
     this.isInFriction = false,
     this.frictionDaysLeft = 0,
     this.novelMode = -1,
+    this.parentChatId,
+    this.sideStoryTitle,
   });
 
   ChatSession copyWith({
@@ -105,6 +117,10 @@ class ChatSession extends Equatable {
     bool? isInFriction,
     int? frictionDaysLeft,
     int? novelMode,
+    String? parentChatId,
+    bool clearParentChatId = false,
+    String? sideStoryTitle,
+    bool clearSideStoryTitle = false,
   }) {
     return ChatSession(
       id: id ?? this.id,
@@ -140,6 +156,12 @@ class ChatSession extends Equatable {
       isInFriction: isInFriction ?? this.isInFriction,
       frictionDaysLeft: frictionDaysLeft ?? this.frictionDaysLeft,
       novelMode: novelMode ?? this.novelMode,
+      parentChatId: clearParentChatId
+          ? null
+          : (parentChatId ?? this.parentChatId),
+      sideStoryTitle: clearSideStoryTitle
+          ? null
+          : (sideStoryTitle ?? this.sideStoryTitle),
     );
   }
 
@@ -176,6 +198,8 @@ class ChatSession extends Equatable {
       'isInFriction': isInFriction ? 1 : 0,
       'frictionDaysLeft': frictionDaysLeft,
       'novelMode': novelMode,
+      'parentChatId': parentChatId,
+      'sideStoryTitle': sideStoryTitle,
     };
   }
 
@@ -253,6 +277,8 @@ class ChatSession extends Equatable {
       isInFriction: map['isInFriction'] == 1 || map['isInFriction'] == true,
       frictionDaysLeft: map['frictionDaysLeft'] as int? ?? 0,
       novelMode: _parseNovelMode(map['novelMode']),
+      parentChatId: map['parentChatId'] as String?,
+      sideStoryTitle: map['sideStoryTitle'] as String?,
     );
   }
 
@@ -303,5 +329,7 @@ class ChatSession extends Equatable {
         isInFriction,
         frictionDaysLeft,
         novelMode,
+        parentChatId,
+        sideStoryTitle,
       ];
 }

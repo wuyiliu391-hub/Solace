@@ -176,5 +176,28 @@ assistant: 我已经到了
         expect(MessageSanitizer.isGatewayError('正常的聊天信息'), isFalse);
       });
     });
+
+    group('isAIRefusal', () {
+      test('识别典型拒绝/脱角色模板（用于上下文与记忆卫生）', () {
+        expect(MessageSanitizer.isAIRefusal('作为AI语言模型，我无法扮演这个角色'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('对不起，我无法生成此类内容'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('我无法继续这个话题了'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('这违反了我们的内容政策'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('很抱歉，我不能继续'), isTrue);
+      });
+
+      test('识别助手身份自述/客服用语（无拒绝动词）', () {
+        expect(MessageSanitizer.isAIRefusal('你好，我是AI助手，有什么可以帮你的吗？'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('我是助手，不是真人'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('很高兴为你服务'), isTrue);
+      });
+
+      test('不误伤正常角色扮演台词', () {
+        expect(MessageSanitizer.isAIRefusal('我不能失去你'), isFalse);
+        expect(MessageSanitizer.isAIRefusal('好啦，我们换个话题吧'), isFalse);
+        expect(MessageSanitizer.isAIRefusal('今天过得怎么样？'), isFalse);
+        expect(MessageSanitizer.isAIRefusal('我不是人类，我是吸血鬼'), isFalse);
+      });
+    });
   });
 }

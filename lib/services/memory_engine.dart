@@ -259,12 +259,14 @@ class MemoryEngine {
         limit: Limit.memoryPromptCap,
       );
 
-      // 过滤掉滚动摘要、过时状态、已合并的记忆、乱码污染记忆、BT 指令污染记忆
+      // 过滤掉滚动摘要、过时状态、已合并的记忆、乱码污染记忆、BT 指令污染记忆、
+      // 以及 AI 拒绝/脱角色模板（防止旧拒绝记忆在换模型后继续限制上下文）。
       final filtered = allMemories.where((m) =>
           m.type != MemoryType.rollingSummary &&
           !m.keywords.contains('__merged') &&
           !MessageSanitizer.isLikelyUnreadableGibberish(m.content) &&
           !_isBtContextPolluted(m.content) &&
+          !MessageSanitizer.isAIRefusal(m.content) &&
           !(m.type == MemoryType.state &&
               DateTime.now().difference(m.createdAt).inHours >= 12));
 
@@ -329,7 +331,8 @@ class MemoryEngine {
         final safeFallback = fallback
             .where((m) =>
                 !MessageSanitizer.isLikelyUnreadableGibberish(m.content) &&
-                !_isBtContextPolluted(m.content))
+                !_isBtContextPolluted(m.content) &&
+                !MessageSanitizer.isAIRefusal(m.content))
             .toList();
         if (safeFallback.isNotEmpty) {
           buffer
@@ -360,6 +363,8 @@ class MemoryEngine {
 
           for (final m in socialMemories) {
             if (groupLines.length + chatLines.length >= maxLines) break;
+            // 拒绝/脱角色模板不进社交记忆注入，避免旧拒绝在群聊/单聊间互相污染。
+            if (MessageSanitizer.isAIRefusal(m.content)) continue;
             // 冷记忆默认跳过；命中当前话题关键词时必须允许唤醒（对齐单聊 ③ 段）
             if (m.weight < 0.5 &&
                 !m.pinned &&
@@ -1209,7 +1214,12 @@ $context
   }) async {
     if (recentMessages.length < 2) return;
 
-    final userMessages = recentMessages
+    // 拒绝/脱角色模板不参与记忆提取，避免旧拒绝在换模型后继续限制上下文。
+    final safeRecent = recentMessages
+        .where((m) => !(m.isFromAI && MessageSanitizer.isAIRefusal(m.content)))
+        .toList();
+
+    final userMessages = safeRecent
         .where((m) => !m.isFromAI)
         .map((m) => m.content)
         .where((c) => c.length > 3)
@@ -1224,7 +1234,7 @@ $context
         character: character,
         userId: userId,
         userMessages: userMessages,
-        allMessages: recentMessages,
+        allMessages: safeRecent,
       );
       if (llmExtracted) return;
     } catch (e) {
@@ -1234,7 +1244,7 @@ $context
     // 回退：正则提取
     for (final msg in userMessages) {
       await _extractPreferences(msg, character.id, userId);
-      await _extractMilestones(msg, recentMessages, character.id, userId);
+      await _extractMilestones(msg, safeRecent, character.id, userId);
     }
     await _extractCurrentStates(userMessages, character.id, userId);
   }
@@ -2986,23 +2996,31 @@ ${userMessages.join('\n')}
     final prompt = '用1-2句简短的中文（20-40字）总结以下内容的核心要点，只输出总结，不要任何额外文字：\n\n$content';
 
     try {
-      final response = await http
-          .post(
-            Uri.parse('$url/chat/completions'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $key',
-            },
-            body: jsonEncode({
-              'model': model,
-              'messages': [
-                {'role': 'user', 'content': prompt}
-              ],
-              'temperature': 0.3,
-              'max_tokens': 100,
-            }),
-          )
-          .timeout(const Duration(seconds: 10));
+      final uri = Uri.parse('$url/chat/completions');
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $key',
+      };
+      final body = jsonEncode({
+        'model': model,
+        'messages': [
+          {
+            'role': 'system',
+            'content': _storage.buildGlobalModePrompt(scope: '记忆摘要')
+          },
+          {'role': 'user', 'content': prompt}
+        ],
+        'temperature': 0.3,
+        'max_tokens': 100,
+      });
+      final client = _httpClient;
+      final response = client != null
+          ? await client
+              .post(uri, headers: headers, body: body)
+              .timeout(const Duration(seconds: 10))
+          : await http
+              .post(uri, headers: headers, body: body)
+              .timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200) return null;
       final data = jsonDecode(utf8.decode(response.bodyBytes));

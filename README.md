@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Dart-%3E%3D3.0.0-blue?logo=dart" alt="Dart">
   <img src="https://img.shields.io/badge/Platform-Android%20%7C%20Web%20%7C%20Windows-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-17.9.0-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-18.0.0-orange" alt="Version">
 </p>
 
 ---
@@ -279,7 +279,7 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ## 数据库设计
 
-当前数据库版本：**v56**，包含 15+ 张表：
+当前数据库版本：**v70**，包含 40+ 张表：
 
 | 表名 | 用途 |
 |------|------|

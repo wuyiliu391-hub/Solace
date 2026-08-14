@@ -148,6 +148,8 @@ class VirtualPhoneGenerator {
       b.writeln('· newMoments：0~2 条新动态，取材于最近真实发生的事，禁止与旧内容雷同；');
       b.writeln('· newNotes：0~1 条新备忘/心事，写 TA 最近藏起来的真实想法；');
       b.writeln('· newUserMessages：0~4 条 TA 发给「我」的新消息（延续你俩最近的对话语气）。');
+      b.writeln('· 拟人铁律：新动态/新消息都要像真人随手写的——短句、断句、语气词（嗯嗯/emm/就是说）、'
+          '允许口语化小毛病，绝不写成通顺完整的小作文；聊天里偶尔可以有一条 content 恰好是"（撤回了一条消息）"的消息。');
       b.writeln('· 时间铁律：这些都是"距上次更新到现在"这段最近时间里新增的，'
           'time / date 必须是最近的过去（如"$_todayHint"、"昨天"、"刚刚"），'
           '要比上面"已有的近期内容"更新、更靠近"现在"，绝不能早于旧内容或晚于"现在"。');
@@ -486,14 +488,29 @@ class VirtualPhoneGenerator {
       '铁律二（时间一致性）：严格遵守我给出的【当前时间锚点】，'
       '所有 time / date 字段都必须是相对"现在"的过去时点，不得晚于"现在"、不得出现未来日期、'
       '不同条目之间的先后顺序要连贯合理、贴合剧情推进，绝不允许时间错乱或与现实季节/星期矛盾。'
+      '铁律三（拟人真实感）：这是活人手机里的内容，不是宣传文案，更不是 AI 生成的口吻。'
+      '所有动态、聊天、备忘都要像真人随手留下的：'
+      '· 允许并鼓励断句：用省略号（……）、短句、说一半的话表达停顿和犹豫，不要每句都主谓宾完整、通顺工整；'
+      '· 允许口头语和语气词：嗯嗯、emm、就是说、反正、救命、哈哈哈、啊这、天呐、无语了等，按角色性格适量使用；'
+      '· 允许轻微的口语化小毛病：漏字、重复、网络用语、拼音缩写，看起来像随手打出来的，而不是精心排版的小作文；'
+      '· 动态内容要碎片化：真实朋友圈常常是突然有感而发的一两句，不要写成完整的议论文或鸡汤；'
+      '· 聊天记录要像真人在微信里说话：短句居多、有来有回、偶尔答非所问或接不上话，可以有"（撤回了一条消息）"这种小插曲；'
+      '· 禁止：排比句、总结陈词、升华立意、空泛的感慨、明显是给读者看的精致文案。'
       '你必须只输出一个 JSON 对象，不要任何解释、不要 markdown 代码块。';
+
+  /// 组合虚拟手机 system prompt（全局模式注入 + 固定人设指令）。
+  @visibleForTesting
+  static String composeSystemPrompt(String modePrompt) =>
+      '$modePrompt\n\n$_systemPrompt';
 
   /// 统一的一次性 LLM 调用 + JSON 解析。
   Future<Map<String, dynamic>?> _callJson(String userPrompt,
       {int maxTokens = 1600}) async {
+    // 注入全局模式（法模式防拒答等），与其他生成链路对齐。
+    final modePrompt = _storage.buildGlobalModePrompt(scope: '虚拟手机');
     final raw = await _ai.sendPromptMessage(
       messages: [
-        {'role': 'system', 'content': _systemPrompt},
+        {'role': 'system', 'content': composeSystemPrompt(modePrompt)},
         {'role': 'user', 'content': userPrompt},
       ],
       overrideMaxTokens: maxTokens,
@@ -574,6 +591,9 @@ class VirtualPhoneGenerator {
     b.writeln('· 至少一段是与「我」（$nick）的对话，语气/事实要与「真实单聊摘录」保持一致，');
     b.writeln('  体现 TA 私下如何跟我说话、如何看待我，可自然引用记忆库里的共同经历；');
     b.writeln('· 其它段落要呼应角色的人设与记忆，禁止无关剧情；');
+    b.writeln('· 拟人真实感：消息要像真人微信聊天——短句、断句、口头语（嗯嗯/哈哈哈/就是说/emm），'
+        '允许语气词和轻微口语化小毛病，不要每句都完整通顺；'
+        '整段聊天里可以偶尔出现 1 条 content 恰好等于"（撤回了一条消息）"的消息（fromOwner 随意），表现"发错了又撤"的真实感；');
     b.writeln('· fromOwner=true 表示 ${c.name} 本人发的，false 表示对方发的；');
     b.writeln('· time 字段：每条消息的时间标签必须基于开头的【当前时间锚点】倒推，'
         '同一段对话内时间要递增连贯（如"昨天 21:03"→"昨天 21:05"），越近的对话排越前；');
@@ -676,6 +696,8 @@ class VirtualPhoneGenerator {
     b.writeln('虚构 ${c.name} 发过的 3~6 条动态，文字为主。');
     b.writeln('· 取材于记忆库里的共同经历/最近状态/记住的情绪，或角色人设中的生活；');
     b.writeln('· 可以有隐晦提及「我」的动态（不点名），呼应你们之间发生过的事；');
+    b.writeln('· 拟人真实感：动态要像真人随手发的——碎片化、一两句、可以有省略号/语气词/网络用语，'
+        '允许口语化小毛病，不要写成完整通顺的精致文案或感悟；不同类型动态自然交错，长短不一；');
     b.writeln('· 点赞数虚构合理数字，评论可留空或来自通讯录里的人；');
     b.writeln('· time 字段：每条动态的发布时间基于【当前时间锚点】倒推，'
         '是过去发出的（如"$_todayHint 中午"、"昨天"、"三天前"），不得晚于"现在"，越近的排越前；');

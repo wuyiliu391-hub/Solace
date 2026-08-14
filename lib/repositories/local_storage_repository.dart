@@ -575,6 +575,7 @@ class LocalStorageRepository {
       'userGender': 'TEXT',
       'userVerified': 'INTEGER DEFAULT 0',
       'customLikeCount': 'INTEGER DEFAULT 0',
+      'blockedUserIds': 'TEXT',
       'sync_seq': 'INTEGER DEFAULT 0',
     },
     'sticker_packs': {
@@ -991,6 +992,24 @@ class LocalStorageRepository {
         debugPrint('[FIX] reconcileSchema: isUser repair done');
       } catch (e) {
         debugPrint('[FIX] reconcileSchema: isUser repair failed: $e');
+      }
+    }
+
+    // 一次性孤儿数据清理：旧版本删除会话/角色时未连带清理，历史库里会残留
+    // chatId 指向已删会话的 chat_messages、characterId 指向已删角色的 memories。
+    // 这些死数据不会触发崩溃，但会长期占用空间；首次启动清理一次，之后不再扫描。
+    final orphanCleanupDone = prefs?.getBool('orphanCleanupV1_done') ?? false;
+    if (!orphanCleanupDone) {
+      try {
+        final orphanMessages = await db.rawDelete(
+            'DELETE FROM chat_messages WHERE chatId NOT IN (SELECT id FROM chat_sessions)');
+        final orphanMemories = await db.rawDelete(
+            'DELETE FROM memories WHERE characterId NOT IN (SELECT id FROM ai_characters)');
+        await prefs?.setBool('orphanCleanupV1_done', true);
+        debugPrint(
+            '[FIX] reconcileSchema: orphan cleanup removed $orphanMessages chat_messages, $orphanMemories memories');
+      } catch (e) {
+        debugPrint('[FIX] reconcileSchema: orphan cleanup failed: $e');
       }
     }
   }
@@ -3169,6 +3188,18 @@ class LocalStorageRepository {
       await _prefs?.setStringList('character_ids', ids);
     } else {
       final db = await _ensureDb();
+      // 角色自包含删除：连同该角色的记忆/社交记忆一起删，
+      // 避免“按 userId 清理”漏掉 userId 不匹配的历史记忆导致孤儿。
+      await db.delete(
+        'memories',
+        where: 'characterId = ?',
+        whereArgs: [id],
+      );
+      await db.delete(
+        'social_memories',
+        where: 'characterId = ? OR targetCharacterId = ?',
+        whereArgs: [id, id],
+      );
       await db.delete(
         'ai_characters',
         where: 'id = ?',
@@ -3179,7 +3210,8 @@ class LocalStorageRepository {
 
   Future<void> deleteAICharacterCascade(String characterId) async {
     try {
-      final sessions = await getChatSessionsByCharacterId(characterId);
+      final sessions = await getChatSessionsByCharacterId(characterId,
+          includeSideStories: true);
       for (final session in sessions) {
         await clearChatMessages(session.id);
         await deleteChatSession(session.id);
@@ -3255,6 +3287,12 @@ class LocalStorageRepository {
           where: 'chatId = ?',
           whereArgs: [sessionId],
         );
+        // 会话自包含删除：连同聊天记录一起删，避免遗留孤儿 chat_messages。
+        await db.delete(
+          'chat_messages',
+          where: 'chatId = ?',
+          whereArgs: [sessionId],
+        );
         await db.delete(
           'chat_sessions',
           where: 'id = ?',
@@ -3270,8 +3308,15 @@ class LocalStorageRepository {
 
   Future<void> deleteChatSessionCascade(String sessionId) async {
     try {
+      // 删除主线会话前先取到其番外列表（删除后父会话已不存在，无法再反查）。
+      final sideStories = await getSideStorySessions(sessionId);
       await clearChatMessages(sessionId);
       await deleteChatSession(sessionId);
+      // 连带删除该主线会话下的所有番外小剧场会话
+      for (final side in sideStories) {
+        await clearChatMessages(side.id);
+        await deleteChatSession(side.id);
+      }
       debugPrint(': $sessionId');
     } catch (e) {
       debugPrint(': $e');
@@ -3560,6 +3605,10 @@ class LocalStorageRepository {
       // 写库前确保 novelMode 列存在，避免 table chat_sessions has no column named novelMode
       await _addColumnIfNotExists(
           db, 'chat_sessions', 'novelMode', 'INTEGER DEFAULT -1');
+      // 番外小剧场：平行会话层字段（旧库升级时补齐）
+      await _addColumnIfNotExists(db, 'chat_sessions', 'parentChatId', 'TEXT');
+      await _addColumnIfNotExists(
+          db, 'chat_sessions', 'sideStoryTitle', 'TEXT');
       final map = await _filterMapToExistingColumns(
         db,
         'chat_sessions',
@@ -3648,6 +3697,8 @@ class LocalStorageRepository {
         await clearChatMessages(id);
         await deleteChatSession(id);
       }
+      // 番外小剧场会话不进入主会话列表（属于平行会话层）
+      sessions.removeWhere((s) => s.isSideStory);
       sessions.sort((a, b) {
         final aTime = a.lastMessageTime;
         final bTime = b.lastMessageTime;
@@ -3665,7 +3716,10 @@ class LocalStorageRepository {
         whereArgs: [userId],
         orderBy: 'lastMessageTime DESC',
       );
-      final sessions = maps.map((map) => ChatSession.fromMap(map)).toList();
+      final sessions = maps
+          .map((map) => ChatSession.fromMap(map))
+          .where((s) => !s.isSideStory)
+          .toList();
       final validSessions = <ChatSession>[];
       for (final session in sessions) {
         final character = await getAICharacter(session.aiCharacterId);
@@ -3724,7 +3778,9 @@ class LocalStorageRepository {
   }
 
   Future<List<ChatSession>> getChatSessionsByCharacterId(
-      String characterId) async {
+    String characterId, {
+    bool includeSideStories = false,
+  }) async {
     if (_isWeb) {
       final keys = _prefs
               ?.getKeys()
@@ -3737,7 +3793,8 @@ class LocalStorageRepository {
         final data = _prefs?.getString(key);
         if (data == null) continue;
         final session = ChatSession.fromMap(jsonDecode(data));
-        if (session.aiCharacterId == characterId) {
+        if (session.aiCharacterId == characterId &&
+            (includeSideStories || !session.isSideStory)) {
           sessions.add(session);
         }
       }
@@ -3758,8 +3815,34 @@ class LocalStorageRepository {
         whereArgs: [characterId],
         orderBy: 'lastMessageTime DESC',
       );
-      return maps.map((map) => ChatSession.fromMap(map)).toList();
+      return maps
+          .map((map) => ChatSession.fromMap(map))
+          .where((s) => includeSideStories || !s.isSideStory)
+          .toList();
     }
+  }
+
+  /// 查询某条主线会话下的全部番外小剧场会话（按更新时间倒序）。
+  Future<List<ChatSession>> getSideStorySessions(String parentChatId) async {
+    final parent = await getChatSession(parentChatId);
+    final characterId = parent?.aiCharacterId ?? '';
+    if (characterId.isEmpty) return const [];
+    final all = await getChatSessionsByCharacterId(
+      characterId,
+      includeSideStories: true,
+    );
+    final result = all
+        .where((s) => s.isSideStory && s.parentChatId == parentChatId)
+        .toList()
+      ..sort((a, b) {
+        final aTime = a.lastMessageTime ?? a.updatedAt;
+        final bTime = b.lastMessageTime ?? b.updatedAt;
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        return bTime.compareTo(aTime);
+      });
+    return result;
   }
 
   /// 消息写前缓冲 key 前缀
@@ -5681,11 +5764,13 @@ class LocalStorageRepository {
     }
   }
 
-  Future<List<Moment>> getAllMoments() async {
+  Future<List<Moment>> getAllMoments({String? viewerId}) async {
     try {
       final db = await _ensureDb();
       // 老库可能没有 source 列
       await _addColumnIfNotExists(db, 'moments', 'source', 'INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(
+          db, 'moments', 'blockedUserIds', 'TEXT');
       List<Map<String, Object?>> maps;
       try {
         maps = await db.query(
@@ -5699,7 +5784,14 @@ class LocalStorageRepository {
         debugPrint('getAllMoments source 过滤失败，降级全表: $e');
         maps = await db.query('moments', orderBy: 'createdAt DESC');
       }
-      return maps.map((map) => Moment.fromMap(map)).toList();
+      var moments = maps.map((map) => Moment.fromMap(map)).toList();
+      if (viewerId != null && viewerId.isNotEmpty) {
+        // 「不让谁看」：观看者被作者拉黑时，对观看者隐藏该动态
+        moments = moments
+            .where((m) => !m.blockedUserIds.contains(viewerId))
+            .toList();
+      }
+      return moments;
     } catch (e) {
       debugPrint('getAllMoments 失败: $e');
       return [];
@@ -6435,13 +6527,22 @@ class LocalStorageRepository {
   // ─── X 推特风格：Moments 扩展查询 ───
 
   /// 获取信息流（排除回复帖，按时间倒序）
-  Future<List<Moment>> getXMomentsFeed() async {
+  /// [viewerId] 非空时，过滤掉作者「不让谁看」名单中包含该观看者的动态。
+  Future<List<Moment>> getXMomentsFeed({String? viewerId}) async {
     final db = await _ensureDb();
+    await _addColumnIfNotExists(
+        db, 'moments', 'blockedUserIds', 'TEXT');
     final maps = await db.query('moments',
         where: 'source = ? AND parentKey IS NULL',
         whereArgs: [_xMomentSource],
         orderBy: 'createdAt DESC');
-    return maps.map((m) => Moment.fromMap(m)).toList();
+    var moments = maps.map((m) => Moment.fromMap(m)).toList();
+    if (viewerId != null && viewerId.isNotEmpty) {
+      moments = moments
+          .where((m) => !m.blockedUserIds.contains(viewerId))
+          .toList();
+    }
+    return moments;
   }
 
   /// 获取指定用户的动态（用于个人主页 Tab）

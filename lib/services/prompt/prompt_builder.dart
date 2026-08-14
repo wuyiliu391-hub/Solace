@@ -10,6 +10,7 @@ import '../memory_engine.dart';
 import '../emotion_engine.dart';
 import '../dialogue_strategy.dart';
 import '../prompt_rewriter.dart';
+import '../moment_context_service.dart';
 import '../weather_service.dart';
 import '../../utils/sentiment_analyzer.dart';
 import '../../models/bt_agent_action.dart';
@@ -205,6 +206,7 @@ class PromptBuilder {
     String? blockReason,
     int messageCount = 0,
     bool isFirstMessage = false,
+    bool isSideStory = false,
   }) async {
     final buffer = StringBuffer();
 
@@ -933,8 +935,18 @@ class PromptBuilder {
 
     final memoryMode = _storage.getGlobalMemoryMode();
 
+    // 番外平行小剧场：不携带主线记忆、进度与近期事件，只保留基础人设。
+    if (isSideStory) {
+      buffer.writeln('\n【番外・平行小剧场 — 强制设定】');
+      buffer.writeln('当前是一段独立于主线的平行番外小剧场，只保留你（角色）的基础人设与两人基础关系，');
+      buffer.writeln('不携带主线剧情进度、近期事件与长期记忆。请只依据本番外内的对话自由演绎，');
+      buffer.writeln('不要引入主线中发生过的任何事件、承诺、冲突或亲密度变化。');
+    }
+
     try {
-      if (memoryMode == 'off') {
+      if (isSideStory) {
+        debugPrint('AIService: 番外平行会话，跳过记忆注入');
+      } else if (memoryMode == 'off') {
         debugPrint('AIService: 记忆注入已关闭');
       } else {
         final memoryPrompt = await _memoryEngine.buildConsolidatedMemoryPrompt(
@@ -1052,6 +1064,25 @@ class PromptBuilder {
       }
     } catch (e) {
       debugPrint('AIService: 社交记忆注入失败 — $e');
+    }
+
+// 朋友圈/动态闭环：注入「角色发过/评论过/看到过的动态」，让角色知道自己做过什么
+
+    if (!pureAiMode) {
+      try {
+        final momentCtx = await MomentContextService(_storage)
+            .buildCharacterMomentContext(
+          characterId: character.id,
+          characterName: character.name,
+          userId: userId,
+          intimacyLevel: intimacyLevel,
+        );
+        if (momentCtx.isNotEmpty) {
+          buffer.writeln(momentCtx);
+        }
+      } catch (e) {
+        debugPrint('AIService: 朋友圈上下文注入失败 — $e');
+      }
     }
 
 // 新增：示例对话

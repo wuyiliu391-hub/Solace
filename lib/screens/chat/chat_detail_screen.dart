@@ -150,6 +150,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         .isChatStyleNovelModeEnabled();
   }
 
+  /// 当前是否为番外小剧场（平行会话层）。
+  bool get _isSideStory => widget.session.isSideStory;
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -379,6 +382,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           itemBuilder: (context) => [
+            if (!_isSideStory)
+              const PopupMenuItem(
+                value: 'side_story_new',
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_awesome_motion_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('开启番外小剧场'),
+                  ],
+                ),
+              ),
+            if (!_isSideStory)
+              const PopupMenuItem(
+                value: 'side_story_list',
+                child: Row(
+                  children: [
+                    Icon(Icons.history_rounded, size: 20),
+                    SizedBox(width: 12),
+                    Text('番外小剧场回看'),
+                  ],
+                ),
+              ),
             const PopupMenuItem(
               value: 'settings',
               child: Row(
@@ -393,11 +418,209 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           onSelected: (value) {
             if (value == 'settings') {
               _openChatSettings(context);
+            } else if (value == 'side_story_new') {
+              _startSideStory();
+            } else if (value == 'side_story_list') {
+              _openSideStoryList();
             }
           },
         ),
       ],
     );
+  }
+
+  /// 番外小剧场顶部标识横幅（剧情不纳入主线）。
+  Widget _buildSideStoryBanner(ColorScheme colorScheme, bool isDark) {
+    final accent =
+        isDark ? const Color(0xFFE6C88A) : const Color(0xFF8A6D3B);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2A2418) : const Color(0xFFF5EBD7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.auto_awesome, size: 15, color: accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '番外・平行小剧场｜剧情不纳入主线',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: accent,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: _exitSideStory,
+            style: TextButton.styleFrom(
+              foregroundColor: accent,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            child: const Text('退出番外', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _exitSideStory() {
+    tapHaptic();
+    Navigator.pop(context);
+  }
+
+  /// 番外文本指令检测（兼容 mufy 格式指令，如 `$现在暂停当前剧情，生成番外小剧场`）。
+  static final RegExp _sideStoryOpenPrefix = RegExp(
+    r'^(生成|开启|进入|来一段|来段|写一段|新建)',
+    caseSensitive: false,
+  );
+
+  bool _isSideStoryCommand(String text) {
+    final t = text.trim();
+    if (t.isEmpty || !t.contains('番外')) return false;
+    final lower = t.toLowerCase();
+    final hasDollar = lower.startsWith('\$');
+    final isPauseDirective = lower.contains('暂停当前剧情') ||
+        lower.contains('暂停主线') ||
+        lower.contains('暂停剧情');
+    final isExplicitOpen =
+        _sideStoryOpenPrefix.hasMatch(lower) && lower.contains('番外');
+    return hasDollar || isPauseDirective || isExplicitOpen;
+  }
+
+  /// 开启番外小剧场：创建同角色内的临时平行会话层并跳转。
+  Future<void> _startSideStory({String? initialMessage}) async {
+    if (_isSideStory) return;
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
+    final main = _currentSession ?? widget.session;
+
+    String? title;
+    if (initialMessage == null) {
+      final controller = TextEditingController();
+      final entered = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('开启番外小剧场'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 20,
+            decoration: const InputDecoration(
+              hintText: '给这个番外起个名字（可留空）',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('开启'),
+            ),
+          ],
+        ),
+      );
+      if (entered != true || !mounted) return;
+      title = controller.text.trim().isEmpty ? null : controller.text.trim();
+    }
+
+    final now = DateTime.now();
+    final sideStory = ChatSession(
+      id: const Uuid().v4(),
+      userId: user.id,
+      aiCharacterId: main.aiCharacterId,
+      aiCharacterName: main.aiCharacterName,
+      aiCharacterAvatar: main.aiCharacterAvatar,
+      createdAt: now,
+      updatedAt: now,
+      sessionType: 'side_story',
+      parentChatId: main.id,
+      sideStoryTitle: title,
+      intimacyMode: main.intimacyMode,
+      novelMode: main.novelMode,
+    );
+    await storage.saveChatSession(sideStory);
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatDetailScreen(
+          session: sideStory,
+          initialMessage: initialMessage,
+        ),
+      ),
+    );
+  }
+
+  /// 番外回看面板：列出本主线下的全部番外，可进入或删除。
+  Future<void> _openSideStoryList() async {
+    if (_isSideStory) return;
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final sessions = await storage.getSideStorySessions(widget.session.id);
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => _SideStoryListSheet(
+        sessions: sessions,
+        onOpen: (s) {
+          Navigator.pop(ctx);
+          _openSideStorySession(s);
+        },
+        onDelete: (s) {
+          Navigator.pop(ctx);
+          _deleteSideStory(s);
+        },
+      ),
+    );
+  }
+
+  Future<void> _openSideStorySession(ChatSession sideStory) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatDetailScreen(session: sideStory),
+      ),
+    );
+  }
+
+  Future<void> _deleteSideStory(ChatSession sideStory) async {
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除番外'),
+        content: Text(
+            '确定删除「${sideStory.sideStoryTitle ?? '未命名番外'}」吗？此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await storage.deleteChatSessionCascade(sideStory.id);
+    if (!mounted) return;
+    _openSideStoryList();
   }
 
   Future<void> _openVirtualPhone(BuildContext context) async {
@@ -1021,6 +1244,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final content = Column(
       children: [
+        if (_isSideStory) _buildSideStoryBanner(colorScheme, isDark),
         _buildRelationshipHeader(colorScheme, isDark),
         _buildStatusBar(colorScheme, isDark),
         Expanded(
@@ -2195,6 +2419,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final content = _messageController.text.trim();
     final imagePaths = List<String>.from(_pendingImagePaths);
     if (content.isEmpty && imagePaths.isEmpty) return;
+
+    // 番外文本指令：粘贴类似 mufy 格式的番外指令，自动开启平行小剧场。
+    if (!_isSideStory && imagePaths.isEmpty && _isSideStoryCommand(content)) {
+      _startSideStory(initialMessage: content);
+      _messageController.clear();
+      _clearPendingImages();
+      _canSendNotifier.value = false;
+      return;
+    }
 
     final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
     // 不再在发送后 requestFocus：用户收起键盘或 IME 发送键 unfocus 时，
@@ -6104,5 +6337,178 @@ class _WebSearchSectionState extends State<_WebSearchSection> {
     final snippet = item['snippet']?.toString() ?? '';
     final text = snippet.isEmpty ? title : '$title\n$snippet';
     return url.isEmpty ? text : '$text\n$url';
+  }
+}
+
+// ─── 番外小剧场回看面板 ───
+
+class _SideStoryListSheet extends StatelessWidget {
+  final List<ChatSession> sessions;
+  final void Function(ChatSession) onOpen;
+  final void Function(ChatSession) onDelete;
+
+  const _SideStoryListSheet({
+    required this.sessions,
+    required this.onOpen,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent =
+        isDark ? const Color(0xFFE6C88A) : const Color(0xFF8A6D3B);
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: colorScheme.onSurfaceVariant.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Icon(Icons.auto_awesome, size: 18, color: accent),
+                const SizedBox(width: 8),
+                Text(
+                  '番外小剧场',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '剧情不纳入主线',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: accent,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '番外是平行小剧场，退出后主线记忆、进度与过往对话 100% 保留。',
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (sessions.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    '还没有番外小剧场记录',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              )
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 360),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: sessions.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final s = sessions[index];
+                    final title = s.sideStoryTitle ?? '未命名番外';
+                    final preview = s.lastMessage ?? '';
+                    final time = s.lastMessageTime ?? s.updatedAt;
+                    return Material(
+                      color: colorScheme.surfaceContainerHighest
+                          .withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => onOpen(s),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: colorScheme.onSurface,
+                                      ),
+                                    ),
+                                    if (preview.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        preview,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color:
+                                              colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                time == null
+                                    ? ''
+                                    : DateFormat('MM-dd HH:mm').format(time),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '删除',
+                                icon: Icon(
+                                  Icons.delete_outline,
+                                  size: 20,
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                                onPressed: () => onDelete(s),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

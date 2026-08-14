@@ -143,6 +143,13 @@ class CharacterDesireEngine {
     }
   }
 
+  /// 组合欲望画像 system prompt（全局模式注入 + 动机分析指令）。
+  @visibleForTesting
+  static String composeDesireSystemPrompt(String modePrompt) =>
+      '$modePrompt\n\n'
+      '你是角色动机分析器。只输出 JSON，不要 markdown。字段：protect,connect,control,curiosity,play,respectSpace,utility（0~1）,moralBlocks(字符串数组),note(一句中文)。'
+      '规则：尊重隐私→control/curiosity低、respectSpace高；助手→utility高；病娇占有→control高；玩闹→play高。';
+
   Future<CharacterDesireProfile?> _refineWithLlm(
     AICharacter c,
     CharacterDesireProfile base,
@@ -153,9 +160,9 @@ class CharacterDesireEngine {
     final bg = c.backgroundStory ?? '';
     final bgCut = bg.length > 400 ? bg.substring(0, 400) : bg;
 
-    const sys =
-        '你是角色动机分析器。只输出 JSON，不要 markdown。字段：protect,connect,control,curiosity,play,respectSpace,utility（0~1）,moralBlocks(字符串数组),note(一句中文)。'
-        '规则：尊重隐私→control/curiosity低、respectSpace高；助手→utility高；病娇占有→control高；玩闹→play高。';
+    // 注入全局模式（法模式防拒答等），与其他生成链路对齐。
+    final modePrompt = _repo.buildGlobalModePrompt(scope: '欲望画像');
+    final sys = composeDesireSystemPrompt(modePrompt);
 
     final user = StringBuffer()
       ..writeln('角色：${c.name}')

@@ -15,7 +15,10 @@ import '../utils/message_sanitizer.dart';
 import '../utils/response_decoder.dart';
 import '../utils/global_mode_prompt.dart';
 import '../models/proactive_policy.dart';
+import '../models/moment.dart';
+import '../repositories/local_storage_repository.dart';
 import 'ai_service.dart';
+import 'moment_interaction_service.dart';
 import 'proactive_policy_service.dart';
 
 const String bgTaskName = 'proactiveChatMessage';
@@ -1571,6 +1574,17 @@ Future<bool> _handleProactiveChat(Map<String, dynamic>? inputData) async {
 Future<bool> _handleMomentPost(Map<String, dynamic>? inputData) async {
   final db = await _openRawDb();
   try {
+    // 老库 raw 连接不做自动迁移：确保 blockedUserIds 列存在再插入
+    try {
+      final cols = await db.rawQuery('PRAGMA table_info(moments)');
+      final colNames = cols.map((c) => c['name']).toSet();
+      if (!colNames.contains('blockedUserIds')) {
+        await db.execute('ALTER TABLE moments ADD COLUMN blockedUserIds TEXT');
+      }
+    } catch (e) {
+      debugPrint('moments blockedUserIds 列校验失败: $e');
+    }
+
     final config = await _getActiveConfig(db);
     if (config == null) return false;
 
@@ -1702,14 +1716,34 @@ Future<bool> _handleMomentPost(Map<String, dynamic>? inputData) async {
         memoriesText: memoriesText,
       );
 
-      String content;
+      // 动态允许 1-3 句完整内容。默认 150 tokens 容易让带推理的模型在句中断开，
+      // 而 moments 表和主列表都保留全文，因此在生成入口提供足够预算。
+      // 输出为 JSON：content + visibility（可见范围）+ blocked（不让谁看）。
+      String content = '';
+      int visibility = 0; // MomentVisibility.public.index
+      List<String> blockedIds = const [];
       try {
-        // 动态允许 1-3 句完整内容。默认 150 tokens 容易让带推理的模型在句中断开，
-        // 而 moments 表和主列表都保留全文，因此在生成入口提供足够预算。
+        final raw = await _callAiApi(config, prompt, maxTokens: 360);
+        final parsed = _parseMomentPostJson(raw);
         content = _cleanContent(
-          await _callAiApi(config, prompt, maxTokens: 300),
+          parsed.content,
           faMode: await _isBackgroundFaModeEnabled(),
         );
+        visibility = parsed.visibility;
+        if (parsed.blockedNames.isNotEmpty) {
+          // 角色名 → 角色 id（“不让谁看”名单）
+          final ids = <String>[];
+          for (final nm in parsed.blockedNames) {
+            final rows = await db.query('ai_characters',
+                where: 'name = ? AND id != ?',
+                whereArgs: [nm, characterId],
+                limit: 1);
+            if (rows.isNotEmpty) {
+              ids.add(rows.first['id'] as String);
+            }
+          }
+          blockedIds = ids;
+        }
       } catch (e) {
         debugPrint('AI moment generation failed for $name: $e');
         continue;
@@ -1734,9 +1768,10 @@ Future<bool> _handleMomentPost(Map<String, dynamic>? inputData) async {
         'createdAt': now.toIso8601String(),
         'updatedAt': null,
         'isFromAI': 1,
-        'visibility': 0, // MomentVisibility.public.index
+        'visibility': visibility,
         'source': 0, // MomentSource.normal
         'sync_seq': 0,
+        'blockedUserIds': jsonEncode(blockedIds),
       });
 
       await _showMomentNotification(
@@ -1745,7 +1780,24 @@ Future<bool> _handleMomentPost(Map<String, dynamic>? inputData) async {
         momentId: momentId,
       );
 
-      debugPrint('Background: AI $name 发布了朋友圈');
+      debugPrint(
+          'Background: AI $name 发布了朋友圈 (visibility=$visibility, blocked=${blockedIds.length})');
+
+      // AI→AI 闭环：邀请其他角色来评论这条新动态
+      try {
+        final momentRows = await db.query('moments',
+            where: 'id = ?', whereArgs: [momentId], limit: 1);
+        if (momentRows.isNotEmpty) {
+          final posted = Moment.fromMap(momentRows.first);
+          await MomentInteractionService.instance.onAiPostedMoment(
+            storage: LocalStorageRepository(),
+            moment: posted,
+            authorId: characterId,
+          );
+        }
+      } catch (e) {
+        debugPrint('AI→AI 评论编排失败: $e');
+      }
     }
 
     return true;
@@ -2042,13 +2094,81 @@ String _buildMomentPrompt({
   buf.writeln('''
 要求：
 1. 结合你的人设、生活规律和当前时段决定发什么，像真人随手发
-2. 内容自然真实：日常、心情、工作/学习间隙、见闻、吐槽、小感悟都可以
+2. 内容自然真实：日常、心情、工作/学习间隙、见闻、吐槽、小感悟都可以，口语化、可以断句和带语气词，不要写成精致小作文
 3. 可隐约呼应最近聊天或记忆，但不要写成私聊复述，也不要直呼系统设定
-4. 1-3句话，口语化；不要用括号描写动作或情绪
-5. 必须在句号、问号、感叹号或自然收束的短句处结束；绝不能输出半句话、未闭合引号或“未完”之类的截断内容
-6. 只输出动态内容本身''');
+4. 根据内容决定可见范围（这是你发的朋友圈的“谁能看到”）：
+   - public：所有人可见（日常动态默认这个）
+   - normal：好友可见（比较私密但朋友可以看的日常）
+   - intimate：仅你自己和最喜欢/最亲近的人可见（写给用户一个人的心里话、暗示“这条只给你看”的内容用这个）
+   - private：仅自己可见（纯粹的情绪宣泄/不想让任何人看到的）
+5. blocked 可填“不让谁看”的角色名（0~2 个，不能是用户），没有就填空数组；blocked 名单仅在 visibility 为 public/normal 时有意义
+6. 只输出一个 JSON 对象，不要任何解释、不要 markdown 代码块：
+{"content":"动态内容，1-3句话","visibility":"public|normal|intimate|private","blocked":["角色名"]}''');
 
   return buf.toString();
+}
+
+/// 解析 AI 发动态的 JSON 输出。兼容纯文本（降级为 public 可见）。
+_MomentPostParsed _parseMomentPostJson(String raw) {
+  final s = raw.trim();
+  // 去掉 markdown 代码围栏
+  var jsonStr = s;
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replaceFirst(RegExp(r'^```[a-zA-Z]*\s*'), '');
+    final end = jsonStr.lastIndexOf('```');
+    if (end != -1) jsonStr = jsonStr.substring(0, end);
+    jsonStr = jsonStr.trim();
+  }
+  if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
+    try {
+      final decoded = jsonDecode(jsonStr);
+      if (decoded is Map<String, dynamic>) {
+        final content = (decoded['content'] as String? ?? '').trim();
+        final vis = (decoded['visibility'] as String? ?? 'public').toLowerCase();
+        final blockedRaw = decoded['blocked'];
+        final blockedNames = <String>[];
+        if (blockedRaw is List) {
+          for (final n in blockedRaw) {
+            final name = n?.toString().trim();
+            if (name != null && name.isNotEmpty) {
+              blockedNames.add(name);
+            }
+          }
+        }
+        // MomentVisibility 枚举顺序：public=0, private=1, intimate=2, normal=3
+        final visibility = switch (vis) {
+          'normal' => 3,
+          'intimate' => 2,
+          'private' => 1,
+          _ => 0,
+        };
+        return _MomentPostParsed(
+          content: content,
+          visibility: visibility,
+          blockedNames: blockedNames,
+        );
+      }
+    } catch (_) {
+      // 解析失败降级为纯文本
+    }
+  }
+  return _MomentPostParsed(
+    content: s,
+    visibility: 0,
+    blockedNames: const [],
+  );
+}
+
+/// AI 发动态解析结果。
+class _MomentPostParsed {
+  final String content;
+  final int visibility;
+  final List<String> blockedNames;
+  const _MomentPostParsed({
+    required this.content,
+    required this.visibility,
+    required this.blockedNames,
+  });
 }
 
 String _lifestyleHintForHour(int hour, String personality) {
@@ -2227,6 +2347,24 @@ Future<bool> _handleCommentReply(Map<String, dynamic>? inputData) async {
     );
 
     debugPrint('Background: AI $charName 回复了评论');
+
+    // AI→AI 多轮：这条回复若是回给另一个 AI（或回在 AI 动态下），让对方接着回
+    try {
+      final updatedRows = await db.query('moments',
+          where: 'id = ?', whereArgs: [momentId], limit: 1);
+      if (updatedRows.isNotEmpty) {
+        final updatedMoment = Moment.fromMap(updatedRows.first);
+        if (updatedMoment.comments.isNotEmpty) {
+          await MomentInteractionService.instance.onAiCommentAdded(
+            storage: LocalStorageRepository(),
+            moment: updatedMoment,
+            comment: updatedMoment.comments.last,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('AI→AI 多轮编排失败: $e');
+    }
     return true;
   } finally {
     await db.close();
@@ -2299,9 +2437,20 @@ Future<bool> _handleMomentInteract(Map<String, dynamic>? inputData) async {
     final momentSource = moment['source'] as int? ?? 0;
     if (momentSource != 0) return false;
 
-    // 只互动用户动态，不互动 AI 动态
     final isFromAI = moment['isFromAI'] as int? ?? 0;
-    if (isFromAI == 1) return false;
+    final visibilityIdx = moment['visibility'] as int? ?? 0;
+
+    // 私密动态：仅作者自己可见，不互动
+    if (visibilityIdx == 1) return false;
+
+    // 作者「不让谁看」名单：被拉黑的角色不互动
+    final blockedRaw = moment['blockedUserIds'] as String? ?? '[]';
+    try {
+      final blocked = (jsonDecode(blockedRaw) as List)
+          .map((e) => e.toString())
+          .toList();
+      if (blocked.contains(characterId)) return false;
+    } catch (_) {}
 
     // 查询角色
     final charRows = await db
@@ -2409,7 +2558,27 @@ Future<bool> _handleMomentInteract(Map<String, dynamic>? inputData) async {
         whereArgs: [momentId]);
 
     debugPrint(
-        'Background: AI $charName 互动了用户动态 ${shouldLike ? "点赞" : ""} ${shouldComment ? "评论" : ""}');
+        'Background: AI $charName 互动了动态 ${shouldLike ? "点赞" : ""} ${shouldComment ? "评论" : ""}');
+
+    // AI→AI 多轮：评论后让被评论方（动态作者/被回复的 AI）接着回
+    if (shouldComment && isFromAI == 1) {
+      try {
+        final updatedRows = await db.query('moments',
+            where: 'id = ?', whereArgs: [momentId], limit: 1);
+        if (updatedRows.isNotEmpty) {
+          final updatedMoment = Moment.fromMap(updatedRows.first);
+          if (updatedMoment.comments.isNotEmpty) {
+            await MomentInteractionService.instance.onAiCommentAdded(
+              storage: LocalStorageRepository(),
+              moment: updatedMoment,
+              comment: updatedMoment.comments.last,
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('AI→AI 多轮编排失败: $e');
+      }
+    }
     return true;
   } finally {
     await db.close();

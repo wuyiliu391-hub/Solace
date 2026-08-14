@@ -127,7 +127,7 @@ class MomentsFeedBloc extends Bloc<MomentsFeedEvent, MomentsFeedState> {
   }
 
   Future<void> _emitLoadedFeed(Emitter<MomentsFeedState> emit) async {
-    final moments = await _storage.getXMomentsFeed();
+    final moments = await _storage.getXMomentsFeed(viewerId: _currentUserId);
     final likedIds = <String>{};
     var bookmarkedIds = <String>{};
 

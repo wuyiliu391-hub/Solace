@@ -148,6 +148,10 @@ class Moment extends Equatable {
   final bool userVerified; // 蓝标认证
   final int customLikeCount; // 自定义点赞显示数（0=用 likes.length）
 
+  /// 「不让谁看」：被屏蔽的观看者 id 列表（用户动态=屏蔽的角色 id；AI 动态=屏蔽的角色/用户 id）。
+  /// 信息流查询时若 viewerId 在此列表内则过滤掉该动态。
+  final List<String> blockedUserIds;
+
   const Moment({
     required this.id,
     required this.userId,
@@ -176,6 +180,7 @@ class Moment extends Equatable {
     this.userGender,
     this.userVerified = false,
     this.customLikeCount = 0,
+    this.blockedUserIds = const [],
   });
 
   /// 点赞计数（自定义优先，否则用 likes.length）
@@ -221,6 +226,7 @@ class Moment extends Equatable {
     String? userGender,
     bool? userVerified,
     int? customLikeCount,
+    List<String>? blockedUserIds,
   }) {
     return Moment(
       id: id ?? this.id,
@@ -250,6 +256,7 @@ class Moment extends Equatable {
       userGender: userGender ?? this.userGender,
       userVerified: userVerified ?? this.userVerified,
       customLikeCount: customLikeCount ?? this.customLikeCount,
+      blockedUserIds: blockedUserIds ?? this.blockedUserIds,
     );
   }
 
@@ -282,6 +289,7 @@ class Moment extends Equatable {
       'userGender': userGender,
       'userVerified': userVerified ? 1 : 0,
       'customLikeCount': customLikeCount,
+      'blockedUserIds': jsonEncode(blockedUserIds),
     };
   }
 
@@ -339,6 +347,20 @@ class Moment extends Equatable {
       }
     }
 
+    List<String> parseBlocked(dynamic blockedData) {
+      if (blockedData == null ||
+          blockedData.toString().isEmpty ||
+          blockedData.toString() == '[]') {
+        return [];
+      }
+      try {
+        final List<dynamic> list = jsonDecode(blockedData.toString());
+        return list.map((t) => t.toString()).where((s) => s.isNotEmpty).toList();
+      } catch (e) {
+        return [];
+      }
+    }
+
     MomentSource parseSource(dynamic sourceData) {
       if (sourceData is int &&
           sourceData >= 0 &&
@@ -384,6 +406,7 @@ class Moment extends Equatable {
       userGender: map['userGender'] as String?,
       userVerified: map['userVerified'] == 1 || map['userVerified'] == true,
       customLikeCount: (map['customLikeCount'] as int?) ?? 0,
+      blockedUserIds: parseBlocked(map['blockedUserIds']),
     );
   }
 
@@ -414,5 +437,6 @@ class Moment extends Equatable {
         userGender,
         userVerified,
         customLikeCount,
+        blockedUserIds,
       ];
 }

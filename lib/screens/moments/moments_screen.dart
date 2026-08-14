@@ -54,7 +54,12 @@ class _MomentsScreenState extends State<MomentsScreen> {
   Future<void> _loadMoments({bool triggerAI = true}) async {
     try {
       final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final moments = await storage.getAllMoments();
+      String? viewerId;
+      try {
+        final auth = context.read<AuthBloc>().state;
+        if (auth is AuthAuthenticated) viewerId = auth.user.id;
+      } catch (_) {}
+      final moments = await storage.getAllMoments(viewerId: viewerId);
       if (mounted) {
         setState(() {
           _moments = moments;

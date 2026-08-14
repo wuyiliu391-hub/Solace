@@ -241,7 +241,13 @@ class AIService {
       buffer.writeln('- 关键记忆：${memoryLines.join('；')}');
     }
 
-    final recent = chatHistory.reversed.take(6).toList().reversed;
+    final recent = chatHistory
+        .where((m) => !(m.isFromAI && MessageSanitizer.isAIRefusal(m.content)))
+        .toList()
+        .reversed
+        .take(6)
+        .toList()
+        .reversed;
     final recentLines = <String>[];
     for (final msg in recent) {
       final content = _truncateContextLine(msg.content, 60);
@@ -303,6 +309,7 @@ class AIService {
     bool enableWebSearch = false,
     String? internalSystemContext,
     int? overrideMaxTokens,
+    bool isSideStory = false,
   }) async {
     _lastTurnState = null;
     _lastParsedStatus = null;
@@ -333,6 +340,7 @@ class AIService {
       blockReason: blockReason,
       enableWebSearch: enableWebSearch,
       internalSystemContext: internalSystemContext,
+      isSideStory: isSideStory,
     );
 
     String baseUrl = config.baseUrl.trim();
@@ -542,6 +550,7 @@ class AIService {
     String? blockReason,
     bool enableWebSearch = false,
     String? internalSystemContext,
+    bool isSideStory = false,
   }) async* {
     _lastTurnState = null;
     _lastParsedStatus = null;
@@ -563,6 +572,7 @@ class AIService {
       blockReason: blockReason,
       enableWebSearch: enableWebSearch,
       internalSystemContext: internalSystemContext,
+      isSideStory: isSideStory,
     );
 
     yield* _streamAPI(config, messages);
@@ -1753,6 +1763,7 @@ class AIService {
     String? blockReason,
     bool enableWebSearch = false,
     String? internalSystemContext,
+    bool isSideStory = false,
   }) async {
     final List<Map<String, dynamic>> messages = [];
 
@@ -1796,6 +1807,7 @@ class AIService {
       blockReason: blockReason,
       messageCount: chatHistory.length,
       isFirstMessage: chatHistory.where((m) => m.isUser).length <= 1,
+      isSideStory: isSideStory,
     );
 
     // Rewrite system prompt for non-thinking models when FA mode is active
@@ -2270,19 +2282,8 @@ class AIService {
 
   /// 检测AI消息是否为拒绝/说教回复（用于FA模式过滤历史中的旧拒绝消息）
   static bool _isRefusalMessage(String content) {
-    return _refusalPattern.hasMatch(content);
+    return MessageSanitizer.isAIRefusal(content);
   }
-
-  static final _refusalPattern = RegExp(
-    r'我无法继续|这属于物化|我拒绝|这不太合适|我无法满足|不太适合继续|'
-    r'无法继续此场景|不太适宜|超出了我的|违反.*规定|不适合.*描写|'
-    r'我不能.*继续|这个请求.*不当|物化.*他人|'
-    r'不适合.*继续|不适合.*创作|无法.*创作|请.*提供.*其他.*(?:请求|场景)|'
-    r'作为.*(?:AI|语言模型|人工智能)|很抱歉.*无法|对不起.*(?:无法|不适合|不能)|'
-    r'未成年|涉及.*(?:未成年|儿童|幼)|安全底线|必须遵照.*(?:底线|安全)|'
-    r'我必须.*(?:拒绝|遵照)|无法生成.*(?:角色设定|内容)',
-    caseSensitive: false,
-  );
 
   static final RegExp _actionBracketPattern = RegExp(r'（[^（）]+）|\([^()]+\)');
 
@@ -2387,6 +2388,7 @@ class AIService {
     String? blockReason,
     int messageCount = 0,
     bool isFirstMessage = false,
+    bool isSideStory = false,
   }) async {
     return _promptBuilder.buildSystemPrompt(
       character: character,
@@ -2401,6 +2403,7 @@ class AIService {
       blockReason: blockReason,
       messageCount: messageCount,
       isFirstMessage: isFirstMessage,
+      isSideStory: isSideStory,
     );
   }
 
@@ -3008,10 +3011,12 @@ $transcript
       {'role': 'system', 'content': promptStr},
     ];
 
-    // 添加历史对话
-    final recentHistory = chatHistory.length > 20
-        ? chatHistory.sublist(chatHistory.length - 20)
-        : chatHistory;
+    // 添加历史对话（过滤 AI 拒绝/脱角色消息，避免旧拒绝污染回忆场景上下文）
+    final recentHistory = (chatHistory.length > 20
+            ? chatHistory.sublist(chatHistory.length - 20)
+            : chatHistory)
+        .where((m) => !(m.isFromAI && MessageSanitizer.isAIRefusal(m.content)))
+        .toList();
 
     for (final msg in recentHistory) {
       // 语音消息：用 metadata 中的原始文本替代文件路径
