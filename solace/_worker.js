@@ -11,21 +11,38 @@ function versionCompare(v1, v2) {
 }
 
 const VERSION_DATA = {
-  latestVersion: '18.0.1',
-  buildNumber: 294,
+  latestVersion: '18.1.0',
+  buildNumber: 2300,
   minSdk: 23,
-  releaseDate: '2026-08-14',
-  downloadUrl: 'https://solace-auth-v2.pages.dev/api/v1/download?v=18.0.1',
+  releaseDate: '2026-08-18',
+  downloadUrl: 'https://solace-auth-v2.pages.dev/api/v1/download?v=18.1.0',
   changelog: [
-    '修复单聊长会话（超过 50 条）退出重进后最新回复丢失的问题',
-    '修复单聊删除/隐藏/收藏消息后更早历史塌缩的问题',
-    '群聊新增「上滑加载更多历史」，长群聊可完整回看更早消息',
-    '状态栏移除固定表情，改为纯文本展示',
+    '新增实时语音通话：本地 VAD 断句 + 本地转写 + AI 语音克隆回复，开口即聊',
+    '通话支持音色克隆、手动打字输入（不方便说话时）、实时字幕与旁白过滤',
+    '通话内容静默注入记忆库并自动整理，AI 会记住你们聊过的事',
   ],
   forceUpdate: false,
 };
 
 const ANNOUNCEMENTS = [
+  {
+    id: 'ann_1810',
+    title: 'Solace 18.1.0 更新公告',
+    content: `Solace 18.1.0+2300 更新公告
+
+━━━━━━━━━ 本次更新 ━━━━━━━━━
+
+📞 实时语音通话
+点击角色卡片上的通话按钮，开口即聊：本地 VAD 自动断句、本地转写、AI 用你的专属克隆音色逐句回答。
+
+🎤 音色克隆与打字输入
+支持录制/导入参考音频克隆角色音色；不方便说话时（或想悄悄说点别的）可随时切换到打字输入，AI 照样开口回答。
+
+💭 通话记忆自动沉淀
+通话内容静默整理进记忆库，AI 会记住你们聊过的事；聊天页只保留通话记录，不刷屏。`,
+    date: '2026-08-18',
+    type: 'update',
+  },
   {
     id: 'ann_1801',
     title: 'Solace 18.0.1 更新公告',
@@ -441,8 +458,9 @@ export default {
       }
 
       // 4. APK 下载
-      // deploy.sh 只上传 app-release.apk.gz（Pages 单文件 <25MB）。
-      // 这里解压后返回原始 APK 字节流，避免客户端把 gzip 当 APK 安装。
+      // deploy.sh 只上传 app-release.apk.gz 的分片（Pages 单文件 <25MiB，
+      // 分片名为 app-release.apk.gz.aa / .ab / ...）。
+      // 这里按片拼接 → 解压后返回原始 APK 字节流，避免客户端把 gzip 当 APK 安装。
       if (path === '/api/v1/download') {
         const serverETag = `"apk-${VERSION_DATA.latestVersion}-${VERSION_DATA.buildNumber}"`;
         const ifNoneMatch = request.headers.get('If-None-Match');
@@ -450,22 +468,55 @@ export default {
           return new Response(null, { status: 304 });
         }
 
-        const gzReq = new Request(
-          `${url.origin}/app-release.apk.gz?v=${VERSION_DATA.buildNumber}`,
-          request,
+        // 按清单取分片（deploy.sh 生成 app-release.apk.gz.manifest，列出
+        // .aa/.ab/... 分片名；不探测——Pages SPA 回退会让不存在路径返回
+        // 200，探测会撞 Workers 单次调用 50 次子请求上限）
+        const manifestRes = await env.ASSETS.fetch(
+          `${url.origin}/app-release.apk.gz.manifest?v=${VERSION_DATA.buildNumber}`,
         );
-        const gzRes = await env.ASSETS.fetch(gzReq);
-        if (!gzRes.ok || !gzRes.body) {
-          return json(
-            { error: 'APK asset missing', status: gzRes.status },
-            502,
-          );
+        if (!manifestRes.ok) {
+          return json({ error: 'APK manifest missing' }, 502);
         }
+        let partNames = [];
+        try {
+          partNames = await manifestRes.json();
+        } catch (e) {
+          return json({ error: 'APK manifest invalid' }, 502);
+        }
+        // 读入内存拼接（不走 ReadableStream 构造器——Pages 项目未开
+        // streams_enable_constructors 兼容旗标；约 50MB 数据在 128MB 限制内）
+        const partResList = [];
+        for (const name of partNames) {
+          const partRes = await env.ASSETS.fetch(
+            `${url.origin}/${name}?v=${VERSION_DATA.buildNumber}`,
+          );
+          if (!partRes.ok || !partRes.body) {
+            return json({ error: `APK part missing: ${name}` }, 502);
+          }
+          partResList.push(partRes);
+        }
+        if (partResList.length === 0) {
+          return json({ error: 'APK asset missing' }, 502);
+        }
+        // 以实际字节数为准（Content-Length 可能与实发长度不一致）
+        const bufs = [];
+        for (const partRes of partResList) {
+          bufs.push(new Uint8Array(await partRes.arrayBuffer()));
+        }
+        const merged = new Uint8Array(
+          bufs.reduce((n, b) => n + b.byteLength, 0),
+        );
+        let offset = 0;
+        for (const buf of bufs) {
+          merged.set(buf, offset);
+          offset += buf.byteLength;
+        }
+        const gzBytes = merged;
 
-        let body = gzRes.body;
+        let body = new Response(gzBytes).body;
         try {
           // CF Workers 支持 DecompressionStream
-          body = gzRes.body.pipeThrough(new DecompressionStream('gzip'));
+          body = body.pipeThrough(new DecompressionStream('gzip'));
         } catch (e) {
           // 解压不可用时回退：返回 gzip 并标记 Content-Encoding，
           // 客户端 UpdateService 会再做 gzip 魔数检测解压。
@@ -478,7 +529,7 @@ export default {
           headers.set('Content-Encoding', 'gzip');
           headers.set('Cache-Control', 'public, max-age=3600');
           headers.set('ETag', serverETag);
-          return new Response(gzRes.body, { status: 200, headers });
+          return new Response(gzBytes, { status: 200, headers });
         }
 
         const headers = new Headers(COMMON_HEADERS);

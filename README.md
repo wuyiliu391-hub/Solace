@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Dart-%3E%3D3.0.0-blue?logo=dart" alt="Dart">
   <img src="https://img.shields.io/badge/Platform-Android%20%7C%20Web%20%7C%20Windows-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-18.0.1-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-18.1.0-orange" alt="Version">
 </p>
 
 ---
@@ -54,6 +54,14 @@
 - 支持创建多个 AI 角色，每个角色拥有独立人设
 - 流式/非流式双模式 AI 回复
 - 多模型切换（OpenAI 兼容接口）
+
+### 📞 实时语音通话
+
+- 开口即聊：本地 VAD 自动断句 → 本地转写 → AI 语音克隆回复（MiMo TTS），全程半双工防回声
+- 音色克隆：录制 3~5 秒或导入音频文件，克隆角色专属音色
+- 打字输入：不方便说话时可手动打字，AI 照样开口回答
+- 实时字幕：打字机逐字显示对话内容，小说模式自动过滤旁白
+- 通话记忆：对话内容静默注入记忆库，聊天页只保留通话记录
 
 ### 🧠 情感记忆引擎
 

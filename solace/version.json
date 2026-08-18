@@ -1,15 +1,14 @@
 {
-  "version": "18.0.1",
-  "build": 294,
+  "version": "18.1.0",
+  "build": 2300,
   "minSdk": 23,
   "forceUpdate": false,
-  "releaseDate": "2026-08-14",
-  "downloadUrl": "https://solace-auth-v2.pages.dev/api/v1/download?v=18.0.1",
+  "releaseDate": "2026-08-18",
+  "downloadUrl": "https://solace-auth-v2.pages.dev/api/v1/download?v=18.1.0",
   "changelog": [
-    "修复单聊长会话（超过 50 条）退出重进后最新回复丢失的问题",
-    "修复单聊删除/隐藏/收藏消息后更早历史塌缩的问题",
-    "群聊新增「上滑加载更多历史」，长群聊可完整回看更早消息",
-    "状态栏移除固定表情，改为纯文本展示"
+    "新增实时语音通话：本地 VAD 断句 + 本地转写 + AI 语音克隆回复，开口即聊",
+    "通话支持音色克隆、手动打字输入（不方便说话时）、实时字幕与旁白过滤",
+    "通话内容静默注入记忆库并自动整理，AI 会记住你们聊过的事"
   ],
-  "announcement": "Solace 18.0.1 — 修复单聊消息丢失与列表塌缩，群聊支持加载更多历史"
+  "announcement": "Solace 18.1.0 — 新增实时语音通话：开口即聊，AI 说话给你听"
 }
