@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter" alt="Flutter">
   <img src="https://img.shields.io/badge/Dart-%3E%3D3.0.0-blue?logo=dart" alt="Dart">
-  <img src="https://img.shields.io/badge/Platform-Android%20%7C%20Web%20%7C%20Windows-lightgrey" alt="Platform">
+  <img src="https://img.shields.io/badge/Platform-Android-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/Version-18.2.1-orange" alt="Version">
 </p>
@@ -217,9 +217,7 @@ solace/
 │   ├── services/                     # 业务服务（100+ 文件）
 │   ├── utils/                        # 工具函数
 │   └── widgets/                      # 可复用组件
-├── android/                          # Android 平台代码
-├── web/                              # Web 平台代码
-├── windows/                          # Windows 平台代码
+├── android/                          # Android 平台代码（唯一支持平台）
 ├── assets/                           # 静态资源
 ├── test/                             # 测试代码
 ├── solace/                           # Cloudflare Pages 部署文件
