@@ -109,15 +109,11 @@ class ProactiveScheduler {
     _consumedTaskIds.clear();
   }
 
-  /// 调度所有日常问候
-  Future<void> scheduleAllGreetings() async {
-    // 桩实现：问候逻辑由心跳服务驱动
-  }
-
-  /// 调度 AI 转移任务
-  Future<void> scheduleAITransfers() async {
-    // 桩实现：AI 转移由心跳服务驱动
-  }
+  // 说明：日常问候与 AI 转移不再需要独立调度。
+  // 前台由 main.dart 的 _startForegroundProactiveHeartbeat 每分钟驱动
+  // handleForegroundProactiveChatTask()，后台由 Workmanager 兜底，
+  // 两者每次都从 DB 现读角色 interactionConfig（含问候开关/频率），
+  // 保存设置后自动生效，无需手动重排任务。
 
   /// 调度评论回复延迟任务
   Future<void> scheduleCommentReply({

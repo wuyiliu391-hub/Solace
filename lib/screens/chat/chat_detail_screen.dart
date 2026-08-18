@@ -2415,14 +2415,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
         return;
       }
-      final ref = await _resolveVoiceReference();
-      if (ref == null || !mounted) return;
-
-      await _localTts.setReferenceAudio(
-        widget.session.aiCharacterId,
-        ref.path,
-        ref.text,
-      );
+      // 角色选了内置预置音色：无需参考音频，synthesizeWithStyle 自动切
+      // mimo-v2.5-tts + Voice ID。
+      final preset =
+          await VoiceProfileStore.instance.loadPreset(widget.session.aiCharacterId);
+      if (preset == null) {
+        final ref = await _resolveVoiceReference();
+        if (ref == null || !mounted) return;
+        await _localTts.setReferenceAudio(
+          widget.session.aiCharacterId,
+          ref.path,
+          ref.text,
+        );
+      }
       // 导演模式：用角色人设 + 当前台词生成风格指令
       AICharacter? character;
       try {

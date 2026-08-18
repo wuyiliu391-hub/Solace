@@ -183,6 +183,11 @@ class VoiceCallController extends ChangeNotifier {
     _pendingText.add(t);
     debugPrint('[VoiceCall] sendText 入队: "$t"');
     notifyListeners();
+    // 打断聆听等待：取消订阅不会触发录音流的 onDone，若不显式完成
+    // _listenDone，_runLoop 将永远卡在 done.future 上（文本无人消费 +
+    // 后续回合全部失效）。
+    final ld = _listenDone;
+    if (ld != null && !ld.isCompleted) ld.complete(null);
     await _cancelMic();
     try {
       await _recorder.stop();
@@ -516,7 +521,7 @@ class VoiceCallController extends ChangeNotifier {
       forceConcise: true,
     ));
 
-    // AI 思考期（回复等待窗，最长 60s）麦克风保持开启：用户此时说的话
+    // AI 思考期（回复等待窗，最长 120s）麦克风保持开启：用户此时说的话
     // 不再丢失，经 VAD 断句后入 _interruptQueue，由 _runLoop 按序处理。
     // 不打断当前回复（ChatBloc 串行处理事件，旧 LLM 调用无法提前终止），
     // 只保证语音被捕获——彻底消除「必须二次开口」。
@@ -525,9 +530,9 @@ class VoiceCallController extends ChangeNotifier {
     await _startInterruptListening();
 
     final result = await done.future.timeout(
-      const Duration(seconds: 60),
+      const Duration(seconds: 120),
       onTimeout: () {
-        _lastError = 'AI 回复超时（60s），已跳过本轮';
+        _lastError = 'AI 回复超时（120s），已跳过本轮';
         notifyListeners();
         return sb.toString();
       },
@@ -676,6 +681,15 @@ class VoiceCallController extends ChangeNotifier {
   }
 
   Future<void> _setupVoiceProfile() async {
+    // 角色选了内置预置音色：无需参考音频，synthesizeWithStyle 会自动走
+    // mimo-v2.5-tts + Voice ID；跳过 setReferenceAudio。
+    final store = VoiceProfileStore.instance;
+    final preset = await store.loadPreset(session.aiCharacterId);
+    if (!_safe()) return;
+    if (preset != null) {
+      debugPrint('[VoiceCall] 音色: 使用预置音色 $preset');
+      return;
+    }
     final ref = await _resolveVoiceReference();
     if (!_safe()) return;
     if (ref == null) {

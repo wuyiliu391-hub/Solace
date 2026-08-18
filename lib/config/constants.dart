@@ -53,10 +53,6 @@ class ApiDefaults {
   static const String versionCheckUrl = '/api/v1/version';
   static const String announcementsUrl = '/api/v1/announcements';
 
-  /// 联网搜索 API（UAPI Pro 免费搜索，无需 API Key）
-  /// 文档: https://uapis.cn
-  static const String searchApiUrl = 'https://uapis.cn/api/v1/search/aggregate';
-
   // ─── Default Model Params ───
   static const double defaultTemperature = 0.7;
   static const int defaultMaxTokens = 2000;
@@ -390,8 +386,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-  static const String version = '18.1.0';
-  static const int build = 2300;
+  static const String version = '18.2.1';
+  static const int build = 6302;
 }
 
 class NotificationChannels {

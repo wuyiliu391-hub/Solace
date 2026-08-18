@@ -293,6 +293,20 @@ class MainActivity : FlutterActivity() {
                         }
                     }.start()
                 }
+                "voiceSimilarity" -> {
+                    // 音色相似度：对比参考音频与合成音频的频带能量分布（B 方案）。
+                    // 漂移检测用：合成后算分，低于阈值则重合成。后台线程执行。
+                    Thread {
+                        try {
+                            val refPath = call.argument<String>("refPath") ?: ""
+                            val synPath = call.argument<String>("synPath") ?: ""
+                            val score = voiceSimilarity(refPath, synPath)
+                            result.success(score)
+                        } catch (e: Exception) {
+                            result.error("SIM_ERROR", e.message, null)
+                        }
+                    }.start()
+                }
                 else -> result.notImplemented()
             }
         }
@@ -658,10 +672,163 @@ private fun convertAudioToWav(inputPath: String): Map<String, Any?> {
         if (endSample <= startSample) return trimLeadingSilenceAndCap(pcm24k, maxSeconds)
         val out = ByteArray((endSample - startSample) * 2)
         System.arraycopy(pcm24k, startSample * 2, out, 0, out.size)
+        return denoiseHighpass(out)
+    }
+
+    /**
+     * 参考音频降噪（A1）：高通滤波（削 80Hz 以下低频轰鸣/电流声）+ 噪声门限
+     * （RMS < -50dBFS 的采样块拉静音，削环境底噪/空调声）。
+     * MiMo voiceclone 对参考音频里的背景噪声极敏感——底噪特征会被克隆进
+     * 音色，是音色漂移、人机感的重要来源。纯 Kotlin 实现，零第三方依赖。
+     */
+    private fun denoiseHighpass(pcm16: ByteArray): ByteArray {
+        val n = pcm16.size / 2
+        if (n < 512) return pcm16
+        val samples = ShortArray(n)
+        for (i in 0 until n) {
+            val lo = pcm16[i * 2].toInt() and 0xFF
+            val hi = pcm16[i * 2 + 1].toInt() and 0xFF
+            samples[i] = ((hi shl 8) or lo).toShort()
+        }
+        // 一阶高通：y[i] = a * (x[i] - x[i-1] + y[i-1])，a≈0.996 @24kHz 截止~80Hz
+        val a = 0.996f
+        var prevX = 0f
+        var prevY = 0f
+        for (i in 0 until n) {
+            val x = samples[i].toFloat()
+            val y = a * (prevY + x - prevX)
+            samples[i] = y.coerceIn(-32768f, 32767f).toInt().toShort()
+            prevX = x
+            prevY = y
+        }
+        // 噪声门限：20ms 块 RMS < 阈值（-50dBFS ≈ 3.3/32768）→ 拉静音
+        val block = 480 // 20ms @ 24kHz
+        val threshold = 3.3f
+        var b = 0
+        while (b < n) {
+            val end = Math.min(b + block, n)
+            var sum = 0L
+            for (i in b until end) {
+                val s = samples[i].toInt()
+                sum += s.toLong() * s
+            }
+            val rms = Math.sqrt(sum.toDouble() / (end - b))
+            if (rms < threshold) {
+                for (i in b until end) samples[i] = 0
+            }
+            b = end
+        }
+        val out = ByteArray(n * 2)
+        for (i in 0 until n) {
+            val s = samples[i].toInt()
+            out[i * 2] = (s and 0xFF).toByte()
+            out[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()
+        }
         return out
     }
 
     private class DecodedPcm(val pcm: ByteArray, val sampleRate: Int, val channelCount: Int)
+
+    /**
+     * 音色相似度（B 方案）：对比参考音频与合成音频的频带能量分布。
+     * 两段音频各自解码 → 重采样 16kHz 单声道 → 分帧(20ms) → FFT → 按
+     * 梅尔近似频带统计能量 → 归一化后算余弦相似度。0~1，>0.85 视为同音色。
+     *
+     * MiMo voiceclone 每次合成独立采样，音色有随机漂移；漂移严重时频谱
+     * 分布明显偏离参考。客户端拿不准时重合成（最多 N 次），把「漂移」变
+     * 成「检测→重试」闭环。纯 Kotlin 自实现 FFT，零第三方依赖。
+     */
+    private fun voiceSimilarity(refPath: String, synPath: String): Double {
+        val ref = decodeAudioToPcm16(refPath)
+        val syn = decodeAudioToPcm16(synPath)
+        val ref16k = resampleTo(downmixToMono(ref.pcm, ref.channelCount), ref.sampleRate, 16000)
+        val syn16k = resampleTo(downmixToMono(syn.pcm, syn.channelCount), syn.sampleRate, 16000)
+        val refFeat = bandEnergyFeature(ref16k)
+        val synFeat = bandEnergyFeature(syn16k)
+        return cosineSimilarity(refFeat, synFeat)
+    }
+
+    /** 16kHz 单声道 → 梅尔近似 24 频带能量向量（20ms 帧，取全段均值）。 */
+    private fun bandEnergyFeature(pcm16k: ByteArray): FloatArray {
+        val n = pcm16k.size / 2
+        val fftSize = 512 // 32ms @16kHz
+        val nFrames = Math.max(1, n / fftSize)
+        val feat = FloatArray(24)
+        val hann = FloatArray(fftSize)
+        for (i in 0 until fftSize) hann[i] = 0.5f - 0.5f * Math.cos(2.0 * Math.PI * i / fftSize).toFloat()
+        val frame = FloatArray(fftSize)
+        val re = FloatArray(fftSize)
+        val im = FloatArray(fftSize)
+        for (f in 0 until nFrames) {
+            val base = f * fftSize
+            for (i in 0 until fftSize) {
+                val lo = pcm16k[(base + i) * 2].toInt() and 0xFF
+                val hi = pcm16k[(base + i) * 2 + 1].toInt() and 0xFF
+                frame[i] = (((hi shl 8) or lo).toShort().toFloat() / 32768f) * hann[i]
+            }
+            System.arraycopy(frame, 0, re, 0, fftSize)
+            java.util.Arrays.fill(im, 0f)
+            fftRadix2(re, im)
+            // 24 梅尔近似频带（16kHz 上限 8kHz，mel 间隔指数增长）
+            for (b in 0 until 24) {
+                val loBin = Math.min(fftSize / 2, (melFreq(b) * fftSize / 16000.0).toInt())
+                val hiBin = Math.min(fftSize / 2, Math.max(loBin + 1, (melFreq(b + 1) * fftSize / 16000.0).toInt()))
+                var e = 0.0
+                for (k in loBin until hiBin) e += re[k] * re[k] + im[k] * im[k]
+                feat[b] += (e / (hiBin - loBin)).toFloat()
+            }
+        }
+        for (b in 0 until 24) feat[b] /= nFrames
+        return feat
+    }
+
+    private fun melFreq(m: Int): Double = 700.0 * (Math.pow(10.0, m / 24.0 * Math.log10(1.0 + 8000.0 / 700.0)) - 1.0)
+
+    /** 基-2 迭代 FFT（原地，size 必须为 2 的幂）。 */
+    private fun fftRadix2(re: FloatArray, im: FloatArray) {
+        val n = re.size
+        var j = 0
+        for (i in 1 until n) {
+            var bit = n shr 1
+            while (j and bit != 0) { j = j xor bit; bit = bit shr 1 }
+            j = j xor bit
+            if (i < j) {
+                var t = re[i]; re[i] = re[j]; re[j] = t
+                t = im[i]; im[i] = im[j]; im[j] = t
+            }
+        }
+        var len = 2
+        while (len <= n) {
+            val ang = -2.0 * Math.PI / len
+            val wRe = Math.cos(ang).toFloat()
+            val wIm = Math.sin(ang).toFloat()
+            for (i in 0 until n step len) {
+                var curRe = 1f
+                var curIm = 0f
+                for (k in 0 until len / 2) {
+                    val uRe = re[i + k]
+                    val uIm = im[i + k]
+                    val vRe = re[i + k + len / 2] * curRe - im[i + k + len / 2] * curIm
+                    val vIm = re[i + k + len / 2] * curIm + im[i + k + len / 2] * curRe
+                    re[i + k] = uRe + vRe
+                    im[i + k] = uIm + vIm
+                    re[i + k + len / 2] = uRe - vRe
+                    im[i + k + len / 2] = uIm - vIm
+                    val nRe = curRe * wRe - curIm * wIm
+                    curIm = curRe * wIm + curIm * wRe
+                    curRe = nRe
+                }
+            }
+            len = len shl 1
+        }
+    }
+
+    private fun cosineSimilarity(a: FloatArray, b: FloatArray): Double {
+        var dot = 0.0; var na = 0.0; var nb = 0.0
+        for (i in a.indices) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i] }
+        if (na == 0.0 || nb == 0.0) return 0.0
+        return dot / (Math.sqrt(na) * Math.sqrt(nb))
+    }
 
     /** 解码任意音频为 16-bit PCM（原始采样率/声道）。超长输入的防护在循环内。 */
     private fun decodeAudioToPcm16(inputPath: String): DecodedPcm {

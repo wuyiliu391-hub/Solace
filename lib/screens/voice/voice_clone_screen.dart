@@ -40,6 +40,7 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
   final TextEditingController _transcriptController = TextEditingController();
 
   String? _refPath;
+  String? _presetVoice;
   bool _hasCustom = false;
   bool _recording = false;
   bool _converting = false;
@@ -49,6 +50,7 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
   Timer? _tickTimer;
   bool _previewing = false;
   bool _saving = false;
+  bool _designing = false;
 
   bool get _canPreview =>
       !_previewing &&
@@ -68,6 +70,7 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
 
   Future<void> _loadCurrent() async {
     final custom = await _store.loadCustom(widget.characterId);
+    final preset = await _store.loadPreset(widget.characterId);
     if (!mounted) return;
     setState(() {
       if (custom != null) {
@@ -75,7 +78,26 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
         _refPath = custom.path;
         _transcriptController.text = custom.text;
       }
+      _presetVoice = preset;
     });
+  }
+
+  /// 一键选用内置预置音色（自动清除参考音频，避免冲突）。
+  Future<void> _selectPreset(String voiceId) async {
+    if (_presetVoice == voiceId) return;
+    debugPrint('[VoiceClone] 切换预置音色: $voiceId (原: $_presetVoice)');
+    setState(() {
+      _presetVoice = voiceId;
+      _hasCustom = false;
+      _refPath = null;
+      _transcriptController.clear();
+    });
+    await _store.savePreset(widget.characterId, voiceId);
+    debugPrint('[VoiceClone] 已写入 preset_${widget.characterId}.txt = $voiceId');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已选用预置音色「$voiceId」，该角色语音将使用它')),
+    );
   }
 
   @override
@@ -300,8 +322,12 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
     setState(() => _saving = true);
     try {
       await _store.save(widget.characterId, refPath, text);
+      await _store.deletePreset(widget.characterId);
       if (!mounted) return;
-      setState(() => _hasCustom = true);
+      setState(() {
+        _hasCustom = true;
+        _presetVoice = null;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('已保存，该角色语音将使用这个音色')),
       );
@@ -315,18 +341,102 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
       if (mounted) setState(() => _saving = false);
     }
   }
-
-  Future<void> _resetToDefault() async {
+Future<void> _resetToDefault() async {
     await _store.delete(widget.characterId);
+    await _store.deletePreset(widget.characterId);
     if (!mounted) return;
     setState(() {
       _hasCustom = false;
+      _presetVoice = null;
       _refPath = null;
       _transcriptController.clear();
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已恢复默认示例音色')),
     );
+  }
+
+  /// 用文字设计音色：voicedesign 合成一句样本 → 存为角色参考音频 → 自动保存。
+  /// 这样既拿到设计音色的效果，又通过 voiceclone 复刻把音色固定下来。
+  Future<void> _designFromText() async {
+    final prompt = await _askDesignPrompt();
+    if (prompt == null || prompt.trim().isEmpty || !mounted) return;
+    setState(() => _designing = true);
+    try {
+      final tts = _tts as MiMoTtsService;
+      // 样本台词贴合音色描述（官方建议），短句保证时长
+      final sampleText = '你好，我是${widget.characterName}，很高兴认识你。';
+      final wavPath =
+          await tts.synthesizeDesignSample(prompt.trim(), sampleText);
+      // 写入参考音频（角色自定义音色），文字稿留空（voiceclone 不要求）
+      await _store.save(widget.characterId, wavPath, '');
+      await _store.deletePreset(widget.characterId);
+      if (!mounted) return;
+      setState(() {
+        _hasCustom = true;
+        _presetVoice = null;
+        _refPath = wavPath;
+        _transcriptController.clear();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('设计完成，已生成固定音色并保存')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('音色设计失败: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _designing = false);
+    }
+  }
+
+  Future<String?> _askDesignPrompt() async {
+    final controller = TextEditingController();
+    final prompt = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('用文字设计音色'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '描述你想要的音色，AI 生成后自动保存为角色固定音色。\n'
+              '例：温柔治愈系女声，25 岁左右，语速缓慢，像深夜电台主播，'
+              '带一丝疲惫的沙哑。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                hintText: '描述性别年龄 / 音色质感 / 情绪语气 / 语速节奏…',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('生成'),
+          ),
+        ],
+      ),
+    );
+    // 弹窗关闭动画期间 TextField 仍持有 controller，立即 dispose 会触发
+    // '_dependents.isEmpty' 断言崩溃：等路由完全退场后再释放。
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    controller.dispose();
+    return prompt;
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -351,13 +461,21 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
           Row(
             children: [
               Icon(
-                _hasCustom ? Icons.check_circle : Icons.info_outline,
+                _hasCustom || _presetVoice != null
+                    ? Icons.check_circle
+                    : Icons.info_outline,
                 size: 18,
-                color: _hasCustom ? Colors.green : colorScheme.onSurfaceVariant,
+                color: (_hasCustom || _presetVoice != null)
+                    ? Colors.green
+                    : colorScheme.onSurfaceVariant,
               ),
               const SizedBox(width: 8),
               Text(
-                _hasCustom ? '当前音色：自定义（已生效）' : '当前音色：默认示例音色',
+                _hasCustom
+                    ? '当前音色：自定义（已生效）'
+                    : _presetVoice != null
+                        ? '当前音色：预置「$_presetVoice」（已生效）'
+                        : '当前音色：默认示例音色',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -368,8 +486,27 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
           ),
           const SizedBox(height: 16),
 
+          // 内置预置音色（一键选用，无需录音）
+          _sectionTitle('① 内置预置音色（9 款官方精品，一键选用）'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final v in MiMoPresetVoices.all)
+                ChoiceChip(
+                  label: Text(v.label, style: const TextStyle(fontSize: 12)),
+                  selected: _presetVoice == v.id,
+                  onSelected: _designing || _saving || _converting
+                      ? null
+                      : (_) => _selectPreset(v.id),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
           // 参考音频
-          _sectionTitle('① 参考音频（3~5 秒该角色的声音）'),
+          _sectionTitle('② 参考音频（3~5 秒该角色的声音）'),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -425,7 +562,7 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
           const SizedBox(height: 16),
 
           // 文字稿（可选）
-          _sectionTitle('② 文字稿（可选，仅作参考）'),
+          _sectionTitle('③ 文字稿（可选，仅作参考）'),
           const SizedBox(height: 8),
           TextField(
             controller: _transcriptController,
@@ -458,6 +595,18 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
             onPressed: _canSave ? _save : null,
             icon: const Icon(Icons.check_rounded),
             label: Text(_saving ? '保存中…' : '保存为该角色音色'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _designing ? null : _designFromText,
+            icon: _designing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome_rounded),
+            label: Text(_designing ? '设计中…' : '用文字设计音色（一步生成并保存）'),
           ),
           if (_hasCustom) ...[
             const SizedBox(height: 8),

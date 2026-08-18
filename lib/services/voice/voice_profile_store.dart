@@ -125,6 +125,40 @@ class VoiceProfileStore {
     }
   }
 
+  /// 角色是否选择了内置预置音色（preset_<id>.txt 存在即生效）。
+  Future<bool> hasPreset(String characterId) async {
+    final dir = await _dir();
+    final f = File(p.join(dir.path, 'preset_$characterId.txt'));
+    return await f.exists();
+  }
+
+  /// 读取角色预置音色 ID；未设置返回 null。
+  Future<String?> loadPreset(String characterId) async {
+    final dir = await _dir();
+    final f = File(p.join(dir.path, 'preset_$characterId.txt'));
+    if (!await f.exists()) return null;
+    final id = (await f.readAsString()).trim();
+    return id.isEmpty ? null : id;
+  }
+
+  /// 保存/切换角色预置音色（会删除参考音频，避免冲突）。
+  Future<void> savePreset(String characterId, String voiceId) async {
+    final dir = await _dir();
+    await File(p.join(dir.path, 'preset_$characterId.txt'))
+        .writeAsString(voiceId.trim(), flush: true);
+    for (final ext in const ['wav', 'txt']) {
+      final f = File(p.join(dir.path, '$characterId.$ext'));
+      if (await f.exists()) await f.delete();
+    }
+  }
+
+  /// 清除角色预置音色（回退参考音频/默认音色）。
+  Future<void> deletePreset(String characterId) async {
+    final dir = await _dir();
+    final f = File(p.join(dir.path, 'preset_$characterId.txt'));
+    if (await f.exists()) await f.delete();
+  }
+
   /// 默认示例音色（打包资产，首次复制到磁盘；已存在但损坏时自愈重拷）。
   Future<({String path, String text})> loadDefault() async {
     final dir = await _dir();

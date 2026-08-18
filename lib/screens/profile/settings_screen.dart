@@ -57,57 +57,136 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _openMiMoTtsSettings() async {
     final config = await MiMoTtsConfigStore.load();
-    final controller = TextEditingController(text: config?.apiKey ?? '');
+    final apiKeyController = TextEditingController(text: config?.apiKey ?? '');
+    var engine = config?.engine ?? 'voiceclone';
+    var presetVoice = config?.presetVoice ?? MiMoTtsConfig.presetVoices;
+    var designPrompt = config?.voiceDesignPrompt ?? '';
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('MiMo TTS 设置'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '在 platform.xiaomimimo.com 注册后获取 API Key。\n'
-              '用于音色克隆与角色语音合成（当前限时免费）。',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('MiMo TTS 设置'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '在 platform.xiaomimimo.com 注册后获取 API Key。\n'
+                  '用于音色克隆与角色语音合成（当前限时免费）。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: apiKeyController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'API Key',
+                    hintText: 'sk-xxxxx',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text('合成引擎', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                RadioListTile<String>(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('音色克隆（自定义参考音频）', style: TextStyle(fontSize: 13)),
+                  subtitle: const Text('录/传 3~5 秒音频复刻音色', style: TextStyle(fontSize: 11)),
+                  value: 'voiceclone',
+                  groupValue: engine,
+                  onChanged: (v) => setDialogState(() => engine = v!),
+                ),
+                RadioListTile<String>(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('内置预置音色（8 款可选）', style: TextStyle(fontSize: 13)),
+                  subtitle: const Text('小米官方精品音色，效果稳定', style: TextStyle(fontSize: 11)),
+                  value: 'preset',
+                  groupValue: engine,
+                  onChanged: (v) => setDialogState(() => engine = v!),
+                ),
+                RadioListTile<String>(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('音色设计（文本描述生成音色）', style: TextStyle(fontSize: 13)),
+                  subtitle: const Text('用一句话描述想要的声音，AI 生成专属音色', style: TextStyle(fontSize: 11)),
+                  value: 'voicedesign',
+                  groupValue: engine,
+                  onChanged: (v) => setDialogState(() => engine = v!),
+                ),
+                if (engine == 'preset') ...[
+                  const SizedBox(height: 8),
+                  const Text('选择音色', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final v in MiMoPresetVoices.all)
+                        ChoiceChip(
+                          label: Text(v.label, style: const TextStyle(fontSize: 12)),
+                          selected: presetVoice == v.id,
+                          onSelected: (_) => setDialogState(() {
+                            presetVoice = v.id;
+                            // 选音色即视为选预置引擎，避免「选了音色但引擎还是
+                            // voiceclone」导致音色不生效
+                            engine = 'preset';
+                          }),
+                        ),
+                    ],
+                  ),
+                ],
+                if (engine == 'voicedesign') ...[
+                  const SizedBox(height: 12),
+                  const Text('音色描述', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: TextEditingController(text: designPrompt),
+                    maxLines: 3,
+                    onChanged: (v) => designPrompt = v,
+                    decoration: const InputDecoration(
+                      hintText: '例：温柔治愈系女声，语速缓慢，像深夜电台主播，带一丝疲惫的沙哑…',
+                      border: OutlineInputBorder(),
+                      helperText: '描述越具体越好：性别年龄/音色质感/情绪语气/语速节奏',
+                    ),
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'API Key',
-                hintText: 'sk-xxxxx',
-                border: OutlineInputBorder(),
-              ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final key = apiKeyController.text.trim();
+                if (key.isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('API Key 不能为空')),
+                  );
+                  return;
+                }
+                await MiMoTtsConfigStore.save(
+                  key,
+                  engine: engine,
+                  presetVoice: presetVoice,
+                  voiceDesignPrompt: designPrompt,
+                );
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              },
+              child: const Text('保存'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final key = controller.text.trim();
-              if (key.isEmpty) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('API Key 不能为空')),
-                );
-                return;
-              }
-              await MiMoTtsConfigStore.save(key);
-              if (ctx.mounted) Navigator.pop(ctx, true);
-            },
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
     if (ok == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('MiMo TTS API Key 已保存')),
+        const SnackBar(content: Text('MiMo TTS 设置已保存')),
       );
     }
   }
@@ -210,7 +289,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icons.record_voice_over_outlined,
               iconBgColor: Colors.deepOrange.withOpacity(0.1),
               title: 'MiMo TTS 设置',
-              subtitle: '配置 MiMo 语音合成 API Key（音色克隆 / 角色语音）',
+              subtitle: '配置 MiMo 语音合成 API Key（音色克隆 / 角色语音 / 内置音色）',
               onTap: _openMiMoTtsSettings,
               colorScheme: colorScheme,
             ),

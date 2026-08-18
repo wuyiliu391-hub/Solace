@@ -11,15 +11,15 @@ function versionCompare(v1, v2) {
 }
 
 const VERSION_DATA = {
-  latestVersion: '18.1.0',
-  buildNumber: 2300,
+  latestVersion: '18.2.1',
+  buildNumber: 6302,
   minSdk: 23,
   releaseDate: '2026-08-18',
-  downloadUrl: 'https://solace-auth-v2.pages.dev/api/v1/download?v=18.1.0',
+  downloadUrl: 'https://solace-auth-v2.pages.dev/api/v1/download?v=18.2.0',
   changelog: [
-    '新增实时语音通话：本地 VAD 断句 + 本地转写 + AI 语音克隆回复，开口即聊',
-    '通话支持音色克隆、手动打字输入（不方便说话时）、实时字幕与旁白过滤',
-    '通话内容静默注入记忆库并自动整理，AI 会记住你们聊过的事',
+    '修复手动输入后语音通话失效：发送文本不再卡死回合循环，文字立即上屏并正常合成语音',
+    '修复文字消息合成语音偶发连接中断：MiMo TTS 请求超时放宽至 120 秒',
+    '移除 3.8MB 冗余资源 sky.mp3，安装包更轻',
   ],
   forceUpdate: false,
 };

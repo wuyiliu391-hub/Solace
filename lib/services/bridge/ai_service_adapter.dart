@@ -24,6 +24,7 @@ import 'dart:io' show HttpClient;
 import 'package:flutter/foundation.dart' show debugPrint;
 import '../../services/memory_engine.dart';
 import '../ai_service.dart';
+import '../bing_cn_mcp_service.dart';
 import '../prompt_rewriter.dart';
 import '../../utils/prefs_helper.dart'; // 仅导入 ForgivenessJudgment
 import '../../repositories/local_storage_repository.dart';
@@ -38,6 +39,7 @@ class AIServiceAdapter {
   AiTurnState? get lastTurnState => _lastTurnState;
   Map<String, dynamic>? _lastWebSearchTrace;
   Map<String, dynamic>? get lastWebSearchTrace => _lastWebSearchTrace;
+  final BingCnMcpService _bingSearch = const BingCnMcpService();
 
   final LlmSettings? _cachedSettings;
   final LocalStorageRepository? _storage;
@@ -771,56 +773,14 @@ JSON 只能包含 emoji、emotion、intensity、thought。emoji 必须根据本�
     String userMessage,
   ) async {
     try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 30);
-      final request = await client.postUrl(
-        Uri.parse(ApiDefaults.searchApiUrl),
-      );
-      request.headers.set('Content-Type', 'application/json');
-      request.write(jsonEncode({'query': userMessage}));
-
-      final response = await request.close().timeout(
-            const Duration(seconds: 30),
-          );
-
-      if (response.statusCode != 200) {
-        client.close();
-        _lastWebSearchTrace = {
-          'server': 'uapi-pro',
-          'query': userMessage,
-          'error': 'HTTP ${response.statusCode}',
-          'results': const [],
-        };
-        return const [];
-      }
-
-      final bytes = await response.fold<List<int>>(
-        <int>[],
-        (prev, chunk) => [...prev, ...chunk],
-      );
-      client.close();
-
-      final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-      // UAPI Pro 返回格式为 {"data": {"results": [...]}}，兼容两种格式
-      final responseData = (data['data'] as Map<String, dynamic>?) ?? data;
-      final results = (responseData['results'] as List<dynamic>?)
-              ?.map((r) => {
-                    'title': r['title'] ?? '',
-                    'url': r['url'] ?? '',
-                    'snippet': r['snippet'] ?? '',
-                  })
-              .toList() ??
-          [];
-
-      _lastWebSearchTrace = {
-        'server': 'uapi-pro',
-        'query': userMessage,
-        'searchedAt': DateTime.now().toIso8601String(),
-        'results': results,
-      };
+      // 真实搜索：BingCnMcpService 直连 cn.bing.com 抓取并解析结果
+      final results = await _bingSearch.search(userMessage);
+      _lastWebSearchTrace =
+          _bingSearch.buildSearchTrace(userMessage, results);
 
       if (results.isEmpty) return const [];
 
+      // 构建搜索上下文注入到 messages（保持角色口吻风格）
       final buffer = StringBuffer()
         ..writeln('【联网搜索结果 — 你刚刚上网查到的信息】')
         ..writeln()
@@ -841,9 +801,9 @@ JSON 只能包含 emoji、emotion、intensity、thought。emoji 必须根据本�
       for (var i = 0; i < results.length; i++) {
         final item = results[i];
         buffer.writeln();
-        buffer.writeln('${i + 1}. ${item['title'] ?? ''}');
-        buffer.writeln('摘要：${item['snippet'] ?? '无摘要'}');
-        buffer.writeln('链接：${item['url'] ?? ''}');
+        buffer.writeln('${i + 1}. ${item.title}');
+        buffer.writeln('摘要：${item.snippet.isEmpty ? '无摘要' : item.snippet}');
+        buffer.writeln('链接：${item.url}');
       }
 
       return [
@@ -852,7 +812,7 @@ JSON 只能包含 emoji、emotion、intensity、thought。emoji 必须根据本�
     } catch (e) {
       debugPrint('[WebSearch] 搜索请求失败: $e');
       _lastWebSearchTrace = {
-        'server': 'uapi-pro',
+        'server': BingCnMcpService.serverName,
         'query': userMessage,
         'error': e.toString(),
         'results': const [],

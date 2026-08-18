@@ -60,6 +60,8 @@ Operit/
 music-api/
 
 # Local scripts / one-off tools
+__pycache__/
+scripts/watch_dsh.ps1
 _fix_bloc.py
 check_db.py
 generate_ai_frame.py

@@ -1,10 +1,8 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../services/proactive_scheduler.dart';
 import '../../data/builtin_characters.dart';
 
 class InteractionSettingsScreen extends StatefulWidget {
@@ -165,10 +163,8 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
       _latestSaved = saved;
       _dirty = false;
 
-      final scheduler = ProactiveScheduler(storage);
-      scheduler.cancelAllForCharacter(widget.character.id);
-      unawaited(scheduler.scheduleAllGreetings().catchError((_) {}));
-      unawaited(scheduler.scheduleAITransfers().catchError((_) {}));
+      // 主动消息/问候无需手动重排：前台心跳与后台 Workmanager
+      // 每轮都从 DB 现读 interactionConfig，保存后自动生效。
       return saved;
     } finally {
       if (mounted) setState(() => _saving = false);

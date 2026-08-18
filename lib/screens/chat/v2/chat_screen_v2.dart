@@ -2,12 +2,20 @@
 // 1:1 转译自 SillyTavern 聊天页面交互逻辑为 Flutter 页面
 // 参考文件：script.js (消息发送/接收/编辑)、chats.js (消息操作)
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 import '../../../blocs/chat/chat_bloc.dart';
+import '../../../blocs/auth/auth_bloc.dart';
 import '../../../models/chat_message.dart';
 import '../../../models/character_card_v2.dart';
+import '../../../repositories/local_storage_repository.dart';
+import '../chat_settings_screen.dart';
 import '../../../widgets/v2/message_bubble_v2.dart';
 import '../../../widgets/message_actions.dart';
 import '../../../widgets/swipe_handler.dart';
@@ -356,6 +364,12 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
     );
   }
 
+  /// 从 AuthBloc 取当前登录用户 id（未登录时兜底 'user'，与旧数据兼容）
+  String _currentUserId() {
+    final authState = context.read<AuthBloc>().state;
+    return authState is AuthAuthenticated ? authState.user.id : 'user';
+  }
+
   /// 发送消息
   void _sendMessage() {
     final text = _messageController.text.trim();
@@ -367,7 +381,7 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
     // 通过 ChatBloc 发送消息
     context.read<ChatBloc>().add(ChatSendMessage(
       chatId: widget.sessionId,
-      userId: 'user', // TODO: 从 AuthBloc 获取真实 userId
+      userId: _currentUserId(),
       content: text,
     ));
   }
@@ -501,12 +515,74 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
     }
   }
 
-  void _openSettings() {
-    // TODO: 打开聊天设置页面
+  /// 打开聊天设置页面（复用 v1 的 ChatSettingsScreen）
+  Future<void> _openSettings() async {
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final session = await storage.getChatSession(widget.sessionId);
+    if (!mounted) return;
+    if (session == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('会话数据不存在，无法打开设置')),
+      );
+      return;
+    }
+    final character = await storage.getAICharacter(session.aiCharacterId);
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatSettingsScreen(
+          session: session,
+          character: character,
+        ),
+      ),
+    );
   }
 
-  void _attachFile() {
-    // TODO: 附件选择
+  /// 选择图片附件：转存持久目录后随消息一起发送（多模态模型走 vision）
+  Future<void> _attachFile() async {
+    try {
+      final picker = ImagePicker();
+      final images = await picker.pickMultiImage(imageQuality: 85);
+      if (images.isEmpty || !mounted) return;
+
+      // 转存到持久目录：避免系统缓存被清后历史图片裂图
+      final appDir = await getApplicationDocumentsDirectory();
+      final chatImgDir = Directory('${appDir.path}/chat_images');
+      if (!await chatImgDir.exists()) {
+        await chatImgDir.create(recursive: true);
+      }
+
+      final kept = <String>[];
+      for (final imgFile in images) {
+        try {
+          final src = File(imgFile.path);
+          if (!await src.exists()) continue;
+          final ext = imgFile.path.contains('.')
+              ? imgFile.path.substring(imgFile.path.lastIndexOf('.'))
+              : '.jpg';
+          final dest = '${chatImgDir.path}/chat_${const Uuid().v4()}$ext';
+          await src.copy(dest);
+          kept.add(dest);
+        } catch (e) {
+          debugPrint('v2 附件持久化失败: $e path=${imgFile.path}');
+        }
+      }
+      if (kept.isEmpty || !mounted) return;
+
+      final text = _messageController.text.trim();
+      _messageController.clear();
+      _focusNode.requestFocus();
+      if (!mounted) return;
+      context.read<ChatBloc>().add(ChatSendMessage(
+        chatId: widget.sessionId,
+        userId: _currentUserId(),
+        content: text,
+        imagePaths: kept,
+      ));
+    } catch (e) {
+      debugPrint('v2 附件选择失败: $e');
+    }
   }
 
   void _scrollToBottom() {

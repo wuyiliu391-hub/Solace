@@ -7,6 +7,7 @@
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class AudioConverterService {
@@ -71,5 +72,23 @@ class AudioConverterService {
     }
     final error = result?['error'];
     throw Exception(error is String ? error : '音频规范化失败');
+  }
+
+  /// 音色相似度（0~1）：对比参考音频与合成音频的频带能量分布。
+  /// B 方案：合成后检测漂移，低于阈值视为不合格（需重合成）。
+  /// 非 Android 平台返回 1.0（不阻塞，跳过检测）。
+  Future<double> voiceSimilarity(String refPath, String synPath) async {
+    if (!Platform.isAndroid) return 1.0;
+    try {
+      final result = await _channel
+          .invokeMethod<num>('voiceSimilarity', {
+        'refPath': refPath,
+        'synPath': synPath,
+      });
+      return (result?.toDouble() ?? 1.0).clamp(0.0, 1.0);
+    } catch (e) {
+      debugPrint('[AudioConvert] voiceSimilarity 失败，跳过检测: $e');
+      return 1.0;
+    }
   }
 }

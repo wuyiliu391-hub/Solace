@@ -16,16 +16,16 @@ void main() {
   });
 
   group('IntimacyRules', () {
-    test('每日上限为 5', () {
-      expect(IntimacyRules.dailyCap, 5);
+    test('每日上限为 10（18.0.0 调整后）', () {
+      expect(IntimacyRules.dailyCap, 10);
     });
 
     test('亲密等级范围 0-100', () {
       expect(IntimacyRules.maxLevel, 100);
     });
 
-    test('decayAfterHours 为 48', () {
-      expect(IntimacyRules.decayAfterHours, 48);
+    test('decayAfterHours 为 168（7 天不说话才衰减，18.0.0 调整后）', () {
+      expect(IntimacyRules.decayAfterHours, 168);
     });
 
     test('msgsPerPoint 根据等级返回正确值', () {
@@ -33,9 +33,9 @@ void main() {
       expect(IntimacyRules.msgsPerPoint(29), 1);
       expect(IntimacyRules.msgsPerPoint(30), 2);
       expect(IntimacyRules.msgsPerPoint(59), 2);
-      expect(IntimacyRules.msgsPerPoint(60), 3);
-      expect(IntimacyRules.msgsPerPoint(79), 3);
-      expect(IntimacyRules.msgsPerPoint(80), 5);
+      expect(IntimacyRules.msgsPerPoint(60), 4);
+      expect(IntimacyRules.msgsPerPoint(79), 4);
+      expect(IntimacyRules.msgsPerPoint(80), 6);
     });
 
     test('亲密层级递增', () {

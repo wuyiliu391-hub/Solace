@@ -23,25 +23,64 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../config/app_config.dart';
+import 'audio_converter_service.dart';
 import 'local_tts_service.dart';
+import 'voice_profile_store.dart';
 
 /// MiMo TTS 配置（持久化在 SharedPreferences）。
 class MiMoTtsConfig {
   static const String providerName = 'mimo-tts';
   static const String defaultBaseUrl = 'https://api.xiaomimimo.com/v1';
   static const String defaultModel = 'mimo-v2.5-tts-voiceclone';
+  static const String defaultPresetModel = 'mimo-v2.5-tts';
+  static const String defaultDesignModel = 'mimo-v2.5-tts-voicedesign';
 
+/// 引擎：'voiceclone'（参考音频复刻，默认）、'preset'（内置预置音色）
+  /// 或 'voicedesign'（文本描述设计音色）。
+  final String engine;
   final String apiKey;
   final String baseUrl;
   final String model;
+  final String presetVoice;
+  final String voiceDesignPrompt;
+
+  /// 预置音色默认值（官方 mimo_default，中国集群为「冰糖」女声）。
+  static const String presetVoices = 'mimo_default';
 
   const MiMoTtsConfig({
     required this.apiKey,
     this.baseUrl = defaultBaseUrl,
     this.model = defaultModel,
+    this.engine = 'voiceclone',
+    this.presetVoice = presetVoices,
+    this.voiceDesignPrompt = '',
   });
 
   bool get isValid => apiKey.trim().isNotEmpty;
+  bool get usePreset => engine == 'preset';
+  bool get useVoicedesign => engine == 'voicedesign';
+
+  /// 当前引擎对应的模型 ID。
+  String get effectiveModel => switch (engine) {
+        'preset' => defaultPresetModel,
+        'voicedesign' => defaultDesignModel,
+        _ => model,
+      };
+}
+
+/// MiMo 内置预置音色（mimo-v2.5-tts 模型专用）。
+class MiMoPresetVoices {
+  MiMoPresetVoices._();
+
+  /// (显示名, Voice ID)。实测 MiMo 服务端仅真正区分以下音色
+  /// （2026-08-18 实测：茉莉/白桦/Mia/Chloe 全部静默回退同一默认女声，
+  /// 字节大小一致；Dean/Milo 为男声、mimo_default 为默认女声）。
+  /// 为避免「切换音色无效」的假象，只列出服务端真实生效的 ID。
+  static const List<({String label, String id})> all = [
+    (label: 'MiMo-默认（女声）', id: 'mimo_default'),
+    (label: 'Dean（男声）', id: 'Dean'),
+    (label: 'Milo（男声）', id: 'Milo'),
+  ];
 }
 
 /// MiMo TTS 配置存储（SharedPreferences，服务层可直接访问）。
@@ -49,6 +88,9 @@ class MiMoTtsConfigStore {
   static const _kKey = 'mimo_tts_api_key';
   static const _kBaseUrl = 'mimo_tts_base_url';
   static const _kModel = 'mimo_tts_model';
+  static const _kEngine = 'mimo_tts_engine';
+  static const _kPresetVoice = 'mimo_tts_preset_voice';
+  static const _kDesignPrompt = 'mimo_tts_design_prompt';
 
   static Future<MiMoTtsConfig?> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -58,14 +100,32 @@ class MiMoTtsConfigStore {
       apiKey: apiKey,
       baseUrl: prefs.getString(_kBaseUrl) ?? MiMoTtsConfig.defaultBaseUrl,
       model: prefs.getString(_kModel) ?? MiMoTtsConfig.defaultModel,
+      engine: prefs.getString(_kEngine) ?? 'voiceclone',
+      presetVoice:
+          prefs.getString(_kPresetVoice) ?? MiMoTtsConfig.presetVoices,
+      voiceDesignPrompt: prefs.getString(_kDesignPrompt) ?? '',
     );
   }
 
-  static Future<void> save(String apiKey, {String? baseUrl, String? model}) async {
+  static Future<void> save(
+    String apiKey, {
+    String? baseUrl,
+    String? model,
+    String? engine,
+    String? presetVoice,
+    String? voiceDesignPrompt,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kKey, apiKey.trim());
     if (baseUrl != null) await prefs.setString(_kBaseUrl, baseUrl.trim());
     if (model != null) await prefs.setString(_kModel, model.trim());
+    if (engine != null) await prefs.setString(_kEngine, engine.trim());
+    if (presetVoice != null) {
+      await prefs.setString(_kPresetVoice, presetVoice.trim());
+    }
+    if (voiceDesignPrompt != null) {
+      await prefs.setString(_kDesignPrompt, voiceDesignPrompt.trim());
+    }
   }
 
   static Future<void> clear() async {
@@ -137,32 +197,89 @@ class MiMoTtsService implements LocalTtsService {
     if (!enabled) {
       throw StateError('本地语音合成未启用（AppConfig.localTtsEnabled=false）');
     }
-    final profile = _profiles[characterId];
-    if (profile == null) {
-      throw StateError('角色 $characterId 未设置参考音频，请先到「音色克隆」页面录制');
-    }
     final config = await MiMoTtsConfigStore.load();
     if (config == null || !config.isValid) {
       throw StateError('MiMo TTS API Key 未配置，请到「我」→「设置」→「MiMo TTS 设置」填写');
     }
 
-    // 样本 base64（内存缓存，文件 sha1 变更时失效）
-    final voiceData = await _sampleDataUrl(profile);
+    // 角色级预置音色（克隆页选择）**始终优先**于全局引擎：
+    // 只要角色设置了预置音色，不管全局选的是哪个引擎都走
+    // mimo-v2.5-tts + 该角色的 Voice ID（修复「切换音色后仍用第一个」）。
+    final charPreset = await VoiceProfileStore.instance.loadPreset(characterId);
+    debugPrint('[MiMoTTS] 引擎决策: charId=$characterId charPreset=$charPreset '
+        'globalEngine=${config.engine} globalPreset=${config.presetVoice}');
+    final effectiveConfig = charPreset != null
+        ? MiMoTtsConfig(
+            apiKey: config.apiKey,
+            baseUrl: config.baseUrl,
+            engine: 'preset',
+            presetVoice: charPreset,
+          )
+        : config;
+
+    // 预置音色引擎无需参考音频；音色设计引擎需在 user 消息传音色描述
+    String voiceData;
+    VoiceProfile? cloneProfile;
+    if (effectiveConfig.usePreset) {
+      voiceData = '';
+    } else if (effectiveConfig.useVoicedesign) {
+      voiceData = '';
+    } else {
+      final profile = _profiles[characterId];
+      if (profile == null) {
+        throw StateError('角色 $characterId 未设置参考音频，请先到「音色克隆」页面录制');
+      }
+      cloneProfile = profile;
+      // 样本 base64（内存缓存，文件 sha1 变更时失效）
+      voiceData = await _sampleDataUrl(profile);
+    }
 
     final tmp = await getTemporaryDirectory();
-    final outputPath = p.join(
-        tmp.path, 'mimo_tts_${DateTime.now().millisecondsSinceEpoch}.wav');
 
-    // 调 MiMo voiceclone API（带重试）
-    final audioBytes = await _synthesizeWithConfig(
-      config,
-      text,
-      voiceData,
-      style: style,
-      maxRetries: maxRetries,
-    );
+    // 音色克隆引擎：合成后做音色相似度检测，漂移（<0.85）自动重合成
+    // （最多 2 次）。MiMo 每次合成独立采样有随机漂移，重试到合格为止。
+    const similarityThreshold = 0.85;
+    const maxRetryForDrift = 2;
+    final textPreview = _preview(text, 60);
+    Uint8List audioBytes;
+    if (cloneProfile != null) {
+      audioBytes = Uint8List(0);
+      for (var attempt = 0; attempt <= maxRetryForDrift; attempt++) {
+        audioBytes = await _synthesizeWithConfig(
+          effectiveConfig,
+          text,
+          voiceData,
+          style: style,
+          maxRetries: maxRetries,
+        );
+        final outPath = p.join(tmp.path,
+            'mimo_tts_check_${DateTime.now().millisecondsSinceEpoch}.wav');
+        await File(outPath).writeAsBytes(audioBytes, flush: true);
+        final score = await AudioConverterService.instance
+            .voiceSimilarity(cloneProfile.referenceAudioPath, outPath);
+        try {
+          await File(outPath).delete();
+        } catch (_) {}
+        debugPrint('[MiMoTTS] 音色相似度检测: $attempt 得分=$score '
+            '阈值=$similarityThreshold (文本="$textPreview")');
+        if (score >= similarityThreshold) break;
+        if (attempt < maxRetryForDrift) {
+          debugPrint('[MiMoTTS] 音色漂移($score)，重合成 ${attempt + 1}/$maxRetryForDrift');
+        }
+      }
+    } else {
+      audioBytes = await _synthesizeWithConfig(
+        effectiveConfig,
+        text,
+        voiceData,
+        style: style,
+        maxRetries: maxRetries,
+      );
+    }
 
     // 写 wav 文件
+    final outputPath = p.join(
+        tmp.path, 'mimo_tts_${DateTime.now().millisecondsSinceEpoch}.wav');
     await File(outputPath).writeAsBytes(audioBytes, flush: true);
     final durationMs = _wavDurationMs(audioBytes);
     return LocalTtsResult(
@@ -192,6 +309,45 @@ class MiMoTtsService implements LocalTtsService {
       results.add(r);
     }
     return results;
+  }
+
+  /// 用「音色设计」模型合成一次（voicedesign，效果优于克隆但音色不固定）：
+  /// 生成一句参考样本音频，保存为角色参考音频后由 voiceclone 复刻固定。
+  ///
+  /// [designPrompt]：音色设计描述（voicedesign 的 user 消息必填）。
+  /// [text]：用于生成样本的台词（建议贴合音色的一句短句）。
+  /// 返回生成的 wav 文件路径。
+  Future<String> synthesizeDesignSample(
+    String designPrompt,
+    String text, {
+    int maxRetries = 3,
+  }) async {
+    if (!enabled) {
+      throw StateError('本地语音合成未启用（AppConfig.localTtsEnabled=false）');
+    }
+    final config = await MiMoTtsConfigStore.load();
+    if (config == null || !config.isValid) {
+      throw StateError('MiMo TTS API Key 未配置，请到「我」→「设置」→「MiMo TTS 设置」填写');
+    }
+    // 临时切 voicedesign 模型合成样本；不触碰持久化配置
+    final designConfig = MiMoTtsConfig(
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+      engine: 'voicedesign',
+      voiceDesignPrompt: designPrompt,
+    );
+    final audioBytes = await _synthesizeWithConfig(
+      designConfig,
+      text,
+      '',
+      style: '',
+      maxRetries: maxRetries,
+    );
+    final tmp = await getTemporaryDirectory();
+    final outPath = p.join(
+        tmp.path, 'design_sample_${DateTime.now().millisecondsSinceEpoch}.wav');
+    await File(outPath).writeAsBytes(audioBytes, flush: true);
+    return outPath;
   }
 
   /// 生成参考音频的 data URL（mp3/wav → base64），带角色级内存缓存。
@@ -239,21 +395,29 @@ class MiMoTtsService implements LocalTtsService {
     final uri = Uri.parse('${config.baseUrl}/chat/completions');
     final textPreview = _preview(text, 100);
     final stylePreview = _preview(style, 80);
+    final model = config.effectiveModel;
+    // 预置音色引擎不传参考音频，只传 Voice ID（mimo_default/冰糖/…）；
+    // 音色设计引擎把设计描述并入 user 指令（官方文档：voicedesign 时
+    // user 消息为必填，描述即音色设计文本），audio.voice 不传。
+    final voice = config.usePreset ? config.presetVoice : voiceData;
+    final userContent = config.useVoicedesign
+        ? _joinDesignAndStyle(config.voiceDesignPrompt, style)
+        : style;
 
     for (var attempt = 0; attempt <= maxRetries; attempt++) {
-      debugPrint('[MiMoTTS] 请求(#$attempt): model=${config.model} '
+      debugPrint('[MiMoTTS] 请求(#$attempt): model=$model '
           'textLen=${text.length} text="$textPreview" '
           'styleLen=${style.length} style="$stylePreview" '
-          'voiceB64Len=${voiceData.length}');
+          'voice=${config.usePreset ? 'preset:$voice' : 'clone(${voice.length}B)'}');
       final body = jsonEncode({
-        'model': config.model,
+        'model': model,
         'messages': [
-          {'role': 'user', 'content': style},
+          {'role': 'user', 'content': userContent},
           {'role': 'assistant', 'content': text},
         ],
         'audio': {
           'format': 'wav',
-          'voice': voiceData,
+          if (!config.usePreset && !config.useVoicedesign) 'voice': voice,
         },
       });
       final http.Response resp;
@@ -267,7 +431,7 @@ class MiMoTtsService implements LocalTtsService {
               },
               body: body,
             )
-            .timeout(const Duration(seconds: 30));
+            .timeout(const Duration(seconds: 120));
       } catch (e) {
         debugPrint('[MiMoTTS] 网络/超时(#$attempt): $e text="$textPreview"');
         rethrow;
@@ -300,6 +464,15 @@ class MiMoTtsService implements LocalTtsService {
       throw StateError('MiMo TTS 响应缺少音频数据');
     }
     throw StateError('MiMo TTS 请求重试次数用尽');
+  }
+
+  /// 音色设计引擎：user 消息 = 音色设计描述 + 风格指令（逗号衔接，均非空才拼接）。
+  static String _joinDesignAndStyle(String design, String style) {
+    final d = design.trim();
+    final s = style.trim();
+    if (d.isEmpty) return s;
+    if (s.isEmpty) return d;
+    return '$d\n$s';
   }
 
   /// 日志用文本预览：截断 + 换行压平，避免刷屏。
