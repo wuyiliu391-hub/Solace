@@ -9,13 +9,15 @@
 // - 资源（mic 流订阅 / bloc 流订阅 / 录音 / 播放）在函数返回前必清理
 // - hangUp/dispose 幂等，可被多次调用
 // - 任何异常不逃逸出状态机（回合级 try/catch + 状态回退）
+//
+// 可见性（实时打印机）：AI 流式文本经 [aiStreamingText] 逐帧暴露，
+// 错误经 [lastError] 暴露给 UI（新回合清空）。
 
 import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-
 import '../../blocs/chat/chat_bloc.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
@@ -51,12 +53,31 @@ class VoiceCallController extends ChangeNotifier {
   bool _hangUpRequested = false;
   bool _running = false;
   bool _finalized = false;
+  bool _muted = false;
+  bool _speakerOn = false;
   DateTime? _callStartedAt;
 
-  /// 通话内逐回合记录（用户/AI 消息），挂断后用于记忆提取与记录展示。
+  /// AI 回复的实时流式文本（打字机字幕用；回复完成/失败即清空）。
+  String _aiStreamingText = '';
+
+  /// 最近一次错误（实时打印机红字显示；新回合开始清空）。
+  String? _lastError;
+
+    /// 通话内逐回合记录（用户/AI 消息），挂断后用于记忆提取与记录展示。
   final List<ChatMessage> _callTranscript = [];
+
+  /// 通话全程逐轮记录（字幕气泡滚动展示用；与记忆提取共用同一份数据）。
+  List<ChatMessage> get transcript => List.unmodifiable(_callTranscript);
   StreamSubscription<Uint8List>? _micSub;
   StreamSubscription<ChatState>? _blocSub;
+
+    /// AI 思考期后台监听捕获的语音段，按序交回 [_runLoop] 立即转写。
+  final List<Float32List> _interruptQueue = [];
+  StreamSubscription<Uint8List>? _interruptSub;
+
+  /// 手动输入待发文本（不方便说话时，如环境嘈杂/NSFW 场景），
+  /// 与语音段共用同一回合管线，按序处理。
+  final List<String> _pendingText = [];
   Completer<Float32List?>? _listenDone;
   Completer<String>? _replyDone;
 
@@ -64,8 +85,13 @@ class VoiceCallController extends ChangeNotifier {
   String get statusText => _statusText;
   String get lastUserText => _lastUserText;
   String get lastAiText => _lastAiText;
+  String get aiStreamingText => _aiStreamingText;
+  String? get lastError => _lastError;
   bool get isEnded => _phase == VoiceCallPhase.ended;
   bool get needsModels => _needsModels;
+  bool get muted => _muted;
+  bool get speakerOn => _speakerOn;
+  DateTime? get callStartedAt => _callStartedAt;
 
   VoiceCallController({
     required this.chatBloc,
@@ -95,7 +121,9 @@ class VoiceCallController extends ChangeNotifier {
       debugPrint('[VoiceCall] start: 初始化完成');
     } catch (e) {
       debugPrint('[VoiceCall] 初始化失败: $e');
-      _setPhase(VoiceCallPhase.ended, '初始化失败：$e');
+      _lastError = '初始化失败：$e';
+      _setPhase(VoiceCallPhase.ended, '初始化失败');
+      notifyListeners();
     }
   }
 
@@ -121,8 +149,44 @@ class VoiceCallController extends ChangeNotifier {
     } catch (e) {
       debugPrint('[VoiceCall] 导入失败: $e');
       _needsModels = true;
-      _setPhase(VoiceCallPhase.connecting, '导入失败：$e');
+      _lastError = '导入失败：$e';
+      _setPhase(VoiceCallPhase.connecting, '导入失败');
+      notifyListeners();
     }
+  }
+
+  /// 静音开关：静音时麦克风流继续跑但不再喂 VAD（恢复即时生效，无需重建流）。
+  void toggleMute() {
+    if (_hangUpRequested || _disposed) return;
+    _muted = !_muted;
+    notifyListeners();
+  }
+
+  /// 扬声器/听筒切换（仅 Android 生效；iOS 由系统音频会话管理）。
+  Future<void> toggleSpeaker() async {
+    if (_hangUpRequested || _disposed) return;
+    _speakerOn = !_speakerOn;
+    try {
+      await _player.setSpeakerphone(_speakerOn);
+    } catch (e) {
+      debugPrint('[VoiceCall] 切换扬声器失败: $e');
+    }
+    notifyListeners();
+  }
+
+  /// 手动输入发送（不方便说话时，如环境嘈杂/NSFW 场景）：
+  /// 文本入队，由回合循环按序处理（与语音段同一管线：AI→TTS→播放）。
+  /// 若正处于聆听等待，会打断麦克风等待让循环立刻取文本。
+  Future<void> sendText(String text) async {
+    final t = text.trim();
+    if (t.isEmpty || _hangUpRequested || _disposed) return;
+    _pendingText.add(t);
+    debugPrint('[VoiceCall] sendText 入队: "$t"');
+    notifyListeners();
+    await _cancelMic();
+    try {
+      await _recorder.stop();
+    } catch (_) {}
   }
 
   Future<void> hangUp() async {
@@ -146,6 +210,9 @@ class VoiceCallController extends ChangeNotifier {
     _hangUpRequested = true;
     _completePendingListeners();
     _cancelMic();
+    final isub = _interruptSub;
+    _interruptSub = null;
+    isub?.cancel();
     _blocSub?.cancel();
     _blocSub = null;
     try {
@@ -184,11 +251,23 @@ class VoiceCallController extends ChangeNotifier {
   Future<void> _runLoop() async {
     while (_safe()) {
       try {
-        final segment = await _listenForSpeech();
+        // 手动输入的文本优先处理（跳过 VAD/STT，直接进回合管线）
+        if (_pendingText.isNotEmpty) {
+          final t = _pendingText.removeAt(0);
+          _lastUserText = t;
+          _lastAiText = '';
+          notifyListeners();
+          await _handleTurn(t);
+          continue;
+        }
+        // 优先消费思考期捕获的语音段（修复「AI 思考时说话被丢弃」）
+        final segment = _interruptQueue.isNotEmpty
+            ? _interruptQueue.removeAt(0)
+            : await _listenForSpeech();
         if (!_safe()) break;
         if (segment == null || segment.isEmpty) continue;
 
-        _setPhase(VoiceCallPhase.thinking, '正在听你说…');
+        _setPhase(VoiceCallPhase.thinking, '正在转写…');
         final text = await _transcribe(segment);
         if (!_safe()) break;
         if (text.trim().isEmpty) continue;
@@ -200,7 +279,9 @@ class VoiceCallController extends ChangeNotifier {
       } catch (e) {
         debugPrint('[VoiceCall] 回合异常: $e');
         if (!_safe()) break;
+        _lastError = '回合异常：$e';
         _setPhase(VoiceCallPhase.listening, '出了点小问题，重新听你说…');
+        notifyListeners();
         await Future.delayed(const Duration(milliseconds: 600));
         if (!_safe()) break;
       }
@@ -209,6 +290,8 @@ class VoiceCallController extends ChangeNotifier {
 
   /// 开启麦克风流，喂 VAD，直到检测到一段完整语音（或挂断）。
   Future<Float32List?> _listenForSpeech() async {
+    _lastError = null; // 新回合清除旧错误
+    _aiStreamingText = '';
     _setPhase(VoiceCallPhase.listening, '我在听，说吧…');
     debugPrint('[VoiceCall] listen: reset VAD...');
     _vad.reset();
@@ -220,7 +303,9 @@ class VoiceCallController extends ChangeNotifier {
       debugPrint('[VoiceCall] listen: 麦克风流已开启');
     } catch (e) {
       debugPrint('[VoiceCall] 打开麦克风失败: $e');
-      _setPhase(VoiceCallPhase.ended, '无法打开麦克风：$e');
+      _lastError = '无法打开麦克风：$e';
+      _setPhase(VoiceCallPhase.ended, '无法打开麦克风');
+      notifyListeners();
       return null;
     }
     if (!_safe()) {
@@ -235,6 +320,7 @@ class VoiceCallController extends ChangeNotifier {
     _micSub = stream.listen(
       (chunk) {
         if (done.isCompleted) return;
+        if (_muted) return; // 静音：不喂 VAD，段检测暂停
         final samples = _pcm16ToFloat32(chunk);
         _vad.acceptSamples(samples);
         final seg = _vad.takeSegment();
@@ -245,6 +331,8 @@ class VoiceCallController extends ChangeNotifier {
       },
       onError: (Object e) {
         debugPrint('[VoiceCall] listen: 麦克风流错误: $e');
+        _lastError = '麦克风流错误：$e';
+        notifyListeners();
         if (!done.isCompleted) done.complete(null);
       },
       onDone: () {
@@ -269,20 +357,23 @@ class VoiceCallController extends ChangeNotifier {
       return result.text;
     } catch (e) {
       debugPrint('[VoiceCall] 转写失败: $e');
+      _lastError = '转写失败：$e';
+      notifyListeners();
       return '';
     }
   }
 
-  Future<void> _handleTurn(String userText) async {
+    Future<void> _handleTurn(String userText) async {
     _setPhase(VoiceCallPhase.thinking, 'TA 正在想…');
     _recordTurn(userText, isUser: true);
+    notifyListeners(); // 用户气泡立即上屏
     final aiText = await _awaitAiReply(userText);
     if (!_safe()) return;
     _recordTurn(aiText, isUser: false);
     _lastAiText = aiText.trim();
     notifyListeners();
 
-    final speech = _speechClean(aiText);
+    final speech = cleanSpokenText(aiText);
     if (speech.isEmpty) {
       _setPhase(VoiceCallPhase.listening, '（TA 没有回应，继续说吧）');
       await Future.delayed(const Duration(milliseconds: 500));
@@ -332,6 +423,15 @@ class VoiceCallController extends ChangeNotifier {
           'aiName': session.aiCharacterName,
         },
       );
+      // 通话内容静默化：抹掉通话期间写入的用户/AI 消息，聊天页只保留
+      // 结束通话记录（语音通话 X分X秒）与时间；对话本身已在下方经
+      // extractCallMemories 静默注入记忆库。
+      if (_callStartedAt != null) {
+        await chatBloc.clearCallMessages(
+          chatId: session.id,
+          since: _callStartedAt!,
+        );
+      }
       await chatBloc.appendSystemMessage(record);
       if (_callTranscript.isNotEmpty) {
         await chatBloc.extractCallMemories(
@@ -345,13 +445,30 @@ class VoiceCallController extends ChangeNotifier {
   }
 
   static String _callRecordText(int durationSec) {
-    if (durationSec < 60) return '语音通话 ${durationSec}秒';
+    if (durationSec < 60) return '语音通话 $durationSec秒';
     final m = durationSec ~/ 60;
     final s = durationSec % 60;
     return s > 0 ? '语音通话 $m分$s秒' : '语音通话 $m分钟';
   }
 
   Future<String> _awaitAiReply(String userText) async {
+    // 快照「发送前最后一条非用户消息」的 id：本轮回复必须是一条 id 不同的
+    // 新消息。不能按「列表里最后一条 AI 消息」取内容——历史会话里永远有
+    // 旧 AI 消息，发送后的第一帧 ChatMessagesLoaded（仅含旧历史+新用户
+    // 消息）会把上一轮回复误当本轮结果，提前送去 TTS（表现为 AI 复读旧
+    // 话/新回复无声）。流式文本只作超时/异常兜底，不单独触发完成。
+    var lastAiId = '';
+    final pre = chatBloc.state;
+    if (pre is ChatMessagesLoaded) {
+      for (final m in pre.messages.reversed) {
+        if (m.isFromAI) {
+          lastAiId = m.id;
+          break;
+        }
+      }
+    }
+    debugPrint('[VoiceCall] awaitReply: 发送 user="$userText" 基线消息id=$lastAiId');
+
     final done = Completer<String>();
     _replyDone = done;
     final sb = StringBuffer();
@@ -362,18 +479,32 @@ class VoiceCallController extends ChangeNotifier {
         sb
           ..clear()
           ..write(state.streamingText);
+        _aiStreamingText = state.streamingText;
+        notifyListeners(); // 打字机字幕逐帧刷新
       } else if (state is ChatMessagesLoaded) {
+        String? newId;
         String? text;
         for (final m in state.messages.reversed) {
-          if (m.isFromAI) {
-            text = m.content;
-            break;
-          }
+          if (!m.isFromAI) continue;
+          if (m.id == lastAiId) break; // 最新的非用户消息仍是旧的 → 还没生成
+          newId = m.id;
+          text = m.content;
+          break;
         }
-        final result = (text ?? sb.toString()).trim();
-        if (!done.isCompleted) done.complete(result);
+        if (newId == null) return; // 只认新消息，流式中途帧不算完成
+        final result = (text != null && text.trim().isNotEmpty)
+            ? text.trim()
+            : sb.toString().trim();
+        if (!done.isCompleted) {
+          debugPrint(
+              '[VoiceCall] awaitReply: 完成 id=$newId len=${result.length} text="$result"');
+          done.complete(result);
+        }
       } else if (state is ChatError || state is ChatBlockedByAI) {
-        if (!done.isCompleted) done.complete(sb.toString());
+        if (!done.isCompleted) {
+          debugPrint('[VoiceCall] awaitReply: 异常状态($state)，流式文本兜底 len=${sb.length}');
+          done.complete(sb.toString());
+        }
       }
     });
 
@@ -385,36 +516,115 @@ class VoiceCallController extends ChangeNotifier {
       forceConcise: true,
     ));
 
+    // AI 思考期（回复等待窗，最长 60s）麦克风保持开启：用户此时说的话
+    // 不再丢失，经 VAD 断句后入 _interruptQueue，由 _runLoop 按序处理。
+    // 不打断当前回复（ChatBloc 串行处理事件，旧 LLM 调用无法提前终止），
+    // 只保证语音被捕获——彻底消除「必须二次开口」。
+    // 放音阶段（_speakSentences）不监听：AI 自身声音会经麦克风触发 VAD
+    // 形成回声自打断，故只覆盖思考期（此刻无人发声，无回声风险）。
+    await _startInterruptListening();
+
     final result = await done.future.timeout(
-      const Duration(seconds: 180),
-      onTimeout: () => sb.toString(),
+      const Duration(seconds: 60),
+      onTimeout: () {
+        _lastError = 'AI 回复超时（60s），已跳过本轮';
+        notifyListeners();
+        return sb.toString();
+      },
     );
+    await _stopInterruptListening();
+    if (_interruptQueue.isNotEmpty) {
+      debugPrint('[VoiceCall] 思考期共捕获 ${_interruptQueue.length} 段语音，转入下轮处理');
+      notifyListeners();
+    }
     _replyDone = null;
+    _aiStreamingText = ''; // 打字机收尾，完整文本由气泡接手
     await _blocSub?.cancel();
     _blocSub = null;
     return result;
   }
 
+  /// 开启思考期后台监听：麦克风+VAD 照常运行，语音段入 [_interruptQueue]。
+  Future<void> _startInterruptListening() async {
+    if (_disposed || _hangUpRequested || _interruptSub != null) return;
+    Stream<Uint8List> stream;
+    try {
+      stream = await _recorder.startStream();
+    } catch (e) {
+      debugPrint('[VoiceCall] 思考期监听开启失败: $e');
+      return;
+    }
+    _interruptSub = stream.listen(
+      (chunk) {
+        if (_muted) return; // 静音同样生效
+        _vad.acceptSamples(_pcm16ToFloat32(chunk));
+        final seg = _vad.takeSegment();
+        if (seg != null && seg.isNotEmpty) {
+          _interruptQueue.add(seg);
+          debugPrint(
+              '[VoiceCall] 思考期捕获语音段 len=${seg.length} 队列=${_interruptQueue.length}');
+          notifyListeners();
+        }
+      },
+      onError: (Object e) {
+        debugPrint('[VoiceCall] 思考期监听错误: $e');
+        _lastError = '麦克风流错误：$e';
+        notifyListeners();
+      },
+      onDone: () => debugPrint('[VoiceCall] 思考期监听结束'),
+      cancelOnError: true,
+    );
+    debugPrint('[VoiceCall] 思考期监听已开启');
+  }
+
+  /// 关闭思考期监听（幂等；与挂断共用停止路径）。
+  Future<void> _stopInterruptListening() async {
+    final sub = _interruptSub;
+    _interruptSub = null;
+    if (sub != null) {
+      try {
+        await sub.cancel();
+      } catch (_) {}
+    }
+    try {
+      await _recorder.stop();
+    } catch (_) {}
+  }
+
   /// 逐句合成 + 流水线播放：合成下一句的同时播当前句。
+  ///
+  /// 退路设计：单句合成失败（如 MiMo 400）只跳过该句并继续后面的句子，
+  /// 不终止整轮播放；全部失败时经 [lastError] 暴露给 UI。
   Future<void> _speakSentences(List<String> sentences) async {
     if (sentences.isEmpty) return;
     final controller = StreamController<String>();
+    var okCount = 0;
+    var failCount = 0;
 
     final producer = () async {
       try {
-        for (final s in sentences) {
+        for (var i = 0; i < sentences.length; i++) {
           if (!_safe()) break;
-          final r = await _tts.synthesizeWithStyle(
-            session.aiCharacterId,
-            s,
-            style: _directorFor(s),
-          );
-          if (!_safe()) break;
-          if (!controller.isClosed) controller.add(r.audioFilePath);
+          final s = sentences[i];
+          debugPrint(
+              '[VoiceCall] TTS 合成 (${i + 1}/${sentences.length}) len=${s.length} text="$s"');
+          try {
+            final r = await _tts.synthesizeWithStyle(
+              session.aiCharacterId,
+              s,
+              style: _directorFor(s),
+            );
+            okCount++;
+            if (!_safe()) break;
+            if (!controller.isClosed) controller.add(r.audioFilePath);
+          } catch (e) {
+            failCount++;
+            debugPrint(
+                '[VoiceCall] 单句合成失败 (${i + 1}/${sentences.length}) text="$s" error=$e');
+            _lastError = '语音合成失败：$e';
+            notifyListeners();
+          }
         }
-      } catch (e) {
-        debugPrint('[VoiceCall] 合成失败: $e');
-        if (!controller.isClosed) controller.addError(e);
       } finally {
         if (!controller.isClosed) await controller.close();
       }
@@ -427,10 +637,13 @@ class VoiceCallController extends ChangeNotifier {
           await _player.playAndWait(path);
           if (!_safe()) break;
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[VoiceCall] 播放失败: $e');
+      }
     }();
 
     await Future.wait([producer, consumer]);
+    debugPrint('[VoiceCall] TTS 收尾: 成功 $okCount 句 / 失败 $failCount 句');
   }
 
   /// 为当前台词生成导演指令（角色人设 + 台词场景）。
@@ -471,12 +684,16 @@ class VoiceCallController extends ChangeNotifier {
     await _tts.setReferenceAudio(session.aiCharacterId, ref.path, ref.text);
   }
 
-  /// 解析角色参考音色：优先角色自定义音色，否则用打包的默认音色。
+  /// 解析角色参考音色：优先角色自定义音色（损坏自动跳过），否则用默认音色。
   Future<({String path, String text})?> _resolveVoiceReference() async {
     try {
       final store = VoiceProfileStore.instance;
       final custom = await store.loadCustom(session.aiCharacterId);
-      if (custom != null) return custom;
+      if (custom != null) {
+        debugPrint('[VoiceCall] 音色: 使用角色自定义 ${custom.path}');
+        return custom;
+      }
+      debugPrint('[VoiceCall] 音色: 无自定义（或已损坏），回退默认音色');
       return await store.loadDefault();
     } catch (e) {
       debugPrint('[VoiceCall] 解析参考音色失败: $e');
@@ -497,31 +714,51 @@ class VoiceCallController extends ChangeNotifier {
     return out;
   }
 
-  /// 去掉旁白括号/残留标签，得到「念出来」的台词。
-  static String _speechClean(String text) {
+    /// 去掉旁白括号/残留标签/markdown/emoji，得到「念出来」的台词。
+  /// MiMo 会把 `（风格）[内联标签]` 解析成音频指令，括号、markdown 符号
+  /// 或 emoji 混进台词可能直接触发 400 Param Incorrect，必须清干净。
+  /// 对外暴露：字幕气泡/打字机显示同一份「纯对话」文本（小说模式旁白剔除）。
+  static String cleanSpokenText(String text) {
     var t = MessageSanitizer.extractSpokenText(text);
     t = t.replaceAll(RegExp(r'（[^（）]*）'), ' ');
     t = t.replaceAll(RegExp(r'\([^()]*\)'), ' ');
+    t = t.replaceAll(RegExp(r'【[^【】]*】'), ' ');
+    t = t.replaceAll(RegExp(r'\[[^\[\]]*\]'), ' ');
     t = t.replaceAll(RegExp(r'<[^>]*>'), ' ');
+    // markdown 强调/引用装饰符
+    t = t.replaceAll(RegExp(r'[*#~`>_]+'), ' ');
+    // emoji、变体选择符、零宽字符（不可朗读，且可能触发参数错误）
+    t = t.replaceAll(
+      RegExp(
+        '[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}'
+        '\u{FE0F}\u{200B}-\u{200F}\u{FEFF}]',
+        unicode: true,
+      ),
+      ' ',
+    );
     return t.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  /// 按句末标点切句（供逐句合成）。
+  /// 按句末标点切句（供逐句合成）。切完去掉句首残留的逗号/冒号等
+  /// （引号旁白剥除后常留下「，怎么了」这种句首逗号，影响 TTS 断句）。
   static List<String> _splitSentences(String text) {
     final sentences = <String>[];
     final buffer = StringBuffer();
     for (final ch in text.split('')) {
       buffer.write(ch);
       if ('。！？!?；;\n'.contains(ch)) {
-        final s = buffer.toString().trim();
+        final s = _trimSentence(buffer.toString());
         if (s.isNotEmpty) sentences.add(s);
         buffer.clear();
       }
     }
-    final tail = buffer.toString().trim();
+    final tail = _trimSentence(buffer.toString());
     if (tail.isNotEmpty) sentences.add(tail);
     return sentences;
   }
+
+  static String _trimSentence(String s) =>
+      s.trim().replaceAll(RegExp(r'^[，、,；;：:\s]+'), '').trim();
 
   void _setPhase(VoiceCallPhase phase, String status) {
     if (_disposed) return;

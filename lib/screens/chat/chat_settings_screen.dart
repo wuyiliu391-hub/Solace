@@ -46,8 +46,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
 
   late ChatSession _localSession;
   bool _hasChanges = false;
-  late bool _aiIsOnline;
-  late String? _aiCurrentStatus;
+  bool _aiIsOnline = false; // 必须非 late：build 先于异步加载执行，late 字段会抛 LateInitializationError
+  String? _aiCurrentStatus;
   TextEditingController? _statusController;
   late bool _isBlockedByUser;
   AIWallet? _aiWallet;

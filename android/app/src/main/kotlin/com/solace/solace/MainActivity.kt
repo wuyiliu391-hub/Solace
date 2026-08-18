@@ -267,13 +267,31 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "convertToWav" -> {
-                    try {
-                        val inputPath = call.argument<String>("inputPath") ?: ""
-                        val out = convertAudioToWav(inputPath)
-                        result.success(out)
-                    } catch (e: Exception) {
-                        result.error("CONVERT_ERROR", e.message, null)
-                    }
+                    // 解码耗时秒级~数十秒：必须在后台线程执行，否则主线程被
+                    // 占死 → UI 卡死（ANR）。MethodChannel 的 result 可跨线程调用。
+                    Thread {
+                        try {
+                            val inputPath = call.argument<String>("inputPath") ?: ""
+                            val out = convertAudioToWav(inputPath)
+                            result.success(out)
+                        } catch (e: Exception) {
+                            result.error("CONVERT_ERROR", e.message, null)
+                        }
+                    }.start()
+                }
+                "normalizeReferenceAudio" -> {
+                    // 参考音频规范化：24kHz 单声道 ≤N 秒（音色克隆专用）。
+                    // 同样必须后台线程（解码可能几十秒）。
+                    Thread {
+                        try {
+                            val inputPath = call.argument<String>("inputPath") ?: ""
+                            val maxSeconds = call.argument<Int>("maxSeconds") ?: 6
+                            val out = normalizeReferenceAudio(inputPath, maxSeconds)
+                            result.success(out)
+                        } catch (e: Exception) {
+                            result.error("CONVERT_ERROR", e.message, null)
+                        }
+                    }.start()
                 }
                 else -> result.notImplemented()
             }
@@ -525,9 +543,133 @@ class MainActivity : FlutterActivity() {
      * 重混为单声道 16-bit PCM 并写出 wav。
      * 输出优先存到公共下载目录 Download/Solace/（有权限时），否则落到应用外部缓存目录。
      */
-    private fun convertAudioToWav(inputPath: String): Map<String, Any?> {
+private fun convertAudioToWav(inputPath: String): Map<String, Any?> {
+        val d = decodeAudioToPcm16(inputPath)
+        val stereo = if (d.channelCount == 2) d.pcm
+            else upmixToStereo(d.pcm, d.channelCount)
+        // MOSS codec encode 参考音频要求 48kHz 双声道 16-bit PCM（与录制路径一致）。
+        // 非 48kHz 源（如 44.1kHz mp3）用 Lanczos-3 低通重采样，避免混叠。
+        val stereo48k = resampleTo(stereo, d.sampleRate, 48000)
+
+        val outFile = File(writableAudioDir(), "voice_ref_${System.currentTimeMillis()}.wav")
+        writeWavFile(outFile, stereo48k, 48000, 2)
+
+        return mapOf(
+            "path" to outFile.absolutePath,
+            "sampleRate" to 48000,
+            "durationMs" to (stereo48k.size.toLong() * 1000L / (48000 * 4L))
+        )
+    }
+
+    /**
+     * 参考音频规范化：任意音频（mp3/wav/录音）→ 24kHz 单声道 16-bit PCM，
+     * 切除头部静音后截取前 [maxSeconds] 秒，写 wav。
+     *
+     * MiMo voiceclone 官方仅保证「短至几秒即可」的参考音频，且 24kHz 单声道
+     * 与其输出规格及内置默认音色对齐。超长（30s+）或立体声参考样本会令
+     * 克隆音色严重偏移、人机感重——这是音色克隆质量问题的头号根源。
+     */
+    private fun normalizeReferenceAudio(inputPath: String, maxSeconds: Int): Map<String, Any?> {
+        val d = decodeAudioToPcm16(inputPath)
+        val mono = downmixToMono(d.pcm, d.channelCount)
+        val mono24k = resampleTo(mono, d.sampleRate, 24000)
+        // 挑「最像说话的」连续语音段（能量分段），而非硬取头部——头部
+        // 可能是静音/音乐/开场白，会让克隆音色偏移、人机感重
+        val picked = pickBestSpeechSegment(mono24k, maxSeconds)
+        val outFile = File(writableAudioDir(), "voice_ref_${System.currentTimeMillis()}.wav")
+        writeWavFile(outFile, picked, 24000, 1)
+        return mapOf(
+            "path" to outFile.absolutePath,
+            "sampleRate" to 24000,
+            "durationMs" to (picked.size.toLong() * 1000L / 48000L)
+        )
+    }
+
+    /**
+     * 能量分段选段：按 20ms 块计算 RMS，连续活动块组成语音段（≤0.5s 间隙
+     * 合并为段内停顿）。优先取时长 2.5~8s、语音密度最高的段（超长段给
+     * 0.5 倍惩罚，避免整段 BGM/长段讲话压过干净的人声段）；没有 ≥2.5s
+     * 的段时取最长段；再不行回退切头静音取前 [maxSeconds]。
+     */
+    private fun pickBestSpeechSegment(pcm24k: ByteArray, maxSeconds: Int): ByteArray {
+        val samples = pcm24k.size / 2
+        if (samples <= 0) return pcm24k
+
+        val block = 480 // 20ms @ 24kHz
+        val nBlocks = samples / block
+        val active = BooleanArray(nBlocks)
+        for (b in 0 until nBlocks) {
+            var sum = 0L
+            for (i in b * block until (b + 1) * block) {
+                val lo = pcm24k[i * 2].toInt() and 0xFF
+                val hi = pcm24k[i * 2 + 1].toInt() and 0xFF
+                val s = ((hi shl 8) or lo).toShort().toInt()
+                sum += (s * s).toLong()
+            }
+            val rms = Math.sqrt(sum.toDouble() / block)
+            active[b] = rms >= 500.0 // ≈ -36dBFS，安静环境与说话声的分界
+        }
+
+        // 合并连续活动块为语音段
+        val runs = ArrayList<IntArray>() // [startBlock, endBlock, activeCount]
+        val maxGap = 25 // 0.5s 静音间隙
+        var b = 0
+        while (b < nBlocks) {
+            if (!active[b]) { b++; continue }
+            val start = b
+            var lastActive = b
+            var count = 0
+            while (b < nBlocks) {
+                if (active[b]) { lastActive = b; count++ } else {
+                    var gap = 1
+                    while (b + gap < nBlocks && !active[b + gap] && gap < maxGap) gap++
+                    if (b + gap >= nBlocks || gap >= maxGap) break
+                    b += gap
+                }
+                b++
+            }
+            runs.add(intArrayOf(start, lastActive + 1, count))
+        }
+        if (runs.isEmpty()) return trimLeadingSilenceAndCap(pcm24k, maxSeconds)
+
+        // 选段：优先 2.5~8s、密度最高；超长段惩罚 0.5
+        var best: IntArray? = null
+        var bestScore = 0.0
+        for (r in runs) {
+            val durSec = (r[1] - r[0]) * 20.0 / 1000.0
+            if (durSec < 2.5) continue
+            val density = r[2].toDouble() / (r[1] - r[0])
+            val score = if (durSec <= 8.0) density else density * 0.5
+            if (best == null || score > bestScore) { best = r; bestScore = score }
+        }
+        if (best == null) {
+            // 全部不足 2.5s：取最长的一段
+            var longest: IntArray? = null
+            for (r in runs) {
+                if (longest == null || (r[1] - r[0]) > (longest[1] - longest[0])) longest = r
+            }
+            best = longest
+        }
+        if (best == null) return trimLeadingSilenceAndCap(pcm24k, maxSeconds)
+
+        var startSample = best[0] * block
+        val maxSamples = maxSeconds * 24000
+        var endSample = Math.min(best[1] * block, startSample + maxSamples)
+        if (endSample <= startSample) return trimLeadingSilenceAndCap(pcm24k, maxSeconds)
+        val out = ByteArray((endSample - startSample) * 2)
+        System.arraycopy(pcm24k, startSample * 2, out, 0, out.size)
+        return out
+    }
+
+    private class DecodedPcm(val pcm: ByteArray, val sampleRate: Int, val channelCount: Int)
+
+    /** 解码任意音频为 16-bit PCM（原始采样率/声道）。超长输入的防护在循环内。 */
+    private fun decodeAudioToPcm16(inputPath: String): DecodedPcm {
         val src = File(inputPath)
         if (!src.exists()) throw Exception("源文件不存在: $inputPath")
+        // 上限保护：解码是内存全量 PCM，超长输入会 OOM 闪退。
+        if (src.length() > 20L * 1024 * 1024)
+            throw Exception("音频文件过大（>20MB），请先裁剪到 3~5 秒再导入")
 
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
@@ -592,6 +734,10 @@ class MainActivity : FlutterActivity() {
                             val chunk = ByteArray(info.size)
                             buf.get(chunk)
                             pcm.write(chunk)
+                            // 解码中即时拦截超长输出，避免内存持续膨胀 OOM。
+                            // （32MB PCM ≈ 173 秒 @48kHz 立体声）
+                            if (pcm.size() > 32 * 1024 * 1024)
+                                throw Exception("音频过长（解码后超过约 3 分钟），请先裁剪到 3~5 秒再导入")
                         }
                         decoder.releaseOutputBuffer(outIndex, false)
                         if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
@@ -607,21 +753,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
             }
-
-            val stereo = if (channelCount == 2) pcm.toByteArray()
-                else upmixToStereo(pcm.toByteArray(), channelCount)
-            // MOSS codec encode 参考音频要求 48kHz 双声道 16-bit PCM（与录制路径一致）。
-            // 非 48kHz 源（如 44.1kHz mp3）用 Lanczos-3 低通重采样，避免混叠。
-            val stereo48k = resampleTo48000(stereo, sampleRate)
-
-            val outFile = File(writableAudioDir(), "voice_ref_${System.currentTimeMillis()}.wav")
-            writeWavFile(outFile, stereo48k, 48000, 2)
-
-            return mapOf(
-                "path" to outFile.absolutePath,
-                "sampleRate" to 48000,
-                "durationMs" to (stereo48k.size.toLong() * 1000L / (48000 * 4L))
-            )
+            return DecodedPcm(pcm.toByteArray(), sampleRate, channelCount)
         } finally {
             try { decoder?.stop() } catch (_: Exception) {}
             try { decoder?.release() } catch (_: Exception) {}
@@ -647,11 +779,11 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * 重采样到 48kHz：Lanczos-3 窗口 sinc 低通插值，任意采样率 -> 48000。
-     * 已是 48kHz 时原样返回。
+     * Lanczos-3 窗口 sinc 低通重采样：任意采样率 -> [dstRate]。
+     * 已是目标采样率时原样返回。
      */
-    private fun resampleTo48000(pcm16: ByteArray, srcRate: Int): ByteArray {
-        if (srcRate == 48000) return pcm16
+    private fun resampleTo(pcm16: ByteArray, srcRate: Int, dstRate: Int): ByteArray {
+        if (srcRate == dstRate) return pcm16
         val n = pcm16.size / 2
         if (n == 0) return pcm16
         val src = ShortArray(n)
@@ -660,7 +792,7 @@ class MainActivity : FlutterActivity() {
             val hi = pcm16[i * 2 + 1].toInt() and 0xFF
             src[i] = ((hi shl 8) or lo).toShort()
         }
-        val ratio = srcRate.toDouble() / 48000.0
+        val ratio = srcRate.toDouble() / dstRate.toDouble()
         val outLen = (n / ratio).toInt()
         val out = ShortArray(outLen)
         val a = 3
@@ -687,6 +819,55 @@ class MainActivity : FlutterActivity() {
         return bytes
     }
 
+    /** 多声道 -> 单声道（取前两声道平均）。 */
+    private fun downmixToMono(pcm: ByteArray, channels: Int): ByteArray {
+        if (channels <= 0) throw Exception("音频声道信息异常（channels=$channels），无法转换")
+        if (channels == 1) return pcm
+        val frames = pcm.size / (channels * 2)
+        val mono = ByteArray(frames * 2)
+        for (f in 0 until frames) {
+            val i0 = (f * channels) * 2
+            val i1 = i0 + 2
+            val lo0 = pcm[i0].toInt() and 0xFF
+            val hi0 = pcm[i0 + 1].toInt() and 0xFF
+            val lo1 = pcm[i1].toInt() and 0xFF
+            val hi1 = pcm[i1 + 1].toInt() and 0xFF
+            val s0 = ((hi0 shl 8) or lo0).toShort().toInt()
+            val s1 = ((hi1 shl 8) or lo1).toShort().toInt()
+            val m = (s0 + s1) / 2
+            mono[f * 2] = (m and 0xFF).toByte()
+            mono[f * 2 + 1] = ((m shr 8) and 0xFF).toByte()
+        }
+        return mono
+    }
+
+    /**
+     * 切除头部静音（10ms 块峰值 < 300/32768 ≈ -40dBFS 视为静音），
+     * 然后截取前 [maxSeconds] 秒。短于上限的原样保留（不足 6 秒不补长）。
+     */
+    private fun trimLeadingSilenceAndCap(mono24k: ByteArray, maxSeconds: Int): ByteArray {
+        val samples = mono24k.size / 2
+        if (samples == 0) return mono24k
+        val blockSize = 240 // 10ms @ 24kHz
+        var start = 0
+        while (start + blockSize <= samples) {
+            var peak = 0
+            for (i in start until start + blockSize) {
+                val lo = mono24k[i * 2].toInt() and 0xFF
+                val hi = mono24k[i * 2 + 1].toInt() and 0xFF
+                val s = ((hi shl 8) or lo).toShort().toInt()
+                if (Math.abs(s) > peak) peak = Math.abs(s)
+            }
+            if (peak >= 300) break
+            start += blockSize
+        }
+        val maxSamples = maxSeconds * 24000
+        val end = Math.min(samples, start + maxSamples)
+        val out = ByteArray((end - start) * 2)
+        System.arraycopy(mono24k, start * 2, out, 0, out.size)
+        return out
+    }
+
     /** Lanczos-a 窗口：sinc(x) * sinc(x/a)，|x| >= a 时为 0。 */
     private fun lanczosWeight(x: Double, a: Int): Double {
         if (x == 0.0) return 1.0
@@ -697,6 +878,7 @@ class MainActivity : FlutterActivity() {
 
     /** 多声道 -> 双声道（取前 2 声道；单声道复制为双声道）。 */
     private fun upmixToStereo(pcm: ByteArray, channels: Int): ByteArray {
+        if (channels <= 0) throw Exception("音频声道信息异常（channels=$channels），无法转换")
         val frames = pcm.size / (channels * 2)
         val stereo = ByteArray(frames * 4)
         for (f in 0 until frames) {

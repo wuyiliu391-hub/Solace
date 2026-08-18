@@ -133,8 +133,28 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
     if (!mounted) return;
     setState(() {
       _recording = false;
-      if (path != null && path.isNotEmpty) _refPath = path;
+      _converting = true;
     });
+    if (path == null || path.isEmpty) {
+      if (mounted) setState(() => _converting = false);
+      return;
+    }
+    try {
+      // 统一规范化：24kHz 单声道 ≤6s（录音为 48kHz 双声道，
+      // 超长/立体声参考样本会令 MiMo 克隆音色偏移、人机感重）
+      final wavPath = await AudioConverterService.instance
+          .normalizeReferenceAudio(path, maxSeconds: 6);
+      if (!mounted) return;
+      setState(() => _refPath = wavPath);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('音频规范化失败: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _converting = false);
+    }
   }
 
   Future<void> _pickFile() async {
@@ -146,28 +166,27 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
     if (path == null || path.isEmpty) return;
     if (!mounted) return;
 
-    // 非 wav（mp3/m4a 等）先转成 16-bit 单声道 wav 再用作参考音频。
-    if (AudioConverterService.isWav(path)) {
-      setState(() => _refPath = path);
-      return;
-    }
-
+    // mp3/wav 等一律规范化为 24kHz 单声道 ≤6s 参考音频（MiMo voiceclone
+    // 官方仅推荐「短至几秒」；之前导入 mp3 会得到 30s+ 立体声样本，
+    // 直接导致克隆音色严重偏移/人机感）。
     setState(() => _converting = true);
     try {
-      final wavPath = await AudioConverterService.instance.convertToWav(path);
+      final wavPath = await AudioConverterService.instance
+          .normalizeReferenceAudio(path, maxSeconds: 6);
       if (!mounted) return;
       setState(() => _refPath = wavPath);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '已转换为 wav：${wavPath.split(Platform.pathSeparator).last}',
+            '参考音频已规范化（24kHz 单声道 ≤6s）：'
+            '${wavPath.split(Platform.pathSeparator).last}',
           ),
         ),
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('音频转换失败: $e')),
+          SnackBar(content: Text('音频规范化失败: $e')),
         );
       }
     } finally {

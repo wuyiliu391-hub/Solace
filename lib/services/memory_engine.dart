@@ -1574,7 +1574,10 @@ ${userMessages.join('\n')}
             'max_tokens': 500,
           }),
         )
-        .timeout(const Duration(seconds: 15));
+        // 记忆提取用的就是聊天同款模型：聊天回复实测 13~38s，15s 超时
+        // 必然失败（日志反复出现「LLM 记忆提取失败，回退到正则」且保存 0 条）。
+        // 放宽到 120s 与聊天链路量级一致，保证 LLM 提取真正落地。
+        .timeout(const Duration(seconds: 120));
 
     if (response.statusCode != 200) return false;
 

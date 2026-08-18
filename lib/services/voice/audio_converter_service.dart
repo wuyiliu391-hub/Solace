@@ -46,4 +46,30 @@ class AudioConverterService {
     final error = result?['error'];
     throw Exception(error is String ? error : '音频转换失败');
   }
+
+  /// 参考音频规范化（音色克隆专用）：任意 mp3/wav 输入 → 24kHz 单声道
+  /// 16-bit wav，切头部静音后截取前 [maxSeconds] 秒。
+  ///
+  /// MiMo voiceclone 官方仅推荐「短至几秒」的参考音频；超长/立体声样本
+  /// 会令克隆音色偏移、人机感重。返回规范化后的 wav 绝对路径。
+  Future<String> normalizeReferenceAudio(
+    String inputPath, {
+    int maxSeconds = 6,
+  }) async {
+    if (!Platform.isAndroid) {
+      throw UnsupportedError('音频转换当前仅支持 Android');
+    }
+    final result = await _channel
+        .invokeMethod<Map<Object?, Object?>>('normalizeReferenceAudio', {
+      'inputPath': inputPath,
+      'maxSeconds': maxSeconds,
+    });
+
+    final path = result?['path'];
+    if (path is String && path.isNotEmpty) {
+      return path;
+    }
+    final error = result?['error'];
+    throw Exception(error is String ? error : '音频规范化失败');
+  }
 }

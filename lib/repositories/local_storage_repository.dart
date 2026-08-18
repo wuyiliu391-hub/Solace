@@ -410,6 +410,7 @@ class LocalStorageRepository {
       'styleLock': 'TEXT NOT NULL DEFAULT "anime"',
       'age': 'INTEGER',
       'structuredTraits': 'TEXT',
+      'storyState': 'TEXT',
       'sync_seq': 'INTEGER DEFAULT 0',
     },
     'ai_configs': {
@@ -2342,7 +2343,7 @@ class LocalStorageRepository {
     await db.execute(
         ''' CREATE TABLE users ( id TEXT PRIMARY KEY, nickname TEXT NOT NULL, avatarUrl TEXT, createdAt TEXT NOT NULL, lastLoginAt TEXT, signature TEXT, gender TEXT, birthday TEXT, location TEXT, bio TEXT, status TEXT, backgroundImage TEXT, coins INTEGER NOT NULL DEFAULT 100, totalCoinsEarned INTEGER NOT NULL DEFAULT 100, totalCoinsSpent INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
-        ''' CREATE TABLE ai_characters ( id TEXT PRIMARY KEY, name TEXT NOT NULL, avatarUrl TEXT, personality TEXT NOT NULL, coreDesire TEXT NOT NULL, moralBoundary TEXT NOT NULL, backgroundStory TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, worldSetting TEXT, languageStyle TEXT, tabooTopics TEXT, userNickname TEXT, userAlias TEXT, userPersona TEXT, catchphrases TEXT, openingLine TEXT, dialogueExamples TEXT, interactionConfig TEXT, gender TEXT, isHidden INTEGER NOT NULL DEFAULT 0, isOnline INTEGER NOT NULL DEFAULT 1, currentStatus TEXT, lastOnlineAt TEXT, avatarGif TEXT, autoReplyStickers INTEGER NOT NULL DEFAULT 0, translatedSettings TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, immutableAnchor TEXT, deviationRadius REAL NOT NULL DEFAULT 0.4, evolutionEnabled INTEGER NOT NULL DEFAULT 1, qualitativeEvolutionEnabled INTEGER NOT NULL DEFAULT 0, currentAnchor TEXT, referenceImg TEXT, fixedSeed INTEGER NOT NULL DEFAULT -1, characterTag TEXT, styleLock TEXT NOT NULL DEFAULT "anime", age INTEGER, structuredTraits TEXT ) ''');
+        ''' CREATE TABLE ai_characters ( id TEXT PRIMARY KEY, name TEXT NOT NULL, avatarUrl TEXT, personality TEXT NOT NULL, coreDesire TEXT NOT NULL, moralBoundary TEXT NOT NULL, backgroundStory TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, worldSetting TEXT, languageStyle TEXT, tabooTopics TEXT, userNickname TEXT, userAlias TEXT, userPersona TEXT, catchphrases TEXT, openingLine TEXT, dialogueExamples TEXT, interactionConfig TEXT, gender TEXT, isHidden INTEGER NOT NULL DEFAULT 0, isOnline INTEGER NOT NULL DEFAULT 1, currentStatus TEXT, lastOnlineAt TEXT, avatarGif TEXT, autoReplyStickers INTEGER NOT NULL DEFAULT 0, translatedSettings TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, immutableAnchor TEXT, deviationRadius REAL NOT NULL DEFAULT 0.4, evolutionEnabled INTEGER NOT NULL DEFAULT 1, qualitativeEvolutionEnabled INTEGER NOT NULL DEFAULT 0, currentAnchor TEXT, referenceImg TEXT, fixedSeed INTEGER NOT NULL DEFAULT -1, characterTag TEXT, styleLock TEXT NOT NULL DEFAULT "anime", age INTEGER, structuredTraits TEXT, storyState TEXT ) ''');
     await db.execute(
         ''' CREATE TABLE ai_configs ( id TEXT PRIMARY KEY, providerName TEXT NOT NULL, baseUrl TEXT NOT NULL, apiKey TEXT NOT NULL, extraApiKeys TEXT NOT NULL DEFAULT '', modelName TEXT NOT NULL, temperature REAL NOT NULL, maxTokens INTEGER NOT NULL, isActive INTEGER NOT NULL DEFAULT 1, isThinkingModel INTEGER NOT NULL DEFAULT 1, isMultimodal INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
@@ -3124,7 +3125,11 @@ class LocalStorageRepository {
         limit: 1,
       );
       if (existing.isEmpty) {
-        await db.insert('ai_characters', character.toMap());
+        // 与更新分支对齐：先过滤到真实列，防止模型新增键（如 storyState）
+        // 在缺列的表上 INSERT 直接 SQLITE_ERROR 崩溃。
+        final map = await _filterMapToExistingColumns(
+            db, 'ai_characters', character.toMap());
+        await db.insert('ai_characters', map);
         debugPrint('Seeded built-in character: ${character.name}');
       } else {
         // 内置角色资料被锁定，不允许用户编辑；因此版本升级时可安全刷新
@@ -4235,6 +4240,62 @@ class LocalStorageRepository {
     } catch (e) {
       debugPrint(': $e');
       throw Exception(': $e');
+    }
+  }
+
+  /// 删除某会话在 [since] 之后写入的非系统消息（语音通话静默化用：
+  /// 挂断后抹掉通话期间的用户/AI 消息，聊天页只保留通话记录系统消息）。
+  Future<void> deleteChatMessagesSince(String chatId, DateTime since) async {
+    try {
+      if (_isWeb) {
+        final ids = _prefs?.getStringList('message_ids_$chatId') ?? [];
+        final kept = <String>[];
+        for (final id in ids) {
+          final data = _prefs?.getString('message_$id');
+          final map = data == null
+              ? null
+              : jsonDecode(data) as Map<String, dynamic>;
+          final isSystem = map?['isSystem'] == true || map?['isSystem'] == 1;
+          final created =
+              DateTime.tryParse(map?['createdAt'] as String? ?? '');
+          if (isSystem || (created != null && created.isBefore(since))) {
+            kept.add(id);
+          } else {
+            await _prefs?.remove('message_$id');
+          }
+        }
+        await _prefs?.setStringList('message_ids_$chatId', kept);
+      } else {
+        final db = await _ensureDb();
+        final maps = await db.query(
+          'chat_messages',
+          where: 'chatId = ? AND isSystem = 0',
+          whereArgs: [chatId],
+        );
+        final ids = <String>[];
+        for (final map in maps) {
+          final created =
+              DateTime.tryParse(map['createdAt'] as String? ?? '');
+          if (created != null && !created.isBefore(since)) {
+            ids.add(map['id'] as String);
+          }
+        }
+        if (ids.isEmpty) return;
+        await db.transaction((txn) async {
+          for (final id in ids) {
+            await txn.delete(
+              'chat_messages',
+              where: 'id = ?',
+              whereArgs: [id],
+            );
+          }
+        });
+      }
+      debugPrint('[DBG] deleteChatMessagesSince: chatId=$chatId '
+          'since=$since done');
+    } catch (e) {
+      LogService.instance.w('Storage', 'deleteChatMessagesSince 失败: $e',
+          chatId: chatId);
     }
   }
 

@@ -10,7 +10,6 @@
 // 崩溃时最后一条日志即崩溃点。
 
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -26,7 +25,7 @@ class VoiceVadService {
   /// 初始化 VAD（需先确保 Silero VAD 模型已下载）。
   Future<void> init({
     double threshold = 0.5,
-    double minSilenceDuration = 0.6,
+    double minSilenceDuration = 0.5,
     double minSpeechDuration = 0.25,
     double maxSpeechDuration = 15.0,
   }) async {

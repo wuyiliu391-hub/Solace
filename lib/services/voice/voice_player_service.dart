@@ -1,13 +1,28 @@
 // 语音播放服务：封装 audioplayers 播放本地 wav。
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 
 class VoicePlayerService {
   final AudioPlayer _player = AudioPlayer();
   Completer<void>? _pending;
+  bool _speakerOn = false;
 
   Stream<void> get onComplete => _player.onPlayerComplete;
+
+  /// 扬声器/听筒切换（仅 Android；iOS 由系统音频会话管理）。
+  Future<void> setSpeakerphone(bool on) async {
+    if (_speakerOn == on) return;
+    _speakerOn = on;
+    if (Platform.isAndroid) {
+      await _player.setAudioContext(
+        AudioContext(
+          android: AudioContextAndroid(isSpeakerphoneOn: on),
+        ),
+      );
+    }
+  }
 
   /// 播放本地音频文件（会先停掉正在播的）。不等待播放结束。
   Future<void> play(String filePath) async {

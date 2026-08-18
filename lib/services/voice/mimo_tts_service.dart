@@ -14,8 +14,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
@@ -206,12 +206,19 @@ class MiMoTtsService implements LocalTtsService {
       throw StateError('参考音频文件不存在: ${profile.referenceAudioPath}');
     }
     final sampleBytes = await refFile.readAsBytes();
+    if (sampleBytes.isEmpty) {
+      throw StateError('参考音频文件为空（0 字节）: ${profile.referenceAudioPath}，'
+          '请重新录制音色或删除该角色的自定义音色以回退默认音色');
+    }
     if (sampleBytes.length > 10 * 1024 * 1024) {
       throw StateError('参考音频超过 10MB 上限（base64 后），请裁剪后重试');
     }
     final mime = refFile.path.toLowerCase().endsWith('.mp3')
         ? 'audio/mpeg'
         : 'audio/wav';
+    debugPrint('[MiMoTTS] 音色样本: path=${profile.referenceAudioPath} '
+        'bytes=${sampleBytes.length} mime=$mime hash=${profile.referenceHash} '
+        'spec=${_wavSpecSummary(sampleBytes)}');
     final dataUrl = 'data:$mime;base64,${base64Encode(sampleBytes)}';
     _sampleCache[profile.characterId] = dataUrl;
     _sampleHashCache[profile.characterId] = profile.referenceHash;
@@ -219,6 +226,9 @@ class MiMoTtsService implements LocalTtsService {
   }
 
   /// 调 OpenAI 兼容接口。返回 wav 字节。429 指数退避重试。
+  ///
+  /// 日志退路：每次请求打出 model/文本/风格/音色样本摘要，失败打出完整
+  /// 响应体——400 Param Incorrect 时可直接从日志定位是哪个参数不合法。
   Future<Uint8List> _synthesizeWithConfig(
     MiMoTtsConfig config,
     String text,
@@ -227,8 +237,14 @@ class MiMoTtsService implements LocalTtsService {
     int maxRetries = 3,
   }) async {
     final uri = Uri.parse('${config.baseUrl}/chat/completions');
+    final textPreview = _preview(text, 100);
+    final stylePreview = _preview(style, 80);
 
     for (var attempt = 0; attempt <= maxRetries; attempt++) {
+      debugPrint('[MiMoTTS] 请求(#$attempt): model=${config.model} '
+          'textLen=${text.length} text="$textPreview" '
+          'styleLen=${style.length} style="$stylePreview" '
+          'voiceB64Len=${voiceData.length}');
       final body = jsonEncode({
         'model': config.model,
         'messages': [
@@ -240,24 +256,33 @@ class MiMoTtsService implements LocalTtsService {
           'voice': voiceData,
         },
       });
-      final resp = await http
-          .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ${config.apiKey}',
-            },
-            body: body,
-          )
-          .timeout(const Duration(seconds: 120));
+      final http.Response resp;
+      try {
+        resp = await http
+            .post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ${config.apiKey}',
+              },
+              body: body,
+            )
+            .timeout(const Duration(seconds: 30));
+      } catch (e) {
+        debugPrint('[MiMoTTS] 网络/超时(#$attempt): $e text="$textPreview"');
+        rethrow;
+      }
 
       if (resp.statusCode == 429 && attempt < maxRetries) {
+        debugPrint('[MiMoTTS] 429 限流(#$attempt)，退避重试 body=${_preview(resp.body, 300)}');
         // 指数退避：1s, 2s, 4s...
         final delay = Duration(seconds: 1 << attempt);
         await Future<void>.delayed(delay);
         continue;
       }
       if (resp.statusCode != 200) {
+        debugPrint('[MiMoTTS] 失败(#$attempt): HTTP ${resp.statusCode} '
+            'body=${_preview(resp.body, 500)} text="$textPreview"');
         throw StateError(
             'MiMo TTS 请求失败 (${resp.statusCode}): ${_extractError(resp.body)}');
       }
@@ -265,11 +290,35 @@ class MiMoTtsService implements LocalTtsService {
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       final audio = (json['choices'] as List?)?.firstOrNull?['message']?['audio'];
       if (audio is Map && audio['data'] is String) {
-        return base64Decode(audio['data'] as String);
+        final bytes = base64Decode(audio['data'] as String);
+        debugPrint('[MiMoTTS] 成功(#$attempt): audioBytes=${bytes.length} '
+            'durationMs=${_wavDurationMs(bytes)}');
+        return bytes;
       }
+      debugPrint('[MiMoTTS] 响应缺少音频数据(#$attempt): '
+          'body=${_preview(resp.body, 500)}');
       throw StateError('MiMo TTS 响应缺少音频数据');
     }
     throw StateError('MiMo TTS 请求重试次数用尽');
+  }
+
+  /// 日志用文本预览：截断 + 换行压平，避免刷屏。
+  static String _preview(String s, int max) {
+    final flat = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return flat.length > max ? '${flat.substring(0, max)}…' : flat;
+  }
+
+  /// wav 头摘要（采样率/声道/时长），用于确认参考音频规格是否符合
+  /// 规范化约定（24kHz/单声道/≤6s）；非 wav 或头不可读返回「-」。
+  static String _wavSpecSummary(Uint8List bytes) {
+    if (bytes.length < 44) return '-';
+    final d = ByteData.sublistView(bytes);
+    final channels = d.getUint16(22, Endian.little);
+    final sampleRate = d.getUint32(24, Endian.little);
+    final dataSize = d.getUint32(40, Endian.little);
+    if (channels <= 0 || sampleRate <= 0 || dataSize <= 0) return '-';
+    final dur = dataSize / (sampleRate * channels * 2);
+    return '${sampleRate}Hz/${channels}ch/${dur.toStringAsFixed(1)}s';
   }
 
   String _extractError(String body) {

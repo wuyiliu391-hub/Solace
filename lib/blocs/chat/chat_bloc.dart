@@ -375,6 +375,23 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     }
   }
 
+  /// 静默化语音通话：删除 [since] 之后写入的用户/AI 消息并刷新列表。
+  /// 通话内容不进聊天页（记忆已由 extractCallMemories 静默入库），
+  /// 聊天页只保留通话记录系统消息与时间。
+  Future<void> clearCallMessages({
+    required String chatId,
+    required DateTime since,
+  }) async {
+    try {
+      await _storage.deleteChatMessagesSince(chatId, since);
+      if (isClosed) return;
+      add(ChatLoadMessages(chatId));
+    } catch (e) {
+      LogService.instance
+          .w('Chat', 'clearCallMessages 失败: $e', chatId: chatId);
+    }
+  }
+
   /// 通话结束后强制提取一次通话记忆（不走降频，保证内容入库）。
   /// 传入 [recentMessages] 为通话内的用户/AI 消息。
   Future<void> extractCallMemories({
