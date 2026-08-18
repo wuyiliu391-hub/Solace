@@ -85,3 +85,6 @@ Thumbs.db
 desktop.ini
 solace/app-release.apk.gz
 solace/app-release.apk.sha1
+
+# 部署产物（deploy.sh 生成，勿提交）
+solace/app-release.apk*
