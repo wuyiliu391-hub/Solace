@@ -166,10 +166,11 @@ class AIService {
     return configuredMaxTokens;
   }
 
-  int? _chatMaxTokensForCurrentMode(int configuredMaxTokens) {
+  int? _chatMaxTokensForCurrentMode(int configuredMaxTokens,
+      {bool forceConcise = false}) {
     final novelMode = _isNovelModeEnabled();
     final pureAiMode = _storage.isPureAiModeEnabled();
-    if (novelMode && !pureAiMode) {
+    if (novelMode && !pureAiMode && !forceConcise) {
       // 小说模式=完整输出：必须显式给足 max_tokens。
       // 此前返回 null（不传 max_tokens）会退回服务端默认——很多模型/中转默认只有
       // 几百 token，正是「开了完整输出却只出一句话」的根因。取 max(用户配置, 下限)。
@@ -310,6 +311,7 @@ class AIService {
     String? internalSystemContext,
     int? overrideMaxTokens,
     bool isSideStory = false,
+    bool forceConcise = false,
   }) async {
     _lastTurnState = null;
     _lastParsedStatus = null;
@@ -341,6 +343,7 @@ class AIService {
       enableWebSearch: enableWebSearch,
       internalSystemContext: internalSystemContext,
       isSideStory: isSideStory,
+      forceConcise: forceConcise,
     );
 
     String baseUrl = config.baseUrl.trim();
@@ -355,8 +358,9 @@ class AIService {
 
     final allApiKeys = config.allApiKeys;
     int currentKeyIndex = 0;
-    final maxTokens =
-        overrideMaxTokens ?? _chatMaxTokensForCurrentMode(config.maxTokens);
+    final maxTokens = overrideMaxTokens ??
+        _chatMaxTokensForCurrentMode(config.maxTokens,
+            forceConcise: forceConcise);
 
     for (int attempt = 1; attempt <= AppDurations.maxRetries; attempt++) {
       try {
@@ -551,6 +555,7 @@ class AIService {
     bool enableWebSearch = false,
     String? internalSystemContext,
     bool isSideStory = false,
+    bool forceConcise = false,
   }) async* {
     _lastTurnState = null;
     _lastParsedStatus = null;
@@ -573,14 +578,16 @@ class AIService {
       enableWebSearch: enableWebSearch,
       internalSystemContext: internalSystemContext,
       isSideStory: isSideStory,
+      forceConcise: forceConcise,
     );
 
-    yield* _streamAPI(config, messages);
+    yield* _streamAPI(config, messages, forceConcise: forceConcise);
   }
 
   /// 核心流式API调用 — 解析SSE，yield AIStreamChunk（思考+正文）
-  Stream<AIStreamChunk> _streamAPI(
-      AIConfig config, List<Map<String, dynamic>> messages) async* {
+  Stream<AIStreamChunk> _streamAPI(AIConfig config,
+      List<Map<String, dynamic>> messages,
+      {bool forceConcise = false}) async* {
     String baseUrl = config.baseUrl.trim();
     while (baseUrl.endsWith('/')) {
       baseUrl = baseUrl.substring(0, baseUrl.length - 1);
@@ -591,7 +598,8 @@ class AIService {
 
     final allApiKeys = config.allApiKeys;
     int currentKeyIndex = 0;
-    final maxTokens = _chatMaxTokensForCurrentMode(config.maxTokens);
+    final maxTokens =
+        _chatMaxTokensForCurrentMode(config.maxTokens, forceConcise: forceConcise);
 
     for (int attempt = 1; attempt <= AppDurations.maxRetries; attempt++) {
       try {
@@ -1764,6 +1772,7 @@ class AIService {
     bool enableWebSearch = false,
     String? internalSystemContext,
     bool isSideStory = false,
+    bool forceConcise = false,
   }) async {
     final List<Map<String, dynamic>> messages = [];
 
@@ -1784,7 +1793,9 @@ class AIService {
     }
 
     final faMode = _storage.isFaModeEnabled();
-    final novelModeEarly = _storage.isChatStyleNovelModeEnabled();
+    // 语音朗读/通话场景：forceConcise 时强制走聊天模式，屏蔽小说叙事。
+    final novelModeEarly =
+        _storage.isChatStyleNovelModeEnabled() && !forceConcise;
     final pureAiModeEarly = _storage.isPureAiModeEnabled();
     final config = await _storage.getActiveAIConfig();
     final isCompactContextModel =
@@ -1808,6 +1819,7 @@ class AIService {
       messageCount: chatHistory.length,
       isFirstMessage: chatHistory.where((m) => m.isUser).length <= 1,
       isSideStory: isSideStory,
+      forceConcise: forceConcise,
     );
 
     // Rewrite system prompt for non-thinking models when FA mode is active
@@ -1853,7 +1865,8 @@ class AIService {
     }
 
     if (systemDirective != null && systemDirective.isNotEmpty) {
-      final novelMode = _storage.isChatStyleNovelModeEnabled();
+      final novelMode =
+          _storage.isChatStyleNovelModeEnabled() && !forceConcise;
       final pureAiMode = _storage.isPureAiModeEnabled();
       if (!pureAiMode) {
         messages.add({
@@ -1981,13 +1994,7 @@ class AIService {
       });
     }
     for (final msg in filteredMessages) {
-      // 语音消息：用 metadata 中的原始文本替代文件路径，防止 AI 复读路径
       String content = msg.content;
-      if (msg.type == MessageType.voice &&
-          msg.metadata != null &&
-          msg.metadata!['text'] != null) {
-        content = msg.metadata!['text'] as String;
-      }
       // 图片消息：历史里不要塞本地路径（模型读不懂且会污染上下文）；
       // 真实看图走本轮 multimodal image_url，历史只保留文案/占位。
       if (msg.type == MessageType.image ||
@@ -2025,7 +2032,8 @@ class AIService {
 
     if (needAppendUserMessage) {
       final faMode = _storage.isFaModeEnabled();
-      final novelMode = _storage.isChatStyleNovelModeEnabled();
+      final novelMode =
+          _storage.isChatStyleNovelModeEnabled() && !forceConcise;
       final pureAiMode = _storage.isPureAiModeEnabled();
       // FA+小说：额外把抽出的动作强调为场景事实（与通用括号规则叠加）
       if (!enableWebSearch &&
@@ -2389,6 +2397,7 @@ class AIService {
     int messageCount = 0,
     bool isFirstMessage = false,
     bool isSideStory = false,
+    bool forceConcise = false,
   }) async {
     return _promptBuilder.buildSystemPrompt(
       character: character,
@@ -2404,6 +2413,7 @@ class AIService {
       messageCount: messageCount,
       isFirstMessage: isFirstMessage,
       isSideStory: isSideStory,
+      forceConcise: forceConcise,
     );
   }
 

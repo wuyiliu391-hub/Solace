@@ -31,10 +31,7 @@ class PermissionService {
         // 1. 相机
         await _safeRequest(Permission.camera);
 
-        // 2. 麦克风（语音通话、语音消息需要）
-        await _safeRequest(Permission.microphone);
-
-        // 3. 定位
+        // 2. 定位
         await _safeRequest(Permission.location);
 
         // 3. 存储/图片 — Permission.storage 内部自动适配 API 级别
@@ -106,6 +103,15 @@ class PermissionService {
 
   static Future<bool> requestCameraPermission() async {
     return _safeRequest(Permission.camera);
+  }
+
+  static Future<bool> hasMicrophonePermission() async {
+    return _safeCheck(Permission.microphone);
+  }
+
+  /// 本地语音输入（录音转文字）用，按需申请。
+  static Future<bool> requestMicrophonePermission() async {
+    return _safeRequest(Permission.microphone);
   }
 
   static Future<bool> requestStoragePermission() async {

@@ -44,6 +44,10 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   List<GroupChatMessage> _messages = [];
   bool _isLoading = true;
 
+  /// 上滑分页（加载更早历史）
+  bool _hasMoreMessages = false;
+  bool _isLoadingMore = false;
+
   /// 设置弹窗内临时头像（选图后立即显示，持久化走 GroupChatUpdateSession）
   String? _dialogAvatar;
 
@@ -74,6 +78,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     super.initState();
     _groupId = widget.session.id;
     _session = widget.session;
+    _scrollController.addListener(_onScroll);
     _loadMessages();
     _loadMembers();
   }
@@ -94,6 +99,23 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   /// 静默刷新消息（批量操作后），不发 loading
   void _reloadMessages() {
     context.read<GroupChatBloc>().add(GroupChatLoadMessages(_groupId));
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    if (_hasMoreMessages &&
+        !_isLoadingMore &&
+        (maxScroll - currentScroll) < 200) {
+      _loadMoreMessages();
+    }
+  }
+
+  void _loadMoreMessages() {
+    if (_isLoadingMore || !_hasMoreMessages) return;
+    _isLoadingMore = true;
+    context.read<GroupChatBloc>().add(GroupChatLoadMoreMessages(_groupId));
   }
 
   Future<void> _loadMembers() async {
@@ -292,6 +314,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     if (state is GroupChatMessagesLoaded &&
                         state.groupId == _groupId) {
                       _messages = state.messages;
+                      _hasMoreMessages = state.hasMore;
+                      if (_isLoadingMore) _isLoadingMore = false;
                       _isLoading = false;
                       return _buildMessageList();
                     }
@@ -428,20 +452,44 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
       );
     }
 
+    final hasTyping = typingCharacter != null;
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      itemCount: displayMessages.length + (typingCharacter != null ? 1 : 0),
+      itemCount: displayMessages.length +
+          (hasTyping ? 1 : 0) +
+          (_hasMoreMessages ? 1 : 0),
       itemBuilder: (context, index) {
-        if (typingCharacter != null && index == 0) {
+        // 「上滑加载更多」指示器：reverse 列表的最后一格 = 视觉顶部
+        if (_hasMoreMessages &&
+            index == displayMessages.length + (hasTyping ? 1 : 0)) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: _isLoadingMore
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : Text('上滑加载更多历史消息',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.4))),
+            ),
+          );
+        }
+        if (hasTyping && index == 0) {
           return _TypingIndicator(
             name: typingCharacter,
             avatarUrl: _memberById(_memberIdByName(typingCharacter))?.avatarUrl,
           );
         }
         // 有打字指示器时消息整体后移一格
-        final msgIndex = typingCharacter != null ? index - 1 : index;
+        final msgIndex = hasTyping ? index - 1 : index;
         final msg = displayMessages[msgIndex];
         final prev = msgIndex > 0 ? displayMessages[msgIndex - 1] : null;
         final showAvatar = prev == null || prev.senderId != msg.senderId;

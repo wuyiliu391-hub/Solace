@@ -15,6 +15,7 @@ import '../../models/ai_stream_chunk.dart';
 import '../../models/bt_agent_action.dart';
 import '../../utils/sentiment_analyzer.dart';
 import '../../utils/message_sanitizer.dart';
+import '../../utils/global_mode_prompt.dart';
 import '../llm_service.dart';
 import '../../repositories/memory_repository.dart';
 import '../../services/emotion_memory_pool.dart';
@@ -102,6 +103,7 @@ class AIServiceAdapter {
     bool enableWebSearch = false,
     String? internalSystemContext,
     bool isSideStory = false,
+    bool forceConcise = false,
   }) async {
     _lastTurnState = null;
     _lastParsedStatus = null;
@@ -112,6 +114,7 @@ class AIServiceAdapter {
       intimacyLevel: intimacyLevel,
       userStatus: userStatus,
       sentiment: sentiment,
+      forceConcise: forceConcise,
     );
 
     // 构建额外上下文（记忆注入）
@@ -185,7 +188,8 @@ class AIServiceAdapter {
       extraContext: [
         ...extraContext,
       ],
-      omitMaxTokens: (_storage?.isChatStyleNovelModeEnabled() ?? false) &&
+      omitMaxTokens: !forceConcise &&
+          (_storage?.isChatStyleNovelModeEnabled() ?? false) &&
           !(_storage?.isPureAiModeEnabled() ?? false),
     );
 
@@ -220,6 +224,7 @@ class AIServiceAdapter {
     bool enableWebSearch = false,
     String? internalSystemContext,
     bool isSideStory = false,
+    bool forceConcise = false,
   }) async* {
     // 带图时委托主 AIService 流式（含 OpenAI vision content 数组）
     if (imagePaths != null && imagePaths.isNotEmpty && _storage != null) {
@@ -260,6 +265,7 @@ class AIServiceAdapter {
       enableWebSearch: enableWebSearch,
       internalSystemContext: internalSystemContext,
       isSideStory: isSideStory,
+      forceConcise: forceConcise,
     );
 
     yield AIStreamChunk(content: result);
@@ -524,6 +530,24 @@ class AIServiceAdapter {
     return const ForgivenessJudgment(shouldForgive: false, forgiveMessage: '');
   }
 
+  /// 构建全局模式提示词。语音朗读场景（forceConcise）下必须屏蔽小说/刀模式，
+  /// 否则系统提示里会同时出现「必须写长篇叙事」与「必须精简对白」两套冲突指令。
+  String _buildGlobalModePrompt({required bool forceConcise}) {
+    if (_storage == null) return '';
+    if (!forceConcise) {
+      return _storage!.buildGlobalModePrompt(scope: '单聊桥接');
+    }
+    return buildGlobalModePromptText(
+      pureAiMode: _storage!.isPureAiModeEnabled(),
+      novelMode: false,
+      loverMode: _storage!.isLoverModeEnabled(),
+      openMode: _storage!.isOpenModeEnabled(),
+      faMode: _storage!.isFaModeEnabled(),
+      daoMode: false,
+      scope: '单聊桥接',
+    );
+  }
+
   /// 构建系统提示词
   String _buildSystemPrompt({
     required AICharacter character,
@@ -531,6 +555,7 @@ class AIServiceAdapter {
     required int intimacyLevel,
     String? userStatus,
     SentimentResult? sentiment,
+    bool forceConcise = false,
   }) {
     final parts = <String>[];
 
@@ -557,7 +582,7 @@ class AIServiceAdapter {
       if (character.moralBoundary.isNotEmpty) {
         addClean('道德边界资料：', character.moralBoundary);
       }
-    } else if (novelMode) {
+    } else if (novelMode && !forceConcise) {
       parts.add('你是${character.name}。');
       if (character.personality.isNotEmpty) {
         addClean('性格：', character.personality);
@@ -601,7 +626,11 @@ class AIServiceAdapter {
 禁止替用户描写动作、心理、表情或反应。
 可以有轻微小动作、语气、表情或心理状态，但只能用一句话轻轻带过。
 最多3行，每行短句，每行只表达一个意思，适配自动分段。''');
-      parts.add(_storage?.buildGlobalModePrompt(scope: '单聊桥接') ?? '');
+      parts.add(_buildGlobalModePrompt(forceConcise: forceConcise));
+      if (forceConcise) {
+        parts.add('''
+【语音朗读 · 最高优先级】本轮回复将被语音朗读给用户听（如打电话），必须只说一句或几句话、像平时聊天一样简短。绝对禁止旁白、场景描写、动作神态描写、心理活动，禁止引号包裹对白，禁止括号动作，禁止任何长篇。直接输出角色口头说的话。''');
+      }
       parts.add('\n【消息长度规范 - 模拟真人微信聊天】');
       parts.add('真人发微信的习惯：');
       parts.add('- 一句话说完就发送，不会把所有话堆在一起');

@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Dart-%3E%3D3.0.0-blue?logo=dart" alt="Dart">
   <img src="https://img.shields.io/badge/Platform-Android%20%7C%20Web%20%7C%20Windows-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-18.0.0-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-18.0.1-orange" alt="Version">
 </p>
 
 ---
@@ -54,7 +54,6 @@
 - 支持创建多个 AI 角色，每个角色拥有独立人设
 - 流式/非流式双模式 AI 回复
 - 多模型切换（OpenAI 兼容接口）
-- 语音通话、语音消息、TTS 语音合成
 
 ### 🧠 情感记忆引擎
 
@@ -98,7 +97,6 @@
 | 状态管理 | BLoC (flutter_bloc) |
 | 数据存储 | SQLite (sqflite) / SharedPreferences |
 | AI 接口 | OpenAI 兼容 API |
-| 语音 | record + flutter_tts |
 | 图片 | image_picker + image_cropper |
 
 ### 架构模式

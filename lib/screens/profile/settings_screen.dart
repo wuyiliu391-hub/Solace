@@ -13,6 +13,8 @@ import '../settings/about_screen.dart';
 import '../phone/phone_icon_preview_screen.dart';
 
 import '../../utils/safe_file_picker.dart';
+import '../../services/voice/mimo_tts_service.dart';
+import '../voice/voice_stt_models_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -50,6 +52,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _globalMemoryMode = storage.getGlobalMemoryMode();
         _autoParagraphEnabled = storage.isAutoParagraphEnabled();
       });
+    }
+  }
+
+  Future<void> _openMiMoTtsSettings() async {
+    final config = await MiMoTtsConfigStore.load();
+    final controller = TextEditingController(text: config?.apiKey ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('MiMo TTS 设置'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '在 platform.xiaomimimo.com 注册后获取 API Key。\n'
+              '用于音色克隆与角色语音合成（当前限时免费）。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'API Key',
+                hintText: 'sk-xxxxx',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final key = controller.text.trim();
+              if (key.isEmpty) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('API Key 不能为空')),
+                );
+                return;
+              }
+              await MiMoTtsConfigStore.save(key);
+              if (ctx.mounted) Navigator.pop(ctx, true);
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('MiMo TTS API Key 已保存')),
+      );
     }
   }
 
@@ -141,6 +200,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 await storage.setGlobalMemoryMode(v);
                 setState(() => _globalMemoryMode = v);
               },
+              colorScheme: colorScheme,
+            ),
+          ], colorScheme),
+          const SizedBox(height: 12),
+          _buildSectionTitle('语音', colorScheme),
+          _buildCard([
+            _buildNavTile(
+              icon: Icons.record_voice_over_outlined,
+              iconBgColor: Colors.deepOrange.withOpacity(0.1),
+              title: 'MiMo TTS 设置',
+              subtitle: '配置 MiMo 语音合成 API Key（音色克隆 / 角色语音）',
+              onTap: _openMiMoTtsSettings,
+              colorScheme: colorScheme,
+            ),
+            _buildDivider(colorScheme),
+            _buildNavTile(
+              icon: Icons.hearing_outlined,
+              iconBgColor: Colors.teal.withOpacity(0.1),
+              title: '语音识别模型',
+              subtitle: '导入/管理 STT（SenseVoice）与 VAD（Silero）本地模型',
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (_) => const VoiceSttModelsDialog(),
+              ),
               colorScheme: colorScheme,
             ),
           ], colorScheme),

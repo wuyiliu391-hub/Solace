@@ -89,7 +89,8 @@ void main() {
 
     when(() => storage.getGroupChatSession('g1'))
         .thenAnswer((_) async => session);
-    when(() => storage.getGroupChatMessages(any(), chatId: any(named: 'chatId')))
+    when(() => storage.getGroupChatMessages(any(),
+            chatId: any(named: 'chatId'), limit: any(named: 'limit')))
         .thenAnswer((_) async => <GroupChatMessage>[]);
     when(() => storage.getGroupChatBranches('g1'))
         .thenAnswer((_) async => <GroupChatBranch>[]);
@@ -134,7 +135,8 @@ void main() {
   testWidgets('首次加载期间显示加载圈（不误伤正常 loading）', (tester) async {
     // 挂起消息查询：模拟加载进行中
     final gate = Completer<List<GroupChatMessage>>();
-    when(() => storage.getGroupChatMessages(any(), chatId: any(named: 'chatId')))
+    when(() => storage.getGroupChatMessages(any(),
+            chatId: any(named: 'chatId'), limit: any(named: 'limit')))
         .thenAnswer((_) => gate.future);
 
     final bloc = GroupChatBloc(storage, aiService);
@@ -182,8 +184,6 @@ void main() {
     when(() => storage.saveGroupChatSession(any())).thenAnswer((_) async {});
     when(() => storage.getGroupChatSession('g1')).thenAnswer((_) async =>
         session.copyWith(activationStrategy: GroupActivationStrategy.list));
-    when(() => storage.getGroupChatMessages(any(), chatId: any(named: 'chatId')))
-        .thenAnswer((_) async => [userMsg]);
     when(() => storage.getGroupChatMessages(any(),
             limit: any(named: 'limit'), chatId: any(named: 'chatId')))
         .thenAnswer((_) async => [userMsg]);

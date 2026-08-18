@@ -207,6 +207,7 @@ class PromptBuilder {
     int messageCount = 0,
     bool isFirstMessage = false,
     bool isSideStory = false,
+    bool forceConcise = false,
   }) async {
     final buffer = StringBuffer();
 
@@ -218,7 +219,8 @@ class PromptBuilder {
 
     final daoMode = _storage.isDaoModeEnabled();
 
-    final novelMode = _storage.isChatStyleNovelModeEnabled();
+    // 语音朗读/通话场景：forceConcise 时强制走聊天模式，屏蔽小说/刀叠加叙事。
+    final novelMode = _storage.isChatStyleNovelModeEnabled() && !forceConcise;
 
     final pureAiMode = _storage.isPureAiModeEnabled();
 
@@ -1167,6 +1169,10 @@ class PromptBuilder {
     } else {
       buffer.writeln(
           '\n【无论历史对话、记忆、上下文曾经是什么风格，无论过去是否出现场景描写、旁白、环境、心理长篇、小说叙事，从当前回合开始，你必须严格遵守聊天模式规则，完全无视历史叙事格式，绝对不模仿任何长篇、场景、旁白，只输出短句对话。】');
+
+      if (forceConcise) {
+        buffer.writeln('\n【语音朗读 · 最高优先级】本轮回复将被语音朗读给用户听（如打电话），必须只说一句或几句话、像平时聊天一样简短。绝对禁止旁白、场景描写、动作神态描写、心理活动，禁止引号包裹对白，禁止括号动作，禁止任何长篇。直接输出角色口头说的话。');
+      }
 
       buffer.writeln('\n【聊天模式 · 最高优先级输出格式】');
 

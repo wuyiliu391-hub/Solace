@@ -1,7 +1,7 @@
 name: solace
-version: 18.0.0+293
+version: 18.0.1+294
 publish_to: none
-description: Solace - AI 陪伴应用，多角色聊天、语音回复、心情日记、从回忆创建角色。纯本地存储，隐私安全。
+description: Solace - AI 陪伴应用，多角色聊天、心情日记、从回忆创建角色。纯本地存储，隐私安全。
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -43,6 +43,13 @@ dependencies:
   yaml: ^3.1.2
   webview_flutter: ^4.10.0
 
+  # 本地离线语音（TTS 走 MiMo 云端 API；STT/VAD 用 sherpa-onnx 本地模型）
+  # STT/VAD 模型文件不内置，用户手动导入（见 VoiceModelManager）
+  sherpa_onnx: 1.13.3
+  archive: ^3.6.1
+  audioplayers: ^6.8.1
+  record: ^6.2.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -64,6 +71,7 @@ flutter:
     - assets/graph/d3.min.js
     - assets/phone_icons/
     - assets/phone_icons/generated/
+    - assets/voice/
   fonts:
     - family: TwitterIcon
       fonts:

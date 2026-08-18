@@ -57,6 +57,10 @@ class ChatSendMessage extends ChatEvent {
   /// 本轮附带的本地图片路径（多模态模型时走 OpenAI vision）
   final List<String>? imagePaths;
 
+  /// 语音通话等「必须开口朗读」的场景：即使全局开了小说模式，也强制按
+  /// 聊天模式生成一句或几句话的简短对白，绝对不允许输出小说旁白/场景叙事。
+  final bool forceConcise;
+
   const ChatSendMessage({
     required this.chatId,
     required this.userId,
@@ -64,11 +68,12 @@ class ChatSendMessage extends ChatEvent {
     this.metadata,
     this.enableWebSearch = false,
     this.imagePaths,
+    this.forceConcise = false,
   });
 
   @override
   List<Object?> get props =>
-      [chatId, userId, content, metadata, enableWebSearch, imagePaths];
+      [chatId, userId, content, metadata, enableWebSearch, imagePaths, forceConcise];
 }
 
 class ChatCreateSession extends ChatEvent {
@@ -370,6 +375,48 @@ class ChatDeleteMessage extends ChatEvent {
 
   @override
   List<Object?> get props => [chatId, messageId];
+}
+
+/// 批量删除消息（多选模式）
+class ChatDeleteMessages extends ChatEvent {
+  final String chatId;
+  final List<String> messageIds;
+
+  const ChatDeleteMessages({
+    required this.chatId,
+    required this.messageIds,
+  });
+
+  @override
+  List<Object?> get props => [chatId, messageIds];
+}
+
+/// 撤回消息（内容替换为「已撤回」）
+class ChatRecallMessage extends ChatEvent {
+  final String chatId;
+  final String messageId;
+
+  const ChatRecallMessage({
+    required this.chatId,
+    required this.messageId,
+  });
+
+  @override
+  List<Object?> get props => [chatId, messageId];
+}
+
+/// 批量收藏消息（多选模式）
+class ChatBatchBookmark extends ChatEvent {
+  final String chatId;
+  final List<String> messageIds;
+
+  const ChatBatchBookmark({
+    required this.chatId,
+    required this.messageIds,
+  });
+
+  @override
+  List<Object?> get props => [chatId, messageIds];
 }
 
 /// 收藏/取消收藏消息（对标 SillyTavern mes_bookmark）

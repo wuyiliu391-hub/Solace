@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
+import '../../utils/avatar_resolver.dart';
 import '../chat/chat_detail_screen.dart';
 
 /// 收藏消息列表 — 展示用户收藏的所有 AI/用户消息
@@ -18,6 +19,9 @@ class BookmarkListScreen extends StatefulWidget {
 class _BookmarkListScreenState extends State<BookmarkListScreen> {
   List<Map<String, dynamic>> _bookmarks = [];
   bool _isLoading = true;
+
+  /// 当前筛选的角色 ID；null = 全部
+  String? _selectedCharacterId;
 
   @override
   void initState() {
@@ -33,6 +37,12 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
       if (mounted) {
         setState(() {
           _bookmarks = bookmarks;
+          // 选中的角色已没有收藏时，回退到「全部」
+          if (_selectedCharacterId != null &&
+              !bookmarks
+                  .any((b) => (b['characterId'] as String?) == _selectedCharacterId)) {
+            _selectedCharacterId = null;
+          }
           _isLoading = false;
         });
       }
@@ -40,6 +50,33 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
       debugPrint('加载收藏消息失败: $e');
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// 去重后的角色列表（按 characterId，用于筛选栏）
+  List<Map<String, dynamic>> get _characters {
+    final seen = <String, Map<String, dynamic>>{};
+    for (final b in _bookmarks) {
+      final id = (b['characterId'] as String?) ?? '';
+      if (id.isEmpty) continue;
+      seen.putIfAbsent(
+        id,
+        () => {
+          'id': id,
+          'name': (b['sessionName'] as String?) ?? '未知角色',
+          'avatar': b['characterAvatar'] as String?,
+        },
+      );
+    }
+    return seen.values.toList();
+  }
+
+  /// 按当前筛选角色过滤后的收藏列表
+  List<Map<String, dynamic>> get _filteredBookmarks {
+    final id = _selectedCharacterId;
+    if (id == null) return _bookmarks;
+    return _bookmarks
+        .where((b) => (b['characterId'] as String?) == id)
+        .toList();
   }
 
   /// 取消收藏
@@ -110,7 +147,16 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _bookmarks.isEmpty
               ? _buildEmptyState(cs, isDark)
-              : _buildList(cs, isDark),
+              : Column(
+                  children: [
+                    _buildFilterBar(cs, isDark),
+                    Expanded(
+                      child: _filteredBookmarks.isEmpty
+                          ? _buildEmptyState(cs, isDark)
+                          : _buildList(cs, isDark),
+                    ),
+                  ],
+                ),
     );
   }
 
@@ -145,14 +191,59 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
     );
   }
 
+  /// 角色筛选栏（全部 + 各角色）
+  Widget _buildFilterBar(ColorScheme cs, bool isDark) {
+    final chars = _characters;
+    return SizedBox(
+      height: 46,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        itemCount: chars.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return _buildFilterChip(cs, null, '全部', null);
+          }
+          final c = chars[index - 1];
+          return _buildFilterChip(cs, c['id'] as String, c['name'] as String,
+              c['avatar'] as String?);
+        },
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(
+      ColorScheme cs, String? id, String name, String? avatar) {
+    final selected = _selectedCharacterId == id;
+    final avatarWidget = AvatarResolver.imageWidget(
+      avatar,
+      width: 18,
+      height: 18,
+      onError: () =>
+          Icon(Icons.person_rounded, size: 18, color: cs.onSurfaceVariant),
+    );
+    return ChoiceChip(
+      avatar: avatarWidget == null
+          ? null
+          : ClipOval(
+              child: SizedBox(width: 18, height: 18, child: avatarWidget)),
+      label: Text(name, style: const TextStyle(fontSize: 12)),
+      selected: selected,
+      showCheckmark: false,
+      onSelected: (_) => setState(() => _selectedCharacterId = id),
+    );
+  }
+
   Widget _buildList(ColorScheme cs, bool isDark) {
+    final items = _filteredBookmarks;
     return RefreshIndicator(
       onRefresh: _loadBookmarks,
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: _bookmarks.length,
+        itemCount: items.length,
         itemBuilder: (context, index) {
-          final entry = _bookmarks[index];
+          final entry = items[index];
           final msg = entry['message'] as ChatMessage;
           final sessionName = entry['sessionName'] as String;
           final isAI = msg.isFromAI;

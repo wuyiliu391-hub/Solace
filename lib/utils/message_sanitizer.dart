@@ -792,6 +792,66 @@ class MessageSanitizer {
 
   static String failureFallbackText() => '网络刚才有点不稳，我重新想一下怎么回复你。';
 
+  /// 对白引号（小说模式下「说出口的话」都用引号包裹，旁白在外面）。
+  /// 兼容中文弯引号 “…”、英文直引号 "…"、直角引号 「」/『』。
+  static final RegExp _speechDialogueRe = RegExp(
+      '\u201C[^\u201D]*\u201D|"[^"]*"|「[^」]*」|『[^』]*』');
+
+  /// 口语语气标记：命中则大概率是口头台词。
+  static final RegExp _speechDialogueMarkerRe =
+      RegExp(r'[？！?！～~]|[啦吧呢吗啊呀哦嗯嘿哈呵哎哟]');
+
+  /// 身体感受/内心体感关键词：命中说明引号内大概率是内心独白而非口头台词。
+  static final RegExp _speechBodySensationRe = RegExp(
+    r'身体|体内|脊椎|神经|四肢|胸口|腹部|皮肤|肌肉|骨骼|喉咙|眼眶|鼻腔|舌尖|指尖|掌心|脚底|'
+    r'异物感|发麻|酸麻|酸痛|酥麻|刺痒|痉挛|颤抖|发烫|发热|发冷|冷汗|燥热|'
+    r'生理|私密|深处|内部|器官|分泌|'
+    r'心跳|呼吸急促|呼吸紊乱|呼吸困难|窒息|眩晕|发软|乏力|瘫软|'
+    r'蔓延|肿胀|抽搐|收缩|扩张|紧绷|松弛|湿润|干燥|黏腻|'
+    r'脑子|大脑|意识|神经末梢|敏感|滚烫|冰凉',
+  );
+
+  /// 语音朗读专用：把小说叙事还原成「说出口的对白」，只读台词、不读旁白。
+  ///
+  /// 小说模式下对白用 “ ” / 「」 / 『』 包裹、旁白在引号外；本方法只取引号内
+  /// 判定为口头台词的片段。没有有效对白时回退到「去除括号旁白后的整段文本」。
+  static String extractSpokenText(String text) {
+    if (text.isEmpty) return text;
+    final matches = _speechDialogueRe.allMatches(text).toList();
+    final spoken = <String>[];
+    for (final m in matches) {
+      final inner = m
+          .group(0)!
+          .replaceAll(RegExp('[\u201C\u201D"「」『』]'), '')
+          .trim();
+      if (inner.isEmpty) continue;
+      if (!_isSpokenLine(inner)) continue;
+      spoken.add(inner);
+    }
+    if (spoken.isNotEmpty) return spoken.join('，');
+    // 无对白：去掉括号动作/旁白、尖括号标签、方括号残留，只保留可朗读正文。
+    var t = text
+        .replaceAll(RegExp(r'[（(][^（）()]*[）)]'), ' ')
+        .replaceAll(RegExp(r'<[^>]*>'), ' ')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
+    t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return t;
+  }
+
+  /// 判断引号内文本是否为真正的口头台词（说出口的话）。
+  static bool _isSpokenLine(String line) {
+    final content = line.trim();
+    if (content.isEmpty) return false;
+    // 太长大概率是旁白被误包，不念。
+    if (content.length > 60) return false;
+    // 命中身体感受且无口语语气标记 → 内心体感，不念。
+    if (_speechBodySensationRe.hasMatch(content) &&
+        !_speechDialogueMarkerRe.hasMatch(content)) {
+      return false;
+    }
+    return true;
+  }
+
   /// 第三人称代词轻量纠错（仅在角色性别明确时）
   ///
   /// 说明：不碰「你/我」对话主体，只修正旁白式「他/她」在指代角色自身时的常见错用。

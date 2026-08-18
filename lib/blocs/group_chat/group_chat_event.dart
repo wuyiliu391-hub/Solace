@@ -50,6 +50,14 @@ class GroupChatLoadMessages extends GroupChatEvent {
   List<Object?> get props => [groupId];
 }
 
+/// 加载更早的群聊消息（上滑分页）
+class GroupChatLoadMoreMessages extends GroupChatEvent {
+  final String groupId;
+  const GroupChatLoadMoreMessages(this.groupId);
+  @override
+  List<Object?> get props => [groupId];
+}
+
 /// 发送群聊消息
 class GroupChatSendMessage extends GroupChatEvent {
   final String groupId;

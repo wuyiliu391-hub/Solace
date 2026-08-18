@@ -10,6 +10,7 @@ import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/chat/chat_bloc.dart';
 import '../../models/chat_session.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,6 +22,9 @@ import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/ai_status_service.dart';
 import '../virtual_phone/virtual_phone_screen.dart';
+import '../voice/voice_call_screen.dart';
+import '../../services/voice/mimo_tts_service.dart';
+import '../../services/voice/mimo_director.dart';
 import '../../models/virtual_phone/virtual_phone.dart';
 import '../../services/virtual_phone_generator.dart';
 import '../../utils/message_sanitizer.dart';
@@ -51,6 +55,15 @@ import '../../services/emotion_engine.dart';
 import '../../models/character_emotion.dart';
 import '../moments/moments_screen.dart';
 import 'chat_settings_screen.dart';
+
+import '../../services/voice/voice_model_manager.dart';
+import '../../services/voice/local_tts_service.dart';
+import '../../services/voice/local_stt_service.dart';
+import '../../services/voice/voice_recorder_service.dart';
+import '../../services/voice/voice_player_service.dart';
+import '../../services/voice/voice_profile_store.dart';
+import '../../services/permission_service.dart';
+import '../voice/voice_clone_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final ChatSession session;
@@ -128,6 +141,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final ValueNotifier<bool> _isAiTypingNotifier = ValueNotifier<bool>(false);
   bool get _isAiTyping => _isAiTypingNotifier.value;
   Timer? _loadingFallbackTimer;
+
+  // ─── 本地语音（AI 回复合成播放 + 录音转文字） ───
+  final VoiceRecorderService _voiceRecorder = VoiceRecorderService();
+  final VoicePlayerService _voicePlayer = VoicePlayerService();
+  final LocalTtsService _localTts = createLocalTtsService();
+  final LocalSttService _localStt = createLocalSttService();
+  bool _isRecordingVoice = false;
+  bool _isTranscribingVoice = false;
+  String? _synthesizingMessageId; // 正在合成语音的消息 id
   bool _forceUseFallback = false;
   Timer? _usageReminderTimer;
   DateTime? _sessionStartTime;
@@ -227,16 +249,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   Future<void> _batchBookmark() async {
     if (_selectedIds.isEmpty) return;
-    final ids = Set<String>.from(_selectedIds);
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final ids = _selectedIds.toList();
     var n = 0;
     for (final m in _cachedMessages) {
-      if (ids.contains(m.id) && !m.isBookmark) {
-        await storage.saveChatMessage(m.copyWith(isBookmark: true));
-        n++;
-      }
+      if (_selectedIds.contains(m.id) && !m.isBookmark) n++;
     }
-    _chatBloc.add(ChatLoadMessages(widget.session.id));
+    _chatBloc.add(ChatBatchBookmark(
+      chatId: widget.session.id,
+      messageIds: ids,
+    ));
     _exitSelection();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -267,12 +288,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ),
     );
     if (confirmed != true) return;
-    final ids = Set<String>.from(_selectedIds);
-    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-    for (final id in ids) {
-      await storage.deleteChatMessage(id);
-    }
-    _chatBloc.add(ChatLoadMessages(widget.session.id));
+    final ids = _selectedIds.toList();
+    _chatBloc.add(ChatDeleteMessages(
+      chatId: widget.session.id,
+      messageIds: ids,
+    ));
     _exitSelection();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -363,6 +383,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       centerTitle: true,
       actions: [
         IconButton(
+          tooltip: '语音通话',
+          icon: Icon(
+            Icons.call_rounded,
+            color: isDark ? Colors.white : Colors.black,
+            size: 22,
+          ),
+          onPressed: () => _openVoiceCall(context),
+        ),
+        IconButton(
           tooltip: 'TA 的手机',
           icon: Icon(
             Icons.smartphone_rounded,
@@ -431,8 +460,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   /// 番外小剧场顶部标识横幅（剧情不纳入主线）。
   Widget _buildSideStoryBanner(ColorScheme colorScheme, bool isDark) {
-    final accent =
-        isDark ? const Color(0xFFE6C88A) : const Color(0xFF8A6D3B);
+    final accent = isDark ? const Color(0xFFE6C88A) : const Color(0xFF8A6D3B);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -602,8 +630,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除番外'),
-        content: Text(
-            '确定删除「${sideStory.sideStoryTitle ?? '未命名番外'}」吗？此操作不可恢复。'),
+        content: Text('确定删除「${sideStory.sideStoryTitle ?? '未命名番外'}」吗？此操作不可恢复。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -621,6 +648,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     await storage.deleteChatSessionCascade(sideStory.id);
     if (!mounted) return;
     _openSideStoryList();
+  }
+
+  Future<void> _openVoiceCall(BuildContext context) async {
+    final user = (context.read<AuthBloc>().state as AuthAuthenticated).user;
+    if (!context.mounted) return;
+    final micOk = await PermissionService.requestMicrophonePermission();
+    if (!context.mounted) return;
+    if (!micOk) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('需要麦克风权限才能语音通话')),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => VoiceCallScreen(
+          chatBloc: _chatBloc,
+          session: widget.session,
+          userId: user.id,
+        ),
+      ),
+    );
   }
 
   Future<void> _openVirtualPhone(BuildContext context) async {
@@ -1118,11 +1167,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ),
       child: Row(
         children: [
-          Text(
-            _turnEmoji,
-            style: const TextStyle(fontSize: 17, height: 1),
-          ),
-          const SizedBox(width: 6),
           Expanded(
             child: Text(
                 '$_turnEmotion  ${_turnIntensity == 0 ? '' : '${(_turnIntensity * 100).round()}%'}\n$_turnThought',
@@ -2160,6 +2204,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _canSendNotifier.dispose();
     _showNewMessageBannerNotifier.dispose();
 
+    // 本地语音资源释放
+    _voiceRecorder.dispose();
+    _voicePlayer.dispose();
+
     // 移除模式切换监听
     if (_onModeSettingsChanged != null && _modeSettingsStorage != null) {
       _modeSettingsStorage!.modeSettingsNotifier
@@ -2175,10 +2223,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _cancelReply() {
-      setState(() => _replyToMessage = null);
-    }
+    setState(() => _replyToMessage = null);
+  }
 
-    String _replyPreview(ChatMessage message) {
+  String _replyPreview(ChatMessage message) {
     switch (message.type) {
       case MessageType.image:
         return '[图片]';
@@ -2186,8 +2234,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         return '[表情]';
       case MessageType.system:
         return '[系统消息]';
-      case MessageType.voice:
-        return '[语音]';
       case MessageType.text:
         return message.content.length > 50
             ? '${message.content.substring(0, 50)}...'
@@ -2282,10 +2328,196 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 _pickAndAttachImages();
               },
             ),
+            const SizedBox(height: 16),
+            _MoreActionItem(
+              icon: Icons.record_voice_over_outlined,
+              label: '音色克隆',
+              color: const Color(0xFF10B981),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => VoiceCloneScreen(
+                      characterId: widget.session.aiCharacterId,
+                      characterName: widget.session.aiCharacterName,
+                    ),
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),
     );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 本地语音：模型下载 / 录音转文字 / AI 回复合成播放
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// 确保语音模型已就绪（STT/VAD 本地模型，导入入口在语音通话页）。
+  Future<bool> _ensureVoiceModel(VoiceModelKind kind) async {
+    if (await VoiceModelManager.instance.isReady(kind)) return true;
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('语音识别模型未导入，请先到语音通话页导入'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+    return false;
+  }
+
+  Future<({String path, String text})?> _resolveVoiceReference() async {
+    try {
+      final store = VoiceProfileStore.instance;
+      final custom = await store.loadCustom(widget.session.aiCharacterId);
+      if (custom != null) return custom;
+      return await store.loadDefault();
+    } catch (e) {
+      debugPrint('解析参考音色失败: $e');
+      return null;
+    }
+  }
+
+  /// AI 消息气泡上的「播放语音」：合成该条消息的语音并播放。
+  Future<void> _playMessageVoice(ChatMessage message) async {
+    if (_synthesizingMessageId == message.id) return;
+    final cleaned = MessageSanitizer.removeRepeatedContent(message.content);
+    // 语音朗读只念「说出口的对白」：小说模式下的旁白/场景/心理一律不读。
+    final text = MessageSanitizer.extractSpokenText(cleaned).trim();
+    if (text.isEmpty) return;
+
+    setState(() => _synthesizingMessageId = message.id);
+    try {
+      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+      final config = await MiMoTtsConfigStore.load();
+      if (config == null || !config.isValid) {
+        if (mounted) {
+          await showDialog<void>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('需要配置 MiMo TTS'),
+              content: const Text(
+                '语音合成需要 MiMo TTS API Key。\n'
+                '请到「我」→「设置」→「MiMo TTS 设置」填写。',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('知道了'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+      final ref = await _resolveVoiceReference();
+      if (ref == null || !mounted) return;
+
+      await _localTts.setReferenceAudio(
+        widget.session.aiCharacterId,
+        ref.path,
+        ref.text,
+      );
+      // 导演模式：用角色人设 + 当前台词生成风格指令
+      AICharacter? character;
+      try {
+        character = await storage.getAICharacter(widget.session.aiCharacterId);
+      } catch (_) {}
+      final director = buildDirectorPrompt(character, text);
+      final result = await (_localTts as MiMoTtsService).synthesizeWithStyle(
+        widget.session.aiCharacterId,
+        text,
+        style: director,
+      );
+      if (!mounted) return;
+      await _voicePlayer.play(result.audioFilePath);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('语音合成失败: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _synthesizingMessageId = null);
+    }
+  }
+
+  /// 输入栏麦克风按钮：点一下开始录音，再点一下停止 → 转写 → 填入输入框。
+  Future<void> _handleVoiceInput() async {
+    tapHaptic();
+    if (_isRecordingVoice) {
+      // 停止录音并转写
+      setState(() => _isRecordingVoice = false);
+      final path = await _voiceRecorder.stop();
+      if (path == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('录音失败，请重试')),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _isTranscribingVoice = true);
+      try {
+        final ready = await _ensureVoiceModel(VoiceModelKind.senseVoiceStt);
+        if (!ready) {
+          if (mounted) setState(() => _isTranscribingVoice = false);
+          return;
+        }
+        final result = await _localStt.transcribe(path);
+        if (!mounted) return;
+        final text = result.text.trim();
+        if (text.isNotEmpty) {
+          _messageController.text = text;
+          _messageController.selection =
+              TextSelection.collapsed(offset: text.length);
+          _syncCanSend();
+          _messageFocusNode.requestFocus();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('没有识别到内容，请再说一次')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('语音识别失败: $e')),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isTranscribingVoice = false);
+        try {
+          final f = File(path);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+    } else {
+      // 开始录音
+      final granted = await PermissionService.requestMicrophonePermission();
+      if (!mounted) return;
+      if (!granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('需要麦克风权限才能语音输入')),
+        );
+        return;
+      }
+      try {
+        await _voiceRecorder.start();
+        if (mounted) setState(() => _isRecordingVoice = true);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('开始录音失败: $e')),
+          );
+        }
+      }
+    }
   }
 
   void _syncCanSend() {
@@ -2992,47 +3224,26 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   Future<void> _deleteMessage(ChatMessage message) async {
     confirmHaptic();
-    try {
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      await storage.deleteChatMessage(message.id);
-      _chatBloc.add(ChatLoadMessages(widget.session.id));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('消息已删除'), duration: Duration(seconds: 1)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除失败: $e')),
-        );
-      }
+    _chatBloc.add(ChatDeleteMessage(
+      chatId: widget.session.id,
+      messageId: message.id,
+    ));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('消息已删除'), duration: Duration(seconds: 1)),
+      );
     }
   }
 
   Future<void> _recallMessage(ChatMessage message) async {
-    try {
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final recalledMessage = message.copyWith(
-        content: '已撤回',
-        status: MessageStatus.failed,
-        metadata: {'recalled': true, 'originalContent': message.content},
+    _chatBloc.add(ChatRecallMessage(
+      chatId: widget.session.id,
+      messageId: message.id,
+    ));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('消息已撤回'), duration: Duration(seconds: 1)),
       );
-      await storage.saveChatMessage(recalledMessage);
-      _chatBloc.add(ChatLoadMessages(widget.session.id));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('消息已撤回'), duration: Duration(seconds: 1)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('撤回失败: $e')),
-        );
-      }
     }
   }
 
@@ -3409,6 +3620,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       onImageTap: message.type == MessageType.image
                           ? () => _showFullScreenImage(message.content)
                           : null,
+                      onPlayVoice: message.isFromAI
+                          ? () => _playMessageVoice(message)
+                          : null,
+                      voiceBusy: _synthesizingMessageId == message.id,
                     ),
                   ),
                   if (showTime)
@@ -3666,169 +3881,202 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     ],
                   ),
                 ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        // 括号快捷按钮（语c动作描写）
-                        Tooltip(
-                          message: '输入括号（语C动作描写）',
-                          child: GestureDetector(
-                            onTap: () {
-                              final text = _messageController.text;
-                              final selection = _messageController.selection;
-                              final start = selection.start < 0
-                                  ? text.length
-                                  : selection.start;
-                              final newText =
-                                  '${text.substring(0, start)}（）${text.substring(start)}';
-                              _messageController.text = newText;
-                              // 光标定位到括号中间
-                              _messageController.selection =
-                                  TextSelection.collapsed(offset: start + 1);
-                              _messageFocusNode.requestFocus();
-                              // 更新发送按钮状态
-                              _syncCanSend();
-                            },
-                            child: Container(
-                              width: 36,
-                              height: 40,
-                              margin:
-                                  const EdgeInsets.only(right: 4, bottom: 2),
-                              alignment: Alignment.center,
-                              child: Text(
-                                '()',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark
-                                      ? Colors.white.withOpacity(0.6)
-                                      : Colors.black.withOpacity(0.5),
-                                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      // 语音输入按钮（录音转文字）
+                      Tooltip(
+                        message: _isRecordingVoice ? '停止并识别' : '语音输入',
+                        child: GestureDetector(
+                          onTap: _handleVoiceInput,
+                          child: Container(
+                            width: 36,
+                            height: 40,
+                            margin: const EdgeInsets.only(right: 4, bottom: 2),
+                            alignment: Alignment.center,
+                            child: _isTranscribingVoice
+                                ? SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: isDark
+                                          ? Colors.white.withOpacity(0.7)
+                                          : Colors.black.withOpacity(0.5),
+                                    ),
+                                  )
+                                : Icon(
+                                    _isRecordingVoice
+                                        ? Icons.stop_circle_outlined
+                                        : Icons.mic_none,
+                                    size: 24,
+                                    color: _isRecordingVoice
+                                        ? Colors.redAccent
+                                        : (isDark
+                                            ? Colors.white.withOpacity(0.6)
+                                            : Colors.black.withOpacity(0.5)),
+                                  ),
+                          ),
+                        ),
+                      ),
+                      // 括号快捷按钮（语c动作描写）
+                      Tooltip(
+                        message: '输入括号（语C动作描写）',
+                        child: GestureDetector(
+                          onTap: () {
+                            final text = _messageController.text;
+                            final selection = _messageController.selection;
+                            final start = selection.start < 0
+                                ? text.length
+                                : selection.start;
+                            final newText =
+                                '${text.substring(0, start)}（）${text.substring(start)}';
+                            _messageController.text = newText;
+                            // 光标定位到括号中间
+                            _messageController.selection =
+                                TextSelection.collapsed(offset: start + 1);
+                            _messageFocusNode.requestFocus();
+                            // 更新发送按钮状态
+                            _syncCanSend();
+                          },
+                          child: Container(
+                            width: 36,
+                            height: 40,
+                            margin: const EdgeInsets.only(right: 4, bottom: 2),
+                            alignment: Alignment.center,
+                            child: Text(
+                              '()',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: isDark
+                                    ? Colors.white.withOpacity(0.6)
+                                    : Colors.black.withOpacity(0.5),
                               ),
                             ),
                           ),
                         ),
-                        // 输入框
-                        Expanded(
-                          child: Container(
-                            constraints: const BoxConstraints(
-                                minHeight: 40, maxHeight: 120),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? const Color(0xFF2C2C2C)
-                                  : const Color(0xFFEEEEEE),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                // 文本输入
-                                Expanded(
-                                  child: TextField(
-                                    controller: _messageController,
-                                    focusNode: _messageFocusNode,
-                                    decoration: InputDecoration(
-                                      hintText: _pendingImagePaths.isEmpty
-                                          ? '发消息...'
-                                          : '添加说明，或直接发送图片...',
-                                      hintStyle: TextStyle(
-                                        color: isDark
-                                            ? Colors.white.withOpacity(0.35)
-                                            : Colors.black.withOpacity(0.35),
-                                        fontSize: 15,
-                                      ),
-                                      filled: false,
-                                      border: InputBorder.none,
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 10,
-                                      ),
-                                    ),
-                                    style: TextStyle(
-                                      color: colorScheme.onSurface,
+                      ),
+                      // 输入框
+                      Expanded(
+                        child: Container(
+                          constraints: const BoxConstraints(
+                              minHeight: 40, maxHeight: 120),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xFF2C2C2C)
+                                : const Color(0xFFEEEEEE),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              // 文本输入
+                              Expanded(
+                                child: TextField(
+                                  controller: _messageController,
+                                  focusNode: _messageFocusNode,
+                                  decoration: InputDecoration(
+                                    hintText: _pendingImagePaths.isEmpty
+                                        ? '发消息...'
+                                        : '添加说明，或直接发送图片...',
+                                    hintStyle: TextStyle(
+                                      color: isDark
+                                          ? Colors.white.withOpacity(0.35)
+                                          : Colors.black.withOpacity(0.35),
                                       fontSize: 15,
                                     ),
-                                    textInputAction: TextInputAction.send,
-                                    onSubmitted: (_) => _sendMessage(),
-                                    onTapOutside: (_) {
-                                      // 点空白处自然收起，不在发送路径上抢焦点
-                                      _messageFocusNode.unfocus();
-                                    },
-                                    maxLines: null,
-                                    onChanged: (v) {
-                                      _syncCanSend();
-                                    },
+                                    filled: false,
+                                    border: InputBorder.none,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 10,
+                                    ),
                                   ),
+                                  style: TextStyle(
+                                    color: colorScheme.onSurface,
+                                    fontSize: 15,
+                                  ),
+                                  textInputAction: TextInputAction.send,
+                                  onSubmitted: (_) => _sendMessage(),
+                                  onTapOutside: (_) {
+                                    // 点空白处自然收起，不在发送路径上抢焦点
+                                    _messageFocusNode.unfocus();
+                                  },
+                                  maxLines: null,
+                                  onChanged: (v) {
+                                    _syncCanSend();
+                                  },
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        // 表情按钮
-                        GestureDetector(
-                          onTap: _showStickerPicker,
-                          child: Container(
-                            width: 36,
-                            height: 40,
-                            alignment: Alignment.center,
-                            child: Icon(
-                              Icons.emoji_emotions_outlined,
-                              color: isDark
-                                  ? Colors.white.withOpacity(0.6)
-                                  : Colors.black.withOpacity(0.5),
-                              size: 24,
-                            ),
+                      ),
+                      const SizedBox(width: 8),
+                      // 表情按钮
+                      GestureDetector(
+                        onTap: _showStickerPicker,
+                        child: Container(
+                          width: 36,
+                          height: 40,
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.emoji_emotions_outlined,
+                            color: isDark
+                                ? Colors.white.withOpacity(0.6)
+                                : Colors.black.withOpacity(0.5),
+                            size: 24,
                           ),
                         ),
-                        const SizedBox(width: 4),
-                        // 图片按钮 / 发送按钮（有文字时显示发送）
-                        ValueListenableBuilder<bool>(
-                          valueListenable: _canSendNotifier,
-                          builder: (context, canSend, _) {
-                            if (canSend) {
-                              return GestureDetector(
-                                onTap: _sendMessage,
-                                child: Container(
-                                  width: 40,
-                                  height: 40,
-                                  margin: const EdgeInsets.only(bottom: 2),
-                                  decoration: BoxDecoration(
-                                    color: colorScheme.primary,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.arrow_upward_rounded,
-                                    color: Colors.white,
-                                    size: 22,
-                                  ),
+                      ),
+                      const SizedBox(width: 4),
+                      // 图片按钮 / 发送按钮（有文字时显示发送）
+                      ValueListenableBuilder<bool>(
+                        valueListenable: _canSendNotifier,
+                        builder: (context, canSend, _) {
+                          if (canSend) {
+                            return GestureDetector(
+                              onTap: _sendMessage,
+                              child: Container(
+                                width: 40,
+                                height: 40,
+                                margin: const EdgeInsets.only(bottom: 2),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.primary,
+                                  shape: BoxShape.circle,
                                 ),
-                              );
-                            } else {
-                              return GestureDetector(
-                                onTap: _showMoreActions,
-                                child: Container(
-                                  width: 36,
-                                  height: 40,
-                                  alignment: Alignment.center,
-                                  child: Icon(
-                                    Icons.add_circle_outline,
-                                    color: isDark
-                                        ? Colors.white.withOpacity(0.6)
-                                        : Colors.black.withOpacity(0.5),
-                                    size: 24,
-                                  ),
+                                child: const Icon(
+                                  Icons.arrow_upward_rounded,
+                                  color: Colors.white,
+                                  size: 22,
                                 ),
-                              );
-                            }
-                          },
-                        ),
-                      ],
-                    ),
+                              ),
+                            );
+                          } else {
+                            return GestureDetector(
+                              onTap: _showMoreActions,
+                              child: Container(
+                                width: 36,
+                                height: 40,
+                                alignment: Alignment.center,
+                                child: Icon(
+                                  Icons.add_circle_outline,
+                                  color: isDark
+                                      ? Colors.white.withOpacity(0.6)
+                                      : Colors.black.withOpacity(0.5),
+                                  size: 24,
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ],
                   ),
+                ),
               ],
             ),
           ),
@@ -4088,6 +4336,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 hasBackgroundImage: _currentSession?.backgroundImage != null &&
                     _currentSession!.backgroundImage!.isNotEmpty,
                 onImageTap: message.type == MessageType.image ? () {} : null,
+                onPlayVoice:
+                    message.isFromAI ? () => _playMessageVoice(message) : null,
+                voiceBusy: _synthesizingMessageId == message.id,
               ),
             ),
           );
@@ -4910,6 +5161,12 @@ class _MessageBubble extends StatelessWidget {
   /// 小说模式对白颜色（暗色主题）。null 时使用默认蓝色。
   final Color? dialogueColorDark;
 
+  /// AI 文本消息的「播放语音」回调（null 则不显示按钮）。
+  final VoidCallback? onPlayVoice;
+
+  /// 该消息是否正在合成/播放语音（用于按钮态）。
+  final bool voiceBusy;
+
   const _MessageBubble({
     required this.message,
     this.aiAvatarUrl,
@@ -4921,6 +5178,8 @@ class _MessageBubble extends StatelessWidget {
     this.novelMode = false,
     this.dialogueColorLight,
     this.dialogueColorDark,
+    this.onPlayVoice,
+    this.voiceBusy = false,
   });
 
   // 暗色叙事界面：暖灰正文 + 克制酒红强调，不使用高饱和即时通讯蓝。
@@ -5083,6 +5342,10 @@ class _MessageBubble extends StatelessWidget {
             );
           }
         }
+      }
+      // 通话记录消息：专用卡片（时长 + 发起人）
+      if (message.metadata?['type'] == 'voice_call') {
+        return _buildVoiceCallRecord(message);
       }
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: _hPad),
@@ -5288,24 +5551,6 @@ class _MessageBubble extends StatelessWidget {
                       detail: message.reasoning,
                     ),
                   )
-                else if (message.type == MessageType.voice)
-                  Flexible(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: isAI ? aiBubbleColor : userBubbleColor,
-                        borderRadius: BorderRadius.circular(_bubbleRadius),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.mic_rounded, color: isAI ? Theme.of(context).colorScheme.onSurface : Colors.white),
-                          const SizedBox(width: 8),
-                          Text('语音消息', style: TextStyle(color: isAI ? Theme.of(context).colorScheme.onSurface : Colors.white)),
-                        ],
-                      ),
-                    ),
-                  )
                 else
                   Flexible(
                     child: Container(
@@ -5492,6 +5737,31 @@ class _MessageBubble extends StatelessWidget {
                         : colorScheme.onSurface.withOpacity(0.4),
                   ),
                 ),
+                if (isAI &&
+                    onPlayVoice != null &&
+                    !isRecalled &&
+                    message.type != MessageType.image &&
+                    message.type != MessageType.sticker &&
+                    displayText.trim().isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: voiceBusy ? null : onPlayVoice,
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: voiceBusy
+                          ? CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: colorScheme.onSurface.withOpacity(0.5),
+                            )
+                          : Icon(
+                              Icons.volume_up_outlined,
+                              size: 15,
+                              color: colorScheme.onSurface.withOpacity(0.5),
+                            ),
+                    ),
+                  ),
+                ],
                 if (!isAI) ...[
                   const SizedBox(width: 4),
                   MessageStatusIndicator(
@@ -5690,6 +5960,69 @@ class _MessageBubble extends StatelessWidget {
         color: isAI ? const Color(0xFF9C27B0) : const Color(0xFF1A73E8),
       ),
     );
+  }
+
+  /// 通话记录卡片：居中展示时长 + 发起人 + 通话时间。
+  Widget _buildVoiceCallRecord(ChatMessage message) {
+    final meta = message.metadata ?? const {};
+    final durationSec = (meta['callDurationSec'] as num?)?.toInt() ?? 0;
+    final initiatedBy = meta['initiatedBy'] as String? ?? 'user';
+    final recordAiName = meta['aiName'] as String? ?? aiName;
+    final initiatorText =
+        initiatedBy == 'ai' ? '$recordAiName 发起的通话' : '你发起的通话';
+    final timeText = DateFormat('MM-dd HH:mm').format(message.createdAt);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: _hPad),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.grey.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.call_outlined,
+                size: 16,
+                color: Colors.grey.shade500,
+              ),
+              const SizedBox(width: 8),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '语音通话 ${_formatCallDuration(durationSec)}',
+                    style: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$initiatorText · $timeText',
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _formatCallDuration(int sec) {
+    if (sec < 60) return '$sec秒';
+    final m = sec ~/ 60;
+    final s = sec % 60;
+    return s > 0 ? '$m分$s秒' : '$m分钟';
   }
 }
 
@@ -6239,7 +6572,6 @@ class _ReasoningSectionState extends State<_ReasoningSection> {
   }
 }
 
-
 class _WebSearchSection extends StatefulWidget {
   final Map<String, dynamic> trace;
 
@@ -6357,8 +6689,7 @@ class _SideStoryListSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final accent =
-        isDark ? const Color(0xFFE6C88A) : const Color(0xFF8A6D3B);
+    final accent = isDark ? const Color(0xFFE6C88A) : const Color(0xFF8A6D3B);
     return Container(
       decoration: BoxDecoration(
         color: colorScheme.surface,
@@ -6438,8 +6769,8 @@ class _SideStoryListSheet extends StatelessWidget {
                     final preview = s.lastMessage ?? '';
                     final time = s.lastMessageTime ?? s.updatedAt;
                     return Material(
-                      color: colorScheme.surfaceContainerHighest
-                          .withOpacity(0.4),
+                      color:
+                          colorScheme.surfaceContainerHighest.withOpacity(0.4),
                       borderRadius: BorderRadius.circular(12),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
@@ -6471,8 +6802,7 @@ class _SideStoryListSheet extends StatelessWidget {
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
                                           fontSize: 12,
-                                          color:
-                                              colorScheme.onSurfaceVariant,
+                                          color: colorScheme.onSurfaceVariant,
                                         ),
                                       ),
                                     ],

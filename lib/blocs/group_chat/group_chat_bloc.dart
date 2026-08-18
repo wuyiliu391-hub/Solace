@@ -62,6 +62,11 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
 
   /// 群聊记忆沉淀计数器：粗摘要降频（每5轮一条）+ LLM 事件提取每5轮一次
   final Map<String, int> _groupMemoryCounter = {};
+
+  /// 消息分页状态（上滑加载更多，对齐单聊）：已加载条数 / 是否还有更早 / 加载中守卫
+  final Map<String, int> _loadedOffsets = {};
+  final Map<String, bool> _hasMoreByGroup = {};
+  final Set<String> _loadingMore = {};
   final _groupSummaryRefreshes = GroupSummaryRefreshCoordinator();
   final _promptPipeline = const GroupChatPromptPipeline();
 
@@ -72,6 +77,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     on<GroupChatCreate>(_onCreate);
     on<GroupChatDelete>(_onDelete);
     on<GroupChatLoadMessages>(_onLoadMessages);
+    on<GroupChatLoadMoreMessages>(_onLoadMoreMessages);
     on<GroupChatSendMessage>(_onSendMessage);
     on<GroupChatUpdateSession>(_onUpdateSession);
     on<GroupChatAddMember>(_onAddMember);
@@ -186,9 +192,15 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     try {
       final session = await _storage.getGroupChatSession(event.groupId);
       final chatId = session?.chatId;
-      final messages =
-          await _storage.getGroupChatMessages(event.groupId, chatId: chatId);
-      emit(GroupChatMessagesLoaded(event.groupId, messages));
+      // 多取一条判断是否还有更早历史；getGroupChatMessages 返回降序（新→旧），
+      // 所以「最新 100 条」= 前 100 条，切掉的是最旧的尾条（与单聊方向相反）。
+      final page = await _storage.getGroupChatMessages(event.groupId,
+          chatId: chatId, limit: 101);
+      final hasMore = page.length > 100;
+      final messages = hasMore ? page.sublist(0, 100) : page;
+      _loadedOffsets[event.groupId] = messages.length;
+      _hasMoreByGroup[event.groupId] = hasMore;
+      emit(GroupChatMessagesLoaded(event.groupId, messages, hasMore: hasMore));
       // 懒触发群聊社交记忆每日维护（艾宾浩斯衰减，20h 节流，unawaited）
       if (session != null && session.aiCharacterIds.isNotEmpty) {
         unawaited(_runSocialMaintenanceQuietly(
@@ -260,10 +272,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         await _storage.saveGroupChatSession(updated);
       }
 
-      // 加载最新消息列表
-      final messages = await _storage.getGroupChatMessages(event.groupId,
-          chatId: session?.chatId);
-      emit(GroupChatMessagesLoaded(event.groupId, messages));
+      // 加载最新消息列表（重置到最新一页）
+      await _emitLatestPage(event.groupId, session?.chatId);
 
       // 触发 AI 回复（真人群聊：轮流单角色回复 + 可能接话）
       unawaited(_triggerAIReply(
@@ -279,14 +289,78 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     }
   }
 
-  /// 重新加载群聊消息并 emit（消息操作后的统一刷新入口）
+  /// 从任意含消息列表的状态取当前已展示消息，供分页拼接使用。
+  List<GroupChatMessage> _currentVisibleMessages() {
+    final s = state;
+    if (s is GroupChatMessagesLoaded) return s.messages;
+    if (s is GroupChatStreaming && s.messages.isNotEmpty) return s.messages;
+    if (s is GroupChatTyping && s.messages.isNotEmpty) return s.messages;
+    if (s is GroupChatBranchesLoaded && s.messages.isNotEmpty) return s.messages;
+    return const [];
+  }
+
+  /// 重置到「最新一页」并 emit（发送/流式结束/切换分支等回到底部的场景）。
+  /// 不接收 Emitter 参数：内部直接用 Bloc.emit，兼容来自 on<> 处理器与普通
+  /// 私有方法（如 _generateOneReply）两类调用方。
+  Future<void> _emitLatestPage(String groupId, String? chatId) async {
+    final page = await _storage.getGroupChatMessages(groupId,
+        chatId: chatId, limit: 101);
+    final hasMore = page.length > 100;
+    final messages = hasMore ? page.sublist(0, 100) : page;
+    _loadedOffsets[groupId] = messages.length;
+    _hasMoreByGroup[groupId] = hasMore;
+    emit(GroupChatMessagesLoaded(groupId, messages, hasMore: hasMore));
+  }
+
+  /// 重新加载群聊消息并 emit（消息操作后的统一刷新入口）。
+  /// 保留当前已加载窗口大小，避免删除/编辑/撤回后把「加载更多」翻出来的更早消息塌缩掉。
   Future<void> _reloadMessages(
       String groupId, Emitter<GroupChatState> emit) async {
     final session = await _storage.getGroupChatSession(groupId);
-    emit(GroupChatMessagesLoaded(
-      groupId,
-      await _storage.getGroupChatMessages(groupId, chatId: session?.chatId),
-    ));
+    final loaded = _loadedOffsets[groupId];
+    final target = (loaded != null && loaded > 100) ? loaded : 100;
+    final page = await _storage.getGroupChatMessages(groupId,
+        chatId: session?.chatId, limit: target + 1);
+    final hasMore = page.length > target;
+    final messages = hasMore ? page.sublist(0, target) : page;
+    _loadedOffsets[groupId] = messages.length;
+    _hasMoreByGroup[groupId] = hasMore;
+    emit(GroupChatMessagesLoaded(groupId, messages, hasMore: hasMore));
+  }
+
+  /// 加载更早的群聊消息（上滑分页，对齐单聊）。
+  Future<void> _onLoadMoreMessages(
+    GroupChatLoadMoreMessages event,
+    Emitter<GroupChatState> emit,
+  ) async {
+    if (_loadingMore.contains(event.groupId)) return;
+    _loadingMore.add(event.groupId);
+    try {
+      final session = await _storage.getGroupChatSession(event.groupId);
+      final currentMessages = _currentVisibleMessages();
+      final offset =
+          _loadedOffsets[event.groupId] ?? currentMessages.length;
+      // 多取一条判断是否还有更早；降序列表「更早一页」= 前 100 条。
+      final page = await _storage.getGroupChatMessages(event.groupId,
+          chatId: session?.chatId, limit: 101, offset: offset);
+      if (page.isEmpty) {
+        _hasMoreByGroup[event.groupId] = false;
+        emit(GroupChatMessagesLoaded(event.groupId, currentMessages,
+            hasMore: false));
+        return;
+      }
+      final hasMore = page.length > 100;
+      final olderMessages = hasMore ? page.sublist(0, 100) : page;
+      final allMessages = [...currentMessages, ...olderMessages];
+      _loadedOffsets[event.groupId] = offset + olderMessages.length;
+      _hasMoreByGroup[event.groupId] = hasMore;
+      emit(GroupChatMessagesLoaded(event.groupId, allMessages,
+          hasMore: hasMore));
+    } catch (e) {
+      LogService.instance.e('GroupChat', '_onLoadMoreMessages failed: $e');
+    } finally {
+      _loadingMore.remove(event.groupId);
+    }
   }
 
   /// 删除单条消息
@@ -668,10 +742,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     }
     if (activated.isEmpty) {
       _replyingGroups[groupId] = false;
-      emit(GroupChatMessagesLoaded(
-          groupId,
-          await _storage.getGroupChatMessages(groupId,
-              chatId: session.chatId)));
+      await _emitLatestPage(groupId, session.chatId);
       return;
     }
 
@@ -979,8 +1050,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         updatedAt: DateTime.now(),
       ));
     }
-    emit(GroupChatMessagesLoaded(groupId,
-        await _storage.getGroupChatMessages(groupId, chatId: session.chatId)));
+    await _emitLatestPage(groupId, session.chatId);
 
     // 触发接话判定
     add(GroupChatAIMessageSaved(
@@ -1008,10 +1078,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       content: message.swipeHistory[event.index],
       swipeIndex: event.index,
     ));
-    emit(GroupChatMessagesLoaded(
-        event.groupId,
-        await _storage.getGroupChatMessages(event.groupId,
-            chatId: session?.chatId)));
+    await _emitLatestPage(event.groupId, session?.chatId);
   }
 
   Future<void> _onSaveLorebookEntry(
@@ -1226,8 +1293,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     await _storage.saveGroupChatMessage(aiMsg);
     unawaited(_refreshGroupRollingSummary(groupId, session));
     _replyingGroups[groupId] = false;
-    emit(GroupChatMessagesLoaded(groupId,
-        await _storage.getGroupChatMessages(groupId, chatId: session.chatId)));
+    await _emitLatestPage(groupId, session.chatId);
     // APPEND_DISABLED：生成后不触发自动接话
     if (session.generationMode == GroupGenerationMode.appendDisabled) {
       return;
@@ -1647,9 +1713,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         updatedAt: DateTime.now(),
       );
       await _storage.saveGroupChatSession(updated);
-      final messages = await _storage.getGroupChatMessages(event.groupId,
-          chatId: event.chatId);
-      emit(GroupChatMessagesLoaded(event.groupId, messages));
+      await _emitLatestPage(event.groupId, event.chatId);
     } catch (e) {
       LogService.instance.e('GroupChat', '_onSwitchBranch failed: $e');
       emit(GroupChatError(e.toString()));

@@ -351,12 +351,16 @@ class ChatMessage {
 }
 
 /// 消息类型枚举
+///
+/// 注意：`audio` / `voice` 已废弃（旧语音消息/语音通话/TTS 功能已移除），
+/// 但枚举值必须保留——`pure_ai_messages` 表按 `type.index` 存整数，
+/// 删除中间值会导致旧数据的索引错位/越界。
 enum MessageType {
   text,
   image,
-  audio,
+  audio, // 废弃，保留以兼容 DB 索引
   file,
   system,
   sticker,
-  voice,
+  voice, // 废弃，保留以兼容 DB 索引
 }

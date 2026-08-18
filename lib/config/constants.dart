@@ -390,8 +390,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-  static const String version = '18.0.0';
-  static const int build = 293;
+  static const String version = '18.0.1';
+  static const int build = 294;
 }
 
 class NotificationChannels {

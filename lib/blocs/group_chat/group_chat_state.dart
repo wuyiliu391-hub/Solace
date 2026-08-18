@@ -33,9 +33,13 @@ class GroupChatError extends GroupChatState {
 class GroupChatMessagesLoaded extends GroupChatState {
   final String groupId;
   final List<GroupChatMessage> messages;
-  const GroupChatMessagesLoaded(this.groupId, this.messages);
+
+  /// 是否还有更早的历史可加载（上滑分页）
+  final bool hasMore;
+  const GroupChatMessagesLoaded(this.groupId, this.messages,
+      {this.hasMore = false});
   @override
-  List<Object?> get props => [groupId, messages];
+  List<Object?> get props => [groupId, messages, hasMore];
 }
 
 /// 群聊已创建

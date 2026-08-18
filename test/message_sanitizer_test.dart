@@ -199,5 +199,37 @@ assistant: 我已经到了
         expect(MessageSanitizer.isAIRefusal('我不是人类，我是吸血鬼'), isFalse);
       });
     });
+
+    group('extractSpokenText（语音朗读：小说叙事→只读对白）', () {
+      test('提取引号内对白，忽略旁白/场景/心理', () {
+        const novel = '夜色渐深，她靠在窗边，眼里带着期待。她轻声道：“你终于来了，我等你好久了。”她的指尖轻轻收紧。';
+        expect(
+          MessageSanitizer.extractSpokenText(novel),
+          '你终于来了，我等你好久了。',
+        );
+      });
+
+      test('多句对白用停顿连接', () {
+        const novel = '她笑了：“笨蛋。”随后又低声补了一句：“谁让你这么晚才来找我的呀。”';
+        expect(
+          MessageSanitizer.extractSpokenText(novel),
+          '笨蛋。，谁让你这么晚才来找我的呀。',
+        );
+      });
+
+      test('无对白时回退到去除括号旁白后的正文', () {
+        expect(
+          MessageSanitizer.extractSpokenText('（她轻轻点头）今天过得还好吗？'),
+          '今天过得还好吗？',
+        );
+      });
+
+      test('纯聊天短句原样返回', () {
+        expect(
+          MessageSanitizer.extractSpokenText('笨蛋，谁让你这么晚才来找我的呀。'),
+          '笨蛋，谁让你这么晚才来找我的呀。',
+        );
+      });
+    });
   });
 }

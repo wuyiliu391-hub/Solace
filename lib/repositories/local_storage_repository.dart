@@ -4258,6 +4258,8 @@ class LocalStorageRepository {
                 'message': msg,
                 'sessionName': session?.aiCharacterName ?? chatId,
                 'sessionId': chatId,
+                'characterId': session?.aiCharacterId ?? '',
+                'characterAvatar': session?.aiCharacterAvatar ?? '',
               });
             }
           } catch (_) {}
@@ -4281,6 +4283,8 @@ class LocalStorageRepository {
               'message': msg,
               'sessionName': session?.aiCharacterName ?? '未知会话',
               'sessionId': msg.chatId,
+              'characterId': session?.aiCharacterId ?? '',
+              'characterAvatar': session?.aiCharacterAvatar ?? '',
             });
           } catch (e) {
             debugPrint('getBookmarkedMessages: parse failed: $e');

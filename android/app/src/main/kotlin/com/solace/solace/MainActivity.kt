@@ -20,6 +20,14 @@ import android.os.Handler
 import android.os.Looper
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.os.Environment
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import com.solace.solace.notification.NotificationStore
 import com.solace.solace.accessibility.SolaceAccessibilityService
 import com.solace.solace.accessibility.AccessibilityStateMonitor
@@ -246,6 +254,25 @@ class MainActivity : FlutterActivity() {
                         result.success(saved)
                     } catch (e: Exception) {
                         result.error("SAVE_ERROR", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // ─── 音频格式转换（mp3/m4a 等 → 16-bit PCM wav，供音色克隆参考音频用） ───
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.solace.solace/audio"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "convertToWav" -> {
+                    try {
+                        val inputPath = call.argument<String>("inputPath") ?: ""
+                        val out = convertAudioToWav(inputPath)
+                        result.success(out)
+                    } catch (e: Exception) {
+                        result.error("CONVERT_ERROR", e.message, null)
                     }
                 }
                 else -> result.notImplemented()
@@ -488,6 +515,228 @@ class MainActivity : FlutterActivity() {
             true
         } catch (e: Exception) {
             false
+        }
+    }
+
+    // ─── 音频转换：mp3/m4a/aac/ogg/flac → 16-bit 单声道 PCM wav ───
+
+    /**
+     * 用系统 MediaExtractor + MediaCodec 解码任意 Android 支持的音频文件，
+     * 重混为单声道 16-bit PCM 并写出 wav。
+     * 输出优先存到公共下载目录 Download/Solace/（有权限时），否则落到应用外部缓存目录。
+     */
+    private fun convertAudioToWav(inputPath: String): Map<String, Any?> {
+        val src = File(inputPath)
+        if (!src.exists()) throw Exception("源文件不存在: $inputPath")
+
+        val extractor = MediaExtractor()
+        var decoder: MediaCodec? = null
+        val pcm = ByteArrayOutputStream()
+        try {
+            extractor.setDataSource(inputPath)
+
+            var trackIndex = -1
+            var mime = ""
+            var sampleRate = 44100
+            var channelCount = 2
+            for (i in 0 until extractor.trackCount) {
+                val fmt = extractor.getTrackFormat(i)
+                val m = fmt.getString(MediaFormat.KEY_MIME) ?: ""
+                if (m.startsWith("audio/")) {
+                    trackIndex = i
+                    mime = m
+                    if (fmt.containsKey(MediaFormat.KEY_SAMPLE_RATE))
+                        sampleRate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                    if (fmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT))
+                        channelCount = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                    break
+                }
+            }
+            if (trackIndex < 0) throw Exception("没有找到音频轨道")
+
+            extractor.selectTrack(trackIndex)
+            val format = extractor.getTrackFormat(trackIndex)
+            decoder = MediaCodec.createDecoderByType(mime)
+            decoder.configure(format, null, null, 0)
+            decoder.start()
+
+            val info = MediaCodec.BufferInfo()
+            var inputDone = false
+            var outputDone = false
+
+            while (!outputDone) {
+                if (!inputDone) {
+                    val inIndex = decoder.dequeueInputBuffer(10_000)
+                    if (inIndex >= 0) {
+                        val buf = decoder.getInputBuffer(inIndex)!!
+                        val size = extractor.readSampleData(buf, 0)
+                        if (size < 0) {
+                            decoder.queueInputBuffer(
+                                inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                            )
+                            inputDone = true
+                        } else {
+                            decoder.queueInputBuffer(inIndex, 0, size, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+
+                val outIndex = decoder.dequeueOutputBuffer(info, 10_000)
+                when {
+                    outIndex >= 0 -> {
+                        if (info.size > 0) {
+                            val buf = decoder.getOutputBuffer(outIndex)!!
+                            buf.position(info.offset)
+                            buf.limit(info.offset + info.size)
+                            val chunk = ByteArray(info.size)
+                            buf.get(chunk)
+                            pcm.write(chunk)
+                        }
+                        decoder.releaseOutputBuffer(outIndex, false)
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                            outputDone = true
+                        }
+                    }
+                    outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        val newFormat = decoder.outputFormat
+                        if (newFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE))
+                            sampleRate = newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        if (newFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT))
+                            channelCount = newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                    }
+                }
+            }
+
+            val stereo = if (channelCount == 2) pcm.toByteArray()
+                else upmixToStereo(pcm.toByteArray(), channelCount)
+            // MOSS codec encode 参考音频要求 48kHz 双声道 16-bit PCM（与录制路径一致）。
+            // 非 48kHz 源（如 44.1kHz mp3）用 Lanczos-3 低通重采样，避免混叠。
+            val stereo48k = resampleTo48000(stereo, sampleRate)
+
+            val outFile = File(writableAudioDir(), "voice_ref_${System.currentTimeMillis()}.wav")
+            writeWavFile(outFile, stereo48k, 48000, 2)
+
+            return mapOf(
+                "path" to outFile.absolutePath,
+                "sampleRate" to 48000,
+                "durationMs" to (stereo48k.size.toLong() * 1000L / (48000 * 4L))
+            )
+        } finally {
+            try { decoder?.stop() } catch (_: Exception) {}
+            try { decoder?.release() } catch (_: Exception) {}
+            try { extractor.release() } catch (_: Exception) {}
+        }
+    }
+
+    private fun writableAudioDir(): File {
+        // 优先公共下载目录（用户可见、有权限时）；失败则回退到应用外部缓存目录。
+        return try {
+            val public = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                "Solace"
+            )
+            public.mkdirs()
+            val probe = File(public, ".w_${System.currentTimeMillis()}")
+            probe.createNewFile()
+            probe.delete()
+            public
+        } catch (_: Exception) {
+            externalCacheDir ?: cacheDir
+        }
+    }
+
+    /**
+     * 重采样到 48kHz：Lanczos-3 窗口 sinc 低通插值，任意采样率 -> 48000。
+     * 已是 48kHz 时原样返回。
+     */
+    private fun resampleTo48000(pcm16: ByteArray, srcRate: Int): ByteArray {
+        if (srcRate == 48000) return pcm16
+        val n = pcm16.size / 2
+        if (n == 0) return pcm16
+        val src = ShortArray(n)
+        for (i in 0 until n) {
+            val lo = pcm16[i * 2].toInt() and 0xFF
+            val hi = pcm16[i * 2 + 1].toInt() and 0xFF
+            src[i] = ((hi shl 8) or lo).toShort()
+        }
+        val ratio = srcRate.toDouble() / 48000.0
+        val outLen = (n / ratio).toInt()
+        val out = ShortArray(outLen)
+        val a = 3
+        for (i in 0 until outLen) {
+            val center = i * ratio
+            val i0 = Math.floor(center - a).toInt()
+            val i1 = Math.ceil(center + a).toInt()
+            var sum = 0.0
+            var norm = 0.0
+            for (j in i0..i1) {
+                if (j < 0 || j >= n) continue
+                val w = lanczosWeight(j - center, a)
+                sum += src[j].toDouble() * w
+                norm += w
+            }
+            val v = if (norm != 0.0) sum / norm else 0.0
+            out[i] = v.toInt().coerceIn(-32768, 32767).toShort()
+        }
+        val bytes = ByteArray(outLen * 2)
+        for (i in 0 until outLen) {
+            bytes[i * 2] = (out[i].toInt() and 0xFF).toByte()
+            bytes[i * 2 + 1] = ((out[i].toInt() shr 8) and 0xFF).toByte()
+        }
+        return bytes
+    }
+
+    /** Lanczos-a 窗口：sinc(x) * sinc(x/a)，|x| >= a 时为 0。 */
+    private fun lanczosWeight(x: Double, a: Int): Double {
+        if (x == 0.0) return 1.0
+        if (Math.abs(x) >= a) return 0.0
+        val px = Math.PI * x
+        return (a * Math.sin(px) * Math.sin(px / a)) / (px * px)
+    }
+
+    /** 多声道 -> 双声道（取前 2 声道；单声道复制为双声道）。 */
+    private fun upmixToStereo(pcm: ByteArray, channels: Int): ByteArray {
+        val frames = pcm.size / (channels * 2)
+        val stereo = ByteArray(frames * 4)
+        for (f in 0 until frames) {
+            // 取前两声道；单声道时 L=R
+            val lIdx = (f * channels) * 2
+            val lLo = pcm[lIdx].toInt() and 0xFF
+            val lHi = pcm[lIdx + 1].toInt() and 0xFF
+            val lSample = ((lHi shl 8) or lLo)
+            val rIdx = if (channels >= 2) (f * channels + 1) * 2 else lIdx
+            val rLo = pcm[rIdx].toInt() and 0xFF
+            val rHi = pcm[rIdx + 1].toInt() and 0xFF
+            val rSample = ((rHi shl 8) or rLo)
+            stereo[f * 4] = (lSample and 0xFF).toByte()
+            stereo[f * 4 + 1] = ((lSample shr 8) and 0xFF).toByte()
+            stereo[f * 4 + 2] = (rSample and 0xFF).toByte()
+            stereo[f * 4 + 3] = ((rSample shr 8) and 0xFF).toByte()
+        }
+        return stereo
+    }
+
+    private fun writeWavFile(file: File, pcm: ByteArray, sampleRate: Int, channels: Int) {
+        val byteRate = sampleRate * channels * 2
+        val blockAlign = channels * 2
+        val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+        header.put("RIFF".toByteArray(Charsets.US_ASCII))
+        header.putInt(36 + pcm.size)
+        header.put("WAVE".toByteArray(Charsets.US_ASCII))
+        header.put("fmt ".toByteArray(Charsets.US_ASCII))
+        header.putInt(16)                    // PCM fmt chunk size
+        header.putShort(1)                   // audio format = PCM
+        header.putShort(channels.toShort())
+        header.putInt(sampleRate)
+        header.putInt(byteRate)
+        header.putShort(blockAlign.toShort())
+        header.putShort(16)                  // bits per sample
+        header.put("data".toByteArray(Charsets.US_ASCII))
+        header.putInt(pcm.size)
+        file.outputStream().use { os ->
+            os.write(header.array())
+            os.write(pcm)
         }
     }
 
