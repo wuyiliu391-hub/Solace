@@ -7,6 +7,17 @@ class AppDurations {
   static const updateCheck = Duration(seconds: 10);
   static const announcementFetch = Duration(seconds: 8);
 
+  // ─── 微信 iLink Bot ───
+  static const wxQrcode = Duration(seconds: 15);
+
+  /// 扫码状态长轮询（官方插件：服务端 hold 35s，客户端超时 35s + 余量）
+  static const wxQrcodeLongPoll = Duration(seconds: 40);
+
+  /// getUpdates 长轮询（官方 longpolling_timeout_ms≈35000 + 余量）
+  static const wxLongPoll = Duration(seconds: 45);
+  static const wxSend = Duration(seconds: 20);
+  static const wxConfig = Duration(seconds: 10);
+
   // ─── Retry Delays ───
   static const maxRetries = 3;
 
@@ -126,6 +137,22 @@ class PrefKeys {
   static const String themeMode = 'app_theme_mode';
   static const String visualStyle = 'app_visual_style';
 
+  // ─── 微信 iLink Bot ───
+  static const String wxBotToken = 'wx_bot_token';
+  static const String wxBaseUrl = 'wx_base_url';
+
+  /// getUpdates 同步游标（官方 get_updates_buf，首次空串）
+  static const String wxUpdatesBuf = 'wx_updates_buf';
+
+  /// 会话上下文令牌缓存（JSON: { fromUserId: contextToken }）
+  static const String wxContextTokens = 'wx_context_tokens';
+  static const String wxIlinkBotId = 'wx_ilink_bot_id';
+  static const String wxIlinkUserId = 'wx_ilink_user_id';
+  static const String wxEnabled = 'wx_enabled';
+  static const String wxBoundCharacterId = 'wx_bound_character_id';
+  static const String wxWhitelist = 'wx_whitelist';
+  static const String wxPending = 'wx_pending';
+
   /// 是否使用虚拟手机桌面壳作为主界面（false=经典底部导航）
   /// 默认 false：未设置时走经典底部导航，用户可在设置中开启小手机
   static const String phoneDesktopShell = 'phone_desktop_shell_enabled';
@@ -171,33 +198,6 @@ class PrefKeys {
   static const String btPermissionLightTheme = 'bt_permission_light_theme';
   static const String btPermissionDarkTheme = 'bt_permission_dark_theme';
   static const String btPermissionSystemTheme = 'bt_permission_system_theme';
-
-  // ─── Device Agent（角色主动操控真实设备 · 全量） ───
-  static const String deviceAgentMasterEnabled = 'device_agent_master_enabled';
-  static const String devicePermissionRead = 'device_permission_read';
-  static const String devicePermissionDisplay = 'device_permission_display';
-  static const String devicePermissionAudio = 'device_permission_audio';
-  static const String devicePermissionLock = 'device_permission_lock';
-  static const String devicePermissionApp = 'device_permission_app';
-  static const String devicePermissionNetwork = 'device_permission_network';
-  static const String devicePermissionUi = 'device_permission_ui';
-  static const String devicePermissionShell = 'device_permission_shell';
-  static const String deviceAgentAuditLog = 'device_agent_audit_log';
-
-  /// 小说/法模式下是否仍允许 Device Agent（默认关，防叙事混乱）
-  static const String deviceAgentAllowInNarrative =
-      'device_agent_allow_in_narrative';
-
-  static const List<String> deviceAllPermissionKeys = [
-    devicePermissionRead,
-    devicePermissionDisplay,
-    devicePermissionAudio,
-    devicePermissionLock,
-    devicePermissionApp,
-    devicePermissionNetwork,
-    devicePermissionUi,
-    devicePermissionShell,
-  ];
 
   static const List<String> btAllPermissionKeys = [
     btPermissionContactRemark,
@@ -325,7 +325,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 70;
+  static const int dbVersion = 71;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;
@@ -370,6 +370,8 @@ class DbDefaults {
     'vp_chat_messages',
     'vp_notes',
     'vp_moments',
+    // v71+ 微信钱系统
+    'money_transactions',
   ];
 }
 
@@ -386,8 +388,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-  static const String version = '18.2.1';
-  static const int build = 6302;
+  static const String version = '19.0.0';
+  static const int build = 6303;
 }
 
 class NotificationChannels {
@@ -426,5 +428,7 @@ class DbTables {
       ];
 }
 
-/// 视觉风格包：原有主题（抖音风格）vs 现代主义聊天主题
-enum VisualStyle { classic, modernist }
+/// 视觉风格包：经典（抖音风格）与微信主题
+// 注意：枚举按 index 持久化（PrefKeys.visualStyle），已保存 modernist(1) 的
+// 用户会在启动时映射回 classic，避免越界崩溃
+enum VisualStyle { classic, wechat }

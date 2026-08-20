@@ -52,10 +52,13 @@ class ThemeBloc extends Bloc<ThemeEvent, ThemeState> {
 
     if (visualStyleIndex != null) {
       final vsIndex = int.tryParse(visualStyleIndex);
-      if (vsIndex != null &&
-          vsIndex >= 0 &&
-          vsIndex < VisualStyle.values.length) {
-        visualStyle = VisualStyle.values[vsIndex];
+      if (vsIndex != null && vsIndex >= 0) {
+        // modernist(1) 已移除，映射到 classic
+        if (vsIndex == 1) {
+          visualStyle = VisualStyle.classic;
+        } else if (vsIndex < VisualStyle.values.length) {
+          visualStyle = VisualStyle.values[vsIndex];
+        }
       }
     }
 

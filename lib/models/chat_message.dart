@@ -354,7 +354,8 @@ class ChatMessage {
 ///
 /// 注意：`audio` / `voice` 已废弃（旧语音消息/语音通话/TTS 功能已移除），
 /// 但枚举值必须保留——`pure_ai_messages` 表按 `type.index` 存整数，
-/// 删除中间值会导致旧数据的索引错位/越界。
+/// 删除或插入中间值会导致旧数据的索引错位/越界。
+/// 新类型只能**追加在末尾**。
 enum MessageType {
   text,
   image,
@@ -363,4 +364,10 @@ enum MessageType {
   system,
   sticker,
   voice, // 废弃，保留以兼容 DB 索引
+  transfer, // 微信式转账（金额/状态存 metadata['money']，见 MoneyTransaction）
+  redPacket, // 微信式红包（同上）
+  location, // 位置卡片
+  vcard, // 联系人名片
+  link, // 链接卡片
+  call, // 语音/视频通话记录（时长/结果存 metadata）
 }

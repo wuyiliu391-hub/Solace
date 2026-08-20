@@ -104,6 +104,14 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
     if (_chatBloc!.state is ChatInitial) {
       _chatBloc!.add(ChatLoadSessions(userId));
     }
+
+    // 微信 iLink Bot：注入依赖并尝试启动前台轮询（未登录/未启用时为空操作）
+    WeChatBotService.instance.init(
+      storage: storage,
+      aiService: _aiService!,
+      aiAdapter: aiAdapter,
+    );
+    unawaited(WeChatBotService.instance.startPolling());
   }
 
   @override
@@ -111,10 +119,17 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _loadShellPref();
       _startForegroundProactiveHeartbeat();
+      WeChatBotService.instance.setForeground(true);
+      unawaited(WeChatBotService.instance.startPolling());
     } else if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
       _foregroundProactiveTimer?.cancel();
       _foregroundProactiveTimer = null;
+      WeChatBotService.instance.setForeground(false);
+      // 后台时暂停前台轮询（_runLoop 中每 1 分钟检查 _appInForeground），
+      // 由 WorkManager 15min 兜底轮询接管，避免后台持续网络 I/O。
+      // 前台恢复时由上方 resumed 分支重新 startPolling。
     }
   }
 
@@ -420,13 +435,6 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
         return const NovelShelfScreen();
       case 5:
         return const UsageScreen();
-      case 6:
-        return MultiBlocProvider(
-          providers: [
-            BlocProvider.value(value: _chatBloc!),
-          ],
-          child: const OperitHomeScreen(),
-        );
       default:
         return const SizedBox.shrink();
     }
@@ -488,6 +496,8 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
         return const MemoryScreen();
       case '/moments':
         return const MomentsScreen();
+      case '/create_moment':
+        return const CreateMomentScreen();
       case '/mailbox':
         return const AIMailboxScreen();
       case '/diary':
@@ -593,14 +603,27 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
       ),
       bottomNavigationBar: Builder(
         builder: (context) {
-          final isModernist = context.read<ThemeBloc>().state.isModernist;
+          final themeState = context.read<ThemeBloc>().state;
+          final isWeChat = themeState.isWeChat;
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          // 微信模式只有 4 个 Tab：若用户切主题前停在小说(4)/用量(5)页，
+          // 立即回落到消息页（下次 frame 同步 _currentIndex）
+          if (isWeChat && _currentIndex >= 4) {
+            _currentIndex = 0;
+            _pageCache.remove(4);
+            _pageCache.remove(5);
+          }
           return Container(
             decoration: BoxDecoration(
                 border: Border(
                     top: BorderSide(
-                        color: isModernist
-                            ? Colors.white.withOpacity(0.1)
-                            : cs.outline.withOpacity(0.3),
+                        color: isWeChat
+                            ? (isDark
+                                ? WeChatColors.darkDivider
+                                : WeChatColors.divider)
+                            : isDark
+                                ? ImmersiveColors.border
+                                : cs.outline.withOpacity(0.3),
                         width: 0.5))),
             child: BottomNavigationBar(
               currentIndex: _currentIndex,
@@ -616,24 +639,43 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
                 });
               },
               type: BottomNavigationBarType.fixed,
-              backgroundColor: isModernist ? Colors.black : cs.surface,
-              selectedItemColor: isModernist ? Colors.white : cs.primary,
-              unselectedItemColor: isModernist
-                  ? Colors.white.withOpacity(0.6)
-                  : cs.onSurfaceVariant,
-              selectedFontSize: 10,
-              unselectedFontSize: 10,
+              backgroundColor: isWeChat
+                  ? (isDark
+                      ? WeChatColors.darkPageBackground
+                      : WeChatColors.pageBackground)
+                  : isDark
+                      ? ImmersiveColors.navBackground
+                      : cs.surface,
+              selectedItemColor: isWeChat
+                  ? WeChatColors.brandGreen
+                  : isDark
+                      ? ImmersiveColors.accent
+                      : cs.primary,
+              unselectedItemColor: isWeChat
+                  ? (isDark
+                      ? WeChatColors.darkTextPreview
+                      : const Color(0xFF999999))
+                  : isDark
+                      ? ImmersiveColors.textTertiary
+                      : cs.onSurfaceVariant,
+              selectedFontSize: isWeChat ? WeChatDimens.tabTextSize : 10,
+              unselectedFontSize: isWeChat ? WeChatDimens.tabTextSize : 10,
               elevation: 0,
               items: [
                 BottomNavigationBarItem(
-                  icon: const Icon(Icons.chat_bubble_outline),
-                  activeIcon: const Icon(Icons.chat_bubble),
-                  label: '消息',
+                  icon: Icon(Icons.chat_bubble_outline,
+                      size: isWeChat ? WeChatDimens.tabIconSize : null),
+                  activeIcon: Icon(Icons.chat_bubble,
+                      size: isWeChat ? WeChatDimens.tabIconSize : null),
+                  label: isWeChat ? '微信' : '消息',
                 ),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.contacts_outlined),
-                    activeIcon: Icon(Icons.contacts),
-                    label: '通讯录'),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.contacts_outlined,
+                      size: isWeChat ? WeChatDimens.tabIconSize : null),
+                  activeIcon: Icon(Icons.contacts,
+                      size: isWeChat ? WeChatDimens.tabIconSize : null),
+                  label: '通讯录',
+                ),
                 const BottomNavigationBarItem(
                     icon: Icon(Icons.explore_outlined),
                     activeIcon: Icon(Icons.explore),
@@ -642,18 +684,16 @@ class _MainShellState extends State<_MainShell> with WidgetsBindingObserver {
                     icon: Icon(Icons.person_outline),
                     activeIcon: Icon(Icons.person),
                     label: '我'),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.menu_book_outlined),
-                    activeIcon: Icon(Icons.menu_book),
-                    label: '小说'),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.donut_large_outlined),
-                    activeIcon: Icon(Icons.donut_large),
-                    label: '用量'),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.phone_android_outlined),
-                    activeIcon: Icon(Icons.phone_android),
-                    label: 'Operit'),
+                if (!isWeChat)
+                  const BottomNavigationBarItem(
+                      icon: Icon(Icons.menu_book_outlined),
+                      activeIcon: Icon(Icons.menu_book),
+                      label: '小说'),
+                if (!isWeChat)
+                  const BottomNavigationBarItem(
+                      icon: Icon(Icons.donut_large_outlined),
+                      activeIcon: Icon(Icons.donut_large),
+                      label: '用量'),
               ],
             ),
           );

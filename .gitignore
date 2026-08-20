@@ -90,3 +90,11 @@ solace/app-release.apk.sha1
 
 # 部署产物（deploy.sh 生成，勿提交）
 solace/app-release.apk*
+
+# 临时/研究产物（清理补充）
+tmp_*
+.research/
+solace.db
+solace_backup.db
+solace_raw.db
+

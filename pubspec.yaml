@@ -1,5 +1,5 @@
 name: solace
-version: 18.2.1+6302
+version: 19.0.0+6303
 publish_to: none
 description: Solace - AI 陪伴应用，多角色聊天、心情日记、从回忆创建角色。纯本地存储，隐私安全。
 
@@ -42,6 +42,9 @@ dependencies:
   hive_flutter: ^1.1.0
   yaml: ^3.1.2
   webview_flutter: ^4.10.0
+
+  # 微信 iLink Bot：扫码登录二维码渲染
+  qr_flutter: ^4.1.0
 
   # 本地离线语音（TTS 走 MiMo 云端 API；STT/VAD 用 sherpa-onnx 本地模型）
   # STT/VAD 模型文件不内置，用户手动导入（见 VoiceModelManager）

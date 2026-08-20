@@ -64,16 +64,37 @@ class AIServiceAdapter {
       _llmServiceInstance = LlmService(settings: _cachedSettings!);
       return _llmServiceInstance!;
     }
-    // 从 SharedPreferences 读取配置
+    // 优先从 SharedPreferences 读取（旧配置路径，可能为空）
     final prefs = await PrefsHelper.instance;
+    var apiKey = prefs.getString('llm_apiKey') ?? '';
+    var baseUrl = prefs.getString('llm_baseUrl') ?? '';
+    var model = prefs.getString('llm_model') ?? '';
+    final maxTokens = prefs.getInt('llm_maxTokens') ?? 2048;
+    final temperature = prefs.getDouble('llm_temperature') ?? 0.7;
+    final maxGroups = prefs.getInt('llm_maxGroups') ?? 25;
+    final autoModelSwitch = prefs.getBool('llm_autoModelSwitch') ?? false;
+
+    // 微信 bot 等场景 SharedPreferences 没有 llm_* 键时，回退到数据库活跃配置，
+    // 与 Solace 聊天页（AIService.getActiveAIConfig）使用同一套配置，避免 bot 打到默认地址。
+    if (apiKey.isEmpty || baseUrl.isEmpty || model.isEmpty) {
+      final dbConfig = await _storage?.getActiveAIConfig();
+      if (dbConfig != null) {
+        apiKey = dbConfig.apiKey.isNotEmpty
+            ? dbConfig.apiKey
+            : (dbConfig.allApiKeys.isNotEmpty ? dbConfig.allApiKeys.first : '');
+        baseUrl = dbConfig.baseUrl.isNotEmpty ? dbConfig.baseUrl : baseUrl;
+        model = dbConfig.modelName.isNotEmpty ? dbConfig.modelName : model;
+      }
+    }
+
     final settings = LlmSettings(
-      apiKey: prefs.getString('llm_apiKey') ?? '',
-      baseUrl: prefs.getString('llm_baseUrl') ?? 'https://api.deepseek.com/v1',
-      model: prefs.getString('llm_model') ?? 'deepseek-chat',
-      maxTokens: prefs.getInt('llm_maxTokens') ?? 2048,
-      temperature: prefs.getDouble('llm_temperature') ?? 0.7,
-      maxGroups: prefs.getInt('llm_maxGroups') ?? 25,
-      autoModelSwitch: prefs.getBool('llm_autoModelSwitch') ?? false,
+      apiKey: apiKey,
+      baseUrl: baseUrl,
+      model: model,
+      maxTokens: maxTokens,
+      temperature: temperature,
+      maxGroups: maxGroups,
+      autoModelSwitch: autoModelSwitch,
     );
     _llmServiceInstance = LlmService(settings: settings);
     return _llmServiceInstance!;
@@ -196,6 +217,9 @@ class AIServiceAdapter {
     );
 
     if (response.error != null) {
+      debugPrint('[AIServiceAdapter] LLM 请求失败: ${response.error} '
+          'model=${llm.settings.model} baseUrl=${llm.settings.baseUrl} '
+          'faMode=$faModeActive thinking=$isThinking');
       return '抱歉，我现在无法回复。';
     }
 

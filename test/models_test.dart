@@ -160,7 +160,7 @@ void main() {
     });
 
     test('MessageType 枚举值正确', () {
-      expect(MessageType.values.length, 7);
+      expect(MessageType.values.length, 13);
       expect(MessageType.text.index, 0);
       expect(MessageType.image.index, 1);
       expect(MessageType.audio.index, 2);
@@ -168,6 +168,12 @@ void main() {
       expect(MessageType.system.index, 4);
       expect(MessageType.sticker.index, 5);
       expect(MessageType.voice.index, 6);
+      expect(MessageType.transfer.index, 7);
+      expect(MessageType.redPacket.index, 8);
+      expect(MessageType.location.index, 9);
+      expect(MessageType.vcard.index, 10);
+      expect(MessageType.link.index, 11);
+      expect(MessageType.call.index, 12);
     });
 
     test('MessageStatus 枚举值正确', () {

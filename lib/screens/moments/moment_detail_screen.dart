@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -145,7 +145,10 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
       ),
     );
 
-    if (result != true || textController.text.trim().isEmpty) return;
+    final text = textController.text.trim();
+    textController.dispose();
+
+    if (result != true || text.isEmpty) return;
 
     try {
       final storage = RepositoryProvider.of<LocalStorageRepository>(context);
@@ -155,7 +158,7 @@ class _MomentDetailScreenState extends State<MomentDetailScreen> {
         userName: user.nickname,
         replyToUserId: replyTo?.userId,
         replyToUserName: replyTo?.userName,
-        content: textController.text.trim(),
+        content: text,
         createdAt: DateTime.now(),
       );
 

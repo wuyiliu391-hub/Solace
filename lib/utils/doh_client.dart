@@ -67,14 +67,16 @@ class DohResolver {
     Uri uri, {
     Map<String, String>? headers,
     dynamic body,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     try {
       return await http
           .post(uri, headers: headers, body: body)
-          .timeout(const Duration(seconds: 30));
+          .timeout(timeout);
     } on SocketException catch (_) {
       // DNS 解析失败，走 DoH
-      final resolved = await _dohResolveAndRequest(uri, headers: headers, body: body, method: 'POST');
+      final resolved = await _dohResolveAndRequest(
+          uri, headers: headers, body: body, method: 'POST', timeout: timeout);
       if (resolved != null) return resolved;
       rethrow;
     }
@@ -86,6 +88,7 @@ class DohResolver {
     Map<String, String>? headers,
     dynamic body,
     required String method,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     final host = uri.host;
     final ip = await resolveIPv4(host);
@@ -99,11 +102,11 @@ class DohResolver {
     debugPrint('DohResolver: $method $host → $ip');
 
     if (method == 'GET') {
-      return http.get(ipUri, headers: mergedHeaders).timeout(const Duration(seconds: 15));
+      return http.get(ipUri, headers: mergedHeaders).timeout(timeout);
     } else {
       return http
           .post(ipUri, headers: mergedHeaders, body: body)
-          .timeout(const Duration(seconds: 30));
+          .timeout(timeout);
     }
   }
 

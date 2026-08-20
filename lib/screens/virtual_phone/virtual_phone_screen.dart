@@ -115,7 +115,7 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
     super.initState();
     _enter = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 600),
     )..forward();
     _clock = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() => _now = DateTime.now());
@@ -133,6 +133,12 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
     final h = _now.hour.toString().padLeft(2, '0');
     final m = _now.minute.toString().padLeft(2, '0');
     return '$h:$m';
+  }
+
+  String get _dateText {
+    final weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+    final wd = weekdays[_now.weekday - 1];
+    return '${_now.month}月${_now.day}日 周$wd';
   }
 
   Animation<double> _fade(double a, double b) => CurvedAnimation(
@@ -187,12 +193,12 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(
-                width: 36,
-                height: 36,
+              SizedBox(
+                width: 40,
+                height: 40,
                 child: CircularProgressIndicator(
-                  strokeWidth: 2.6,
-                  color: Colors.white,
+                  strokeWidth: 2.5,
+                  color: Colors.white.withValues(alpha: 0.9),
                 ),
               ),
               const SizedBox(height: 18),
@@ -272,7 +278,7 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
     return Column(
       children: [
         FadeTransition(
-          opacity: _fade(0, 0.4),
+          opacity: _fade(0, 0.35),
           child: _GlassTopBar(
             title: '${character.name} 的手机',
             onBack: () => Navigator.of(context).maybePop(),
@@ -282,28 +288,58 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         FadeTransition(
-          opacity: _fade(0.05, 0.5),
-          child: Text(
-            _timeText,
-            style: TextStyle(
-              fontSize: 54,
-              height: 1,
-              fontWeight: FontWeight.w200,
-              letterSpacing: 2,
-              color: Colors.white.withValues(alpha: 0.95),
-              shadows: PhoneTheme.labelShadows,
+          opacity: _fade(0.05, 0.45),
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.05),
+              end: Offset.zero,
+            ).animate(_fade(0.05, 0.45)),
+            child: Column(
+              children: [
+                ShaderMask(
+                  blendMode: BlendMode.srcIn,
+                  shaderCallback: (bounds) => LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      PhoneWallpaperPalette.of(widget.wallpaperTheme).clockTop,
+                      PhoneWallpaperPalette.of(widget.wallpaperTheme).clockBottom,
+                    ],
+                  ).createShader(bounds),
+                  child: Text(
+                    _timeText,
+                    style: const TextStyle(
+                      fontSize: 64,
+                      height: 1.0,
+                      fontWeight: FontWeight.w100,
+                      letterSpacing: 3,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _dateText,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w400,
+                    letterSpacing: 1,
+                    color: Colors.white.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
         FadeTransition(
           opacity: _fade(0.12, 0.55),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 18),
             child: PhoneGlassPanel(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
               child: Row(
                 children: [
                   _OwnerAvatar(
@@ -323,6 +359,7 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
                             color: Colors.white,
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
                           ),
                         ),
                         const SizedBox(height: 3),
@@ -331,7 +368,7 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
                               ? '内容准备中 · 点右上角可立即生成'
                               : '虚构手机 · 仅存本地 · 只读浏览',
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.78),
+                            color: Colors.white.withValues(alpha: 0.75),
                             fontSize: 12,
                           ),
                         ),
@@ -343,10 +380,10 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
             ),
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 20),
         Expanded(
           child: FadeTransition(
-            opacity: _fade(0.2, 0.85),
+            opacity: _fade(0.2, 0.8),
             child: GridView.count(
               padding: const EdgeInsets.fromLTRB(22, 4, 22, 12),
               crossAxisCount: 4,
@@ -380,47 +417,55 @@ class _VirtualPhoneViewState extends State<_VirtualPhoneView>
           ),
         ),
         FadeTransition(
-          opacity: _fade(0.4, 1),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 0, 22, 0),
-            child: PhoneGlassPanel(
-              radius: PhoneTheme.dockRadius,
-              fillOpacity: 0.36,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  PhoneAppIcon.fromId(
-                    'chat',
-                    size: PhoneTheme.dockIconSize,
-                    showLabel: false,
-                    badge: state.chats.length,
-                    onTap: () => _open(context, VpAppKind.messages, state),
-                  ),
-                  PhoneAppIcon.fromId(
-                    'contacts',
-                    size: PhoneTheme.dockIconSize,
-                    showLabel: false,
-                    onTap: () => _open(context, VpAppKind.contacts, state),
-                  ),
-                  PhoneAppIcon.fromId(
-                    'notes',
-                    size: PhoneTheme.dockIconSize,
-                    showLabel: false,
-                    onTap: () => _open(context, VpAppKind.notes, state),
-                  ),
-                  PhoneAppIcon.fromId(
-                    'moments',
-                    size: PhoneTheme.dockIconSize,
-                    showLabel: false,
-                    onTap: () => _open(context, VpAppKind.moments, state),
-                  ),
-                ],
+          opacity: _fade(0.35, 1),
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.12),
+              end: Offset.zero,
+            ).animate(_fade(0.35, 1)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 0, 22, 0),
+              child: PhoneGlassPanel(
+                radius: PhoneTheme.dockRadius,
+                fillOpacity: 0.28,
+                borderOpacity: 0.4,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    PhoneAppIcon.fromId(
+                      'chat',
+                      size: PhoneTheme.dockIconSize,
+                      showLabel: false,
+                      badge: state.chats.length,
+                      onTap: () => _open(context, VpAppKind.messages, state),
+                    ),
+                    PhoneAppIcon.fromId(
+                      'contacts',
+                      size: PhoneTheme.dockIconSize,
+                      showLabel: false,
+                      onTap: () => _open(context, VpAppKind.contacts, state),
+                    ),
+                    PhoneAppIcon.fromId(
+                      'notes',
+                      size: PhoneTheme.dockIconSize,
+                      showLabel: false,
+                      onTap: () => _open(context, VpAppKind.notes, state),
+                    ),
+                    PhoneAppIcon.fromId(
+                      'moments',
+                      size: PhoneTheme.dockIconSize,
+                      showLabel: false,
+                      onTap: () => _open(context, VpAppKind.moments, state),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
-        SizedBox(height: MediaQuery.paddingOf(context).bottom + 10),
+        SizedBox(height: MediaQuery.paddingOf(context).bottom + 12),
       ],
     );
   }
@@ -498,8 +543,9 @@ class _GlassTopBar extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
       child: PhoneGlassPanel(
-        radius: 18,
-        fillOpacity: 0.26,
+        radius: 16,
+        fillOpacity: 0.22,
+        borderOpacity: 0.4,
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
         child: Row(
           children: [
@@ -544,9 +590,14 @@ class _OwnerAvatar extends StatelessWidget {
             Border.all(color: Colors.white.withValues(alpha: 0.7), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: 0.2),
+            blurRadius: 6,
+            offset: const Offset(0, -2),
           ),
         ],
       ),
@@ -563,7 +614,13 @@ class _OwnerAvatar extends StatelessWidget {
   }
 
   Widget _letter() => Container(
-        color: const Color(0xFF8FD0EA),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF5BB8DC), Color(0xFF3A8EBA)],
+          ),
+        ),
         alignment: Alignment.center,
         child: Text(
           letter,

@@ -3,11 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../blocs/auth/auth_bloc.dart';
 import '../../models/ai_character.dart';
-import '../../models/character_desire_profile.dart';
 import '../../models/character_emotion.dart';
 import '../../models/memory.dart';
 import '../../repositories/local_storage_repository.dart';
-import '../../services/character_desire_engine.dart';
 import '../../services/emotion_engine.dart';
 import '../../services/inner_thought_service.dart';
 import '../../utils/avatar_resolver.dart';
@@ -25,7 +23,6 @@ class _CharacterPsychologyScreenState extends State<CharacterPsychologyScreen> {
   AICharacter? _character;
   List<AICharacter> _characters = const [];
   CharacterEmotion? _emotion;
-  CharacterDesireProfile? _desires;
   List<InnerThought> _thoughts = const [];
   List<Memory> _memories = const [];
   bool _loading = true;
@@ -74,13 +71,11 @@ class _CharacterPsychologyScreenState extends State<CharacterPsychologyScreen> {
       userId: _userId,
       limit: 30,
     );
-    final desires = CharacterDesireEngine(storage).profileFor(character);
     if (!mounted) return;
     setState(() {
       _characters = characters;
       _character = character;
       _emotion = emotion;
-      _desires = desires;
       _thoughts = thoughts;
       _memories = memories;
       _loading = false;
@@ -110,7 +105,6 @@ class _CharacterPsychologyScreenState extends State<CharacterPsychologyScreen> {
                       if (_characters.length > 1) _characterPicker(scheme),
                       _profileHeader(scheme),
                       _emotionCard(scheme),
-                      _desireCard(scheme),
                       _thoughtCard(scheme),
                       _memoryCard(scheme),
                       _privacyNotice(scheme),
@@ -304,41 +298,6 @@ class _CharacterPsychologyScreenState extends State<CharacterPsychologyScreen> {
               child: Text('${(value * 100).round()}%',
                   style: const TextStyle(fontSize: 11))),
         ],
-      ),
-    );
-  }
-
-  Widget _desireCard(ColorScheme scheme) {
-    final profile = _desires!;
-    const labels = {
-      DesireSlot.protect: '保护',
-      DesireSlot.connect: '连接',
-      DesireSlot.control: '掌控',
-      DesireSlot.curiosity: '好奇',
-      DesireSlot.play: '玩闹',
-      DesireSlot.respectSpace: '边界',
-      DesireSlot.utility: '帮助',
-    };
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _sectionTitle('TA 的行为倾向', profile.llmRefined ? '人设已精炼' : '由人设推导'),
-            ...DesireSlot.values.map((slot) => _meter(
-                labels[slot]!,
-                profile.of(slot),
-                slot == DesireSlot.respectSpace
-                    ? Colors.teal
-                    : scheme.primary)),
-            if (profile.refineNote?.isNotEmpty == true)
-              Text(profile.refineNote!,
-                  style:
-                      TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-          ],
-        ),
       ),
     );
   }

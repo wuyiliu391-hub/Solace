@@ -127,6 +127,7 @@ class LlmService {
           'Authorization': 'Bearer ${settings.apiKey}',
         },
         body: utf8.encode(jsonEncode(body)),
+        timeout: const Duration(seconds: 90),
       );
 
       if (response.statusCode == 200) {
@@ -183,6 +184,7 @@ class LlmService {
           'Authorization': 'Bearer ${settings.apiKey}',
         },
         body: utf8.encode(requestBody),
+        timeout: const Duration(seconds: 90),
       );
       unawaited(UsageMeterService.instance.trackHttpResponse(
         url: url,

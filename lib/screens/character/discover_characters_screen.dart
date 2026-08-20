@@ -2,68 +2,135 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 import '../../blocs/auth/auth_bloc.dart';
+import '../../config/app_colors.dart';
 import '../../data/character_templates.dart';
 import '../../models/ai_character.dart';
 import '../../models/chat_session.dart';
 import '../../repositories/local_storage_repository.dart';
+import '../../utils/character_color.dart';
 
-/// 发现角色 — 浏览并添加预设角色
-class DiscoverCharactersScreen extends StatelessWidget {
+/// 角色广场 — Shine 风格卡片流：顶部分类筛选 + 渐变封面卡片。
+class DiscoverCharactersScreen extends StatefulWidget {
   const DiscoverCharactersScreen({super.key});
+
+  @override
+  State<DiscoverCharactersScreen> createState() =>
+      _DiscoverCharactersScreenState();
+}
+
+class _DiscoverCharactersScreenState extends State<DiscoverCharactersScreen> {
+  /// 当前筛选：null = 全部；'__advanced__' = 高阶；其余为 category 值
+  String? _filter;
+
+  static const String _advancedFilter = '__advanced__';
+
+  List<String> get _categories {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final t in CharacterTemplates.templates) {
+      if (!t.hasAltMode && seen.add(t.category)) result.add(t.category);
+    }
+    return result;
+  }
+
+  List<CharacterTemplate> get _filtered {
+    final all = CharacterTemplates.templates;
+    final List<CharacterTemplate> list;
+    if (_filter == null) {
+      // 全部：高阶（病娇）置顶，其余保持模板顺序
+      list = [
+        ...all.where((t) => t.hasAltMode),
+        ...all.where((t) => !t.hasAltMode),
+      ];
+    } else if (_filter == _advancedFilter) {
+      list = all.where((t) => t.hasAltMode).toList();
+    } else {
+      list = all.where((t) => t.category == _filter).toList();
+    }
+    return list;
+  }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final templates = CharacterTemplates.templates;
-
-    // 病娇（高阶）置顶，其余按分类分组展示
-    final yandereTemplates = templates.where((t) => t.hasAltMode).toList();
-    final others = templates.where((t) => !t.hasAltMode).toList();
-    final byCategory = <String, List<CharacterTemplate>>{};
-    for (final t in others) {
-      byCategory.putIfAbsent(t.category, () => []).add(t);
-    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
+      backgroundColor: isDark ? ImmersiveColors.background : null,
       appBar: AppBar(
-        title: const Text('发现角色'),
+        title: const Text('角色广场'),
         centerTitle: true,
         elevation: 0,
+        backgroundColor: isDark ? ImmersiveColors.background : null,
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      body: Column(
         children: [
-          if (yandereTemplates.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 8),
-              child: Text(
-                '🔥 高阶角色',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: colorScheme.error,
-                ),
+          _buildFilterBar(colorScheme, isDark),
+          Expanded(
+            child: GridView.builder(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.66,
               ),
+              itemCount: _filtered.length,
+              itemBuilder: (context, index) =>
+                  _CharacterCard(template: _filtered[index]),
             ),
-            ...yandereTemplates.map((t) => _CharacterCard(template: t)),
-            const SizedBox(height: 20),
-          ],
-          ...byCategory.entries.expand((entry) => [
-                Padding(
-                  padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
-                  child: Text(
-                    entry.key,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: colorScheme.onSurface.withOpacity(0.6),
-                    ),
-                  ),
-                ),
-                ...entry.value.map((t) => _CharacterCard(template: t)),
-                const SizedBox(height: 16),
-              ]),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFilterBar(ColorScheme colorScheme, bool isDark) {
+    final filters = <String?>[null, _advancedFilter, ..._categories];
+    final labels = <String>[
+      '全部',
+      '🔥 高阶',
+      ..._categories,
+    ];
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        itemCount: filters.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final selected = _filter == filters[index];
+          final label = labels[index];
+          return FilterChip(
+            label: Text(label),
+            selected: selected,
+            showCheckmark: false,
+            backgroundColor:
+                isDark ? ImmersiveColors.card : colorScheme.surfaceContainerLow,
+            selectedColor: isDark
+                ? ImmersiveColors.accent.withOpacity(0.25)
+                : colorScheme.primaryContainer,
+            labelStyle: TextStyle(
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              color: selected
+                  ? (isDark ? ImmersiveColors.accent : colorScheme.primary)
+                  : (isDark
+                      ? ImmersiveColors.textSecondary
+                      : colorScheme.onSurfaceVariant),
+            ),
+            side: BorderSide(
+              color: selected
+                  ? (isDark
+                      ? ImmersiveColors.accent.withOpacity(0.5)
+                      : colorScheme.primary.withOpacity(0.4))
+                  : (isDark ? ImmersiveColors.border : colorScheme.outlineVariant),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            onSelected: (_) => setState(() => _filter = filters[index]),
+          );
+        },
       ),
     );
   }
@@ -76,106 +143,220 @@ class _CharacterCard extends StatelessWidget {
 
   const _CharacterCard({required this.template});
 
+  /// 点赞数格式化：1.2w 风格
+  static String _formatLikes(int likes) {
+    if (likes >= 10000) {
+      final w = likes / 10000;
+      final text = w.toStringAsFixed(1);
+      // 12.0w → 12w，避免多余的小数位
+      return text.endsWith('.0') ? '${text.substring(0, text.length - 2)}w' : '${text}w';
+    }
+    return '$likes';
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isYandere = template.hasAltMode;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Card(
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(
-            color: isYandere
-                ? colorScheme.error.withOpacity(0.2)
-                : colorScheme.outline.withOpacity(0.08),
+    // 封面渐变：角色主题色（按名字哈希）压暗后混入深底，氛围感铺满
+    final base = characterColor(name: template.name, cs: colorScheme);
+    final hsv = HSVColor.fromColor(base);
+    final coverTop = isDark
+        ? Color.alphaBlend(
+            hsv.withSaturation(0.5).withValue(0.55).toColor().withOpacity(0.85),
+            ImmersiveColors.backgroundUp)
+        : Color.alphaBlend(
+            hsv.withSaturation(0.35).withValue(0.85).toColor().withOpacity(0.7),
+            Colors.white);
+    final coverBottom = isDark
+        ? Color.alphaBlend(
+            hsv.withSaturation(0.6).withValue(0.22).toColor().withOpacity(0.9),
+            ImmersiveColors.background)
+        : Color.alphaBlend(
+            hsv.withSaturation(0.45).withValue(0.6).toColor().withOpacity(0.75),
+            Colors.white);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _onTap(context),
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: isDark
+                ? ImmersiveColors.card
+                : colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isYandere
+                  ? colorScheme.error.withOpacity(isDark ? 0.35 : 0.25)
+                  : (isDark ? ImmersiveColors.border : colorScheme.outlineVariant),
+            ),
           ),
-        ),
-        color: isYandere
-            ? colorScheme.errorContainer.withOpacity(0.15)
-            : colorScheme.surfaceContainerLow,
-        child: InkWell(
-          onTap: () => _onTap(context),
-          borderRadius: BorderRadius.circular(14),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 26,
-                  backgroundColor: isYandere
-                      ? colorScheme.error.withOpacity(0.2)
-                      : colorScheme.primaryContainer,
-                  child: Text(
-                    template.name.isNotEmpty
-                        ? template.name.substring(0, 1)
-                        : '?',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: isYandere ? colorScheme.error : colorScheme.primary,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── 封面区：渐变 + 大字首字 + 角标 ──
+              Expanded(
+                flex: 3,
+                child: ClipRRect(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(15)),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [coverTop, coverBottom],
+                      ),
+                    ),
+                    child: Stack(
+                      children: [
+                        Center(
+                          child: Text(
+                            template.name.isNotEmpty
+                                ? template.name[0]
+                                : '?',
+                            style: TextStyle(
+                              fontSize: 56,
+                              fontFamily: 'serif',
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white.withOpacity(isDark ? 0.9 : 0.85),
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black.withOpacity(0.25),
+                                  blurRadius: 12,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          child: Row(
+                            children: [
+                              if (isYandere)
+                                _badge(context, '🔥 高阶',
+                                    colorScheme.error, isDark),
+                              if (isYandere && template.isNew)
+                                const SizedBox(width: 4),
+                              if (template.isNew)
+                                _badge(context, '新',
+                                    isDark ? ImmersiveColors.accentSoft : colorScheme.primary, isDark),
+                            ],
+                          ),
+                        ),
+                        Positioned(
+                          left: 10,
+                          right: 10,
+                          bottom: 8,
+                          child: Text(
+                            template.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontFamily: 'serif',
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.0,
+                              color: Colors.white.withOpacity(0.95),
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black.withOpacity(0.35),
+                                  blurRadius: 6,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
+              ),
+              // ── 信息区：卖点 + 点赞/性别 ──
+              Expanded(
+                flex: 2,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Expanded(
+                        child: Text(
+                          template.tagline ?? template.personality,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.35,
+                            color: isDark
+                                ? ImmersiveColors.textSecondary
+                                : colorScheme.onSurface.withOpacity(0.7),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
-                          Flexible(
-                            child: Text(
-                              template.name,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          Icon(
+                            Icons.favorite_rounded,
+                            size: 13,
+                            color: isDark
+                                ? ImmersiveColors.accent
+                                : colorScheme.primary,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            _formatLikes(template.displayLikes),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isDark
+                                  ? ImmersiveColors.textTertiary
+                                  : colorScheme.onSurface.withOpacity(0.5),
                             ),
                           ),
-                          if (template.isNew) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: colorScheme.error.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                '新',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: colorScheme.error,
-                                ),
-                              ),
+                          const Spacer(),
+                          Text(
+                            template.gender == '男' ? '♂' : '♀',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: template.gender == '男'
+                                  ? const Color(0xFF6C8CFF)
+                                  : const Color(0xFFE88EA0),
                             ),
-                          ],
+                          ),
                         ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        template.gender == '男' ? '♂ 男性' : '♀ 女性',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: colorScheme.onSurface.withOpacity(0.4),
-                        ),
                       ),
                     ],
                   ),
                 ),
-                Icon(
-                  Icons.chevron_right,
-                  size: 20,
-                  color: colorScheme.onSurface.withOpacity(0.2),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _badge(
+      BuildContext context, String text, Color color, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(isDark ? 0.35 : 0.25),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.6), width: 0.5),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: color,
         ),
       ),
     );

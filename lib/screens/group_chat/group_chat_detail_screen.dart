@@ -191,17 +191,15 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor:
-          isDark ? const Color(0xFF121315) : const Color(0xFFF1EFEB),
+      backgroundColor: colorScheme.surface,
       appBar: _selectionMode
           ? _buildSelectionAppBar(colorScheme)
           : AppBar(
-              backgroundColor:
-                  isDark ? const Color(0xFF121315) : const Color(0xFFF1EFEB),
+              backgroundColor: colorScheme.surface.withValues(alpha: 0.94),
               elevation: 0,
+              scrolledUnderElevation: 0,
               title: InkWell(
                 onTap: () => _scaffoldKey.currentState?.openEndDrawer(),
                 borderRadius: BorderRadius.circular(8),
@@ -216,10 +214,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                          color: isDark
-                              ? const Color(0xFFF0EAE2)
-                              : const Color(0xFF312B29),
+                          letterSpacing: 0.2,
+                          color: colorScheme.onSurface,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -377,24 +373,32 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   }
 
   Widget _buildNoticeBar(String notice) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      color: isDark
-          ? Colors.white.withOpacity(0.04)
-          : Colors.black.withOpacity(0.03),
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark
+            ? colorScheme.surfaceContainer.withValues(alpha: 0.72)
+            : colorScheme.surfaceContainerLow.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: colorScheme.outline.withValues(alpha: isDark ? 0.18 : 0.12),
+        ),
+      ),
       child: Row(
         children: [
-          const Icon(Icons.campaign_outlined,
-              size: 16, color: Color(0xFFC88383)),
+          Icon(Icons.campaign_outlined,
+              size: 16, color: colorScheme.primary),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               notice,
               style: TextStyle(
                 fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurface,
+                color: colorScheme.onSurface,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -456,7 +460,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 82, 16, 12),
       itemCount: displayMessages.length +
           (hasTyping ? 1 : 0) +
           (_hasMoreMessages ? 1 : 0),
@@ -627,14 +631,31 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   }
 
   Widget _buildInputBar() {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final panelColor = isDark
+        ? colorScheme.surfaceContainer.withValues(alpha: 0.96)
+        : colorScheme.surface.withValues(alpha: 0.96);
+    final inputColor = isDark
+        ? colorScheme.surfaceContainerHigh
+        : colorScheme.surfaceContainerLow;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF121315) : const Color(0xFFF1EFEB),
+        color: panelColor,
         border: Border(
-            top: BorderSide(color: colorScheme.outline.withOpacity(0.2))),
+          top: BorderSide(
+            color: colorScheme.outline.withValues(alpha: isDark ? 0.28 : 0.16),
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.16 : 0.035),
+            blurRadius: 18,
+            offset: const Offset(0, -5),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -645,8 +666,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
               margin: const EdgeInsets.fromLTRB(4, 0, 4, 6),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: colorScheme.primaryContainer.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(10),
+                color: colorScheme.primaryContainer.withValues(alpha: 0.34),
+                borderRadius: BorderRadius.circular(13),
                 border: Border(
                   left: BorderSide(color: colorScheme.primary, width: 3),
                 ),
@@ -734,60 +755,80 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 },
               ),
             ),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                onPressed: _pickAndAttachImages,
-                tooltip: '发送图片',
+          Container(
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+            decoration: BoxDecoration(
+              color: inputColor,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: colorScheme.outline.withValues(alpha: isDark ? 0.22 : 0.12),
               ),
-              Expanded(
-                child: TextField(
-                  controller: _messageController,
-                  decoration: InputDecoration(
-                    hintText: '输入接下来的动作或话语...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: isDark
-                        ? const Color(0xFF1C1D20)
-                        : const Color(0xFFE8E4DE),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(
-                        color: isDark
-                            ? Colors.white.withOpacity(0.10)
-                            : Colors.black.withOpacity(0.08),
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: Icon(Icons.add_photo_alternate_outlined,
+                      color: colorScheme.onSurfaceVariant),
+                  onPressed: _pickAndAttachImages,
+                  tooltip: '添加图片',
+                  visualDensity: VisualDensity.compact,
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    decoration: InputDecoration(
+                      hintText: '写下下一句……',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
                       ),
+                      filled: true,
+                      fillColor: Colors.transparent,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
                     ),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  ),
                   maxLines: null,
                   textCapitalization: TextCapitalization.sentences,
                   onSubmitted: _sendMessage,
                 ),
               ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: _sendCurrentMessage,
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFB86F76),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.arrow_upward_rounded,
-                    color: Colors.white,
-                    size: 22,
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: _sendCurrentMessage,
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          colorScheme.primary,
+                          colorScheme.primary.withValues(alpha: 0.78),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: colorScheme.primary.withValues(alpha: 0.28),
+                          blurRadius: 9,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.arrow_upward_rounded,
+                      color: Colors.white,
+                      size: 21,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),

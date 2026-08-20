@@ -195,16 +195,19 @@ class ChatAISendCoins extends ChatEvent {
   final String characterId;
   final double amount;
   final String? message;
+  final bool isRedPacket;
 
   const ChatAISendCoins({
     required this.chatId,
     required this.characterId,
     required this.amount,
     this.message,
+    this.isRedPacket = false,
   });
 
   @override
-  List<Object?> get props => [chatId, characterId, amount, message];
+  List<Object?> get props =>
+      [chatId, characterId, amount, message, isRedPacket];
 }
 
 class ChatBlockByUser extends ChatEvent {
@@ -499,60 +502,38 @@ class ChatClearContext extends ChatEvent {
   List<Object?> get props => [chatId];
 }
 
-// ── AutoGLM 自动化事件 ──
 
-/// 在聊天中触发 AutoGLM 自动化任务
-class ChatRunAutoGlm extends ChatEvent {
+// ═══════════════ 微信钱系统事件（v71，四路并行工程契约） ═══════════════
+
+/// 用户发起转账/红包（金额输入框确认后触发）。
+/// MoneyService 落库扣款 + 生成气泡，随后触发角色回应。
+class ChatSendMoneyMessage extends ChatEvent {
   final String chatId;
-  final String userId;
-  final String task;
+  final String characterId;
+  final int amount;
+  final String? note;
+  final bool isRedPacket;
 
-  const ChatRunAutoGlm({
+  const ChatSendMoneyMessage({
     required this.chatId,
-    required this.userId,
-    required this.task,
+    required this.characterId,
+    required this.amount,
+    this.note,
+    this.isRedPacket = false,
   });
 
   @override
-  List<Object?> get props => [chatId, userId, task];
+  List<Object?> get props => [chatId, characterId, amount, note, isRedPacket];
 }
 
-/// 取消正在执行的 AutoGLM 任务
-class ChatCancelAutoGlm extends ChatEvent {
+/// 点击气泡收款（转账）/拆包（红包）。
+/// handler 必须幂等——重复点击只处理一次。
+class ChatClaimMoney extends ChatEvent {
   final String chatId;
+  final String messageId;
 
-  const ChatCancelAutoGlm({required this.chatId});
-
-  @override
-  List<Object?> get props => [chatId];
-}
-
-class ChatSetToolPermission extends ChatEvent {
-  final String toolName;
-  final String mode;
-
-  const ChatSetToolPermission({required this.toolName, required this.mode});
+  const ChatClaimMoney({required this.chatId, required this.messageId});
 
   @override
-  List<Object?> get props => [toolName, mode];
-}
-
-class ChatResolveToolPermission extends ChatEvent {
-  final String taskId;
-  final bool allow;
-
-  const ChatResolveToolPermission({required this.taskId, required this.allow});
-
-  @override
-  List<Object?> get props => [taskId, allow];
-}
-
-class ChatResumeToolTask extends ChatEvent {
-  final String taskId;
-  final String userId;
-
-  const ChatResumeToolTask({required this.taskId, required this.userId});
-
-  @override
-  List<Object?> get props => [taskId, userId];
+  List<Object?> get props => [chatId, messageId];
 }

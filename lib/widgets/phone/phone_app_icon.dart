@@ -5,10 +5,10 @@ import '../../config/phone_app_icons.dart';
 import '../../config/phone_theme.dart';
 import 'phone_icon_glyphs.dart';
 
-/// 代码绘制的「软玻璃 / 粘土」应用图标。
+/// 发光宝石质感应用图标。
 ///
-/// 主路径：多层渐变面 + 自绘 glyph（非粗 Material）。
-/// 可选：preferAsset 时尝试加载 generated 贴图。
+/// 核心设计：每个图标是一颗「发光的宝石」——
+/// 内发光 + 表面高光 + 环境反射 + 底部光晕，四合一融合成立体物体。
 class PhoneAppIcon extends StatefulWidget {
   final PhoneAppIconDef def;
   final VoidCallback? onTap;
@@ -63,14 +63,26 @@ class PhoneAppIcon extends StatefulWidget {
   State<PhoneAppIcon> createState() => _PhoneAppIconState();
 }
 
-class _PhoneAppIconState extends State<PhoneAppIcon> {
+class _PhoneAppIconState extends State<PhoneAppIcon>
+    with SingleTickerProviderStateMixin {
   bool _pressed = false;
   String? _assetPath;
+  late final AnimationController _glowCtrl;
 
   @override
   void initState() {
     super.initState();
+    _glowCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat(reverse: true);
     if (widget.preferAsset) _tryLoadAsset();
+  }
+
+  @override
+  void dispose() {
+    _glowCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _tryLoadAsset() async {
@@ -92,7 +104,7 @@ class _PhoneAppIconState extends State<PhoneAppIcon> {
   Widget build(BuildContext context) {
     final size = widget.size;
     final radius = size * PhoneTheme.iconRadiusRatio;
-    final scale = _pressed ? 0.90 : 1.0;
+    final scale = _pressed ? 0.88 : 1.0;
 
     return GestureDetector(
       onTapDown: widget.onTap == null ? null : (_) => _setPressed(true),
@@ -110,7 +122,7 @@ class _PhoneAppIconState extends State<PhoneAppIcon> {
         children: [
           AnimatedScale(
             scale: scale,
-            duration: const Duration(milliseconds: 110),
+            duration: const Duration(milliseconds: 120),
             curve: Curves.easeOutCubic,
             child: SizedBox(
               width: size,
@@ -118,12 +130,54 @@ class _PhoneAppIconState extends State<PhoneAppIcon> {
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
+                  // 底部光晕：图标「坐」在光上
+                  Positioned(
+                    left: size * 0.08,
+                    right: size * 0.08,
+                    bottom: -size * 0.06,
+                    height: size * 0.28,
+                    child: AnimatedBuilder(
+                      animation: _glowCtrl,
+                      builder: (context, child) {
+                        final glowAlpha =
+                            0.25 + _glowCtrl.value * 0.15;
+                        return Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(size),
+                            gradient: RadialGradient(
+                              colors: [
+                                widget.def.fallbackColor
+                                    .withValues(alpha: glowAlpha),
+                                widget.def.fallbackColor
+                                    .withValues(alpha: 0),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  // 宝石主体
                   Container(
                     width: size,
                     height: size,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(radius),
-                      boxShadow: PhoneTheme.iconDropShadow(widget.def.fallbackColor),
+                      boxShadow: [
+                        // 外阴影：深度
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.22),
+                          blurRadius: 18,
+                          offset: const Offset(0, 10),
+                        ),
+                        // 彩色光晕：材质感
+                        BoxShadow(
+                          color: widget.def.fallbackColor
+                              .withValues(alpha: 0.35),
+                          blurRadius: 20,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(radius),
@@ -132,25 +186,25 @@ class _PhoneAppIconState extends State<PhoneAppIcon> {
                               _assetPath!,
                               fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) =>
-                                  _SoftGlassFace(def: widget.def, size: size),
+                                  _GemFace(def: widget.def, size: size),
                             )
-                          : _SoftGlassFace(def: widget.def, size: size),
+                          : _GemFace(def: widget.def, size: size),
                     ),
                   ),
-                  // 底部内侧反光
+                  // 顶部边缘光：锐利高光
                   Positioned(
-                    left: size * 0.12,
-                    right: size * 0.12,
-                    bottom: size * 0.08,
+                    left: size * 0.06,
+                    right: size * 0.06,
+                    top: 0,
                     child: IgnorePointer(
                       child: Container(
-                        height: size * 0.08,
+                        height: size * 0.06,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(size),
                           gradient: LinearGradient(
                             colors: [
                               Colors.white.withValues(alpha: 0.0),
-                              Colors.white.withValues(alpha: 0.18),
+                              Colors.white.withValues(alpha: 0.75),
                               Colors.white.withValues(alpha: 0.0),
                             ],
                           ),
@@ -168,23 +222,7 @@ class _PhoneAppIconState extends State<PhoneAppIcon> {
                     Positioned(
                       top: -4,
                       right: -4,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF00E0C6), Color(0xFF0FB8AD)],
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF00E0C6).withValues(alpha: 0.55),
-                              blurRadius: 5,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                      ),
+                      child: _NewDot(),
                     ),
                 ],
               ),
@@ -215,31 +253,50 @@ class _PhoneAppIconState extends State<PhoneAppIcon> {
   }
 }
 
-/// 多层渐变 + 高光 + 自绘 glyph
-class _SoftGlassFace extends StatelessWidget {
+/// 发光宝石表面：内发光 + 多层光学反射
+class _GemFace extends StatelessWidget {
   final PhoneAppIconDef def;
   final double size;
-  const _SoftGlassFace({required this.def, required this.size});
+  const _GemFace({required this.def, required this.size});
 
   @override
   Widget build(BuildContext context) {
     final c = def.fallbackColor;
-    final light = Color.lerp(c, Colors.white, 0.48)!;
-    final mid = Color.lerp(c, Colors.white, 0.08)!;
-    final deep = Color.lerp(c, const Color(0xFF1A1A2E), 0.28)!;
     final radius = size * PhoneTheme.iconRadiusRatio;
+
+    // 宝石的明暗关系：
+    // - 顶部：光源直射，最亮
+    // - 中部：固有色 + 内发光
+    // - 底部：环境反光 + 阴影
+    final light = Color.lerp(c, Colors.white, 0.55)!;
+    final mid = Color.lerp(c, Colors.white, 0.12)!;
+    final deep = Color.lerp(c, const Color(0xFF0A0A1A), 0.35)!;
+    final glow = Color.lerp(c, Colors.white, 0.3)!;
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        // 主渐变体
+        // 基础渐变体
         DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [light, mid, deep],
-              stops: const [0.0, 0.45, 1.0],
+              stops: const [0.0, 0.42, 1.0],
+            ),
+          ),
+        ),
+        // 内发光层：从中心向外扩散
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: const Alignment(-0.2, -0.3),
+              radius: 0.85,
+              colors: [
+                glow.withValues(alpha: 0.5),
+                glow.withValues(alpha: 0.0),
+              ],
             ),
           ),
         ),
@@ -247,33 +304,33 @@ class _SoftGlassFace extends StatelessWidget {
         DecoratedBox(
           decoration: BoxDecoration(
             gradient: RadialGradient(
-              center: const Alignment(0.75, 0.8),
-              radius: 0.95,
+              center: const Alignment(0.8, 0.85),
+              radius: 0.9,
               colors: [
-                deep.withValues(alpha: 0.42),
+                deep.withValues(alpha: 0.5),
                 Colors.transparent,
               ],
             ),
           ),
         ),
-        // 左上冷高光
+        // 左上冷高光（锐利）
         DecoratedBox(
           decoration: BoxDecoration(
             gradient: RadialGradient(
-              center: const Alignment(-0.65, -0.7),
-              radius: 0.7,
+              center: const Alignment(-0.7, -0.75),
+              radius: 0.55,
               colors: [
-                Colors.white.withValues(alpha: 0.42),
+                Colors.white.withValues(alpha: 0.55),
                 Colors.transparent,
               ],
             ),
           ),
         ),
-        // 顶部镜面带
+        // 顶部镜面带（更锐利）
         Align(
           alignment: Alignment.topCenter,
           child: FractionallySizedBox(
-            heightFactor: 0.46,
+            heightFactor: 0.38,
             widthFactor: 1,
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -281,8 +338,8 @@ class _SoftGlassFace extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.white.withValues(alpha: 0.58),
-                    Colors.white.withValues(alpha: 0.10),
+                    Colors.white.withValues(alpha: 0.65),
+                    Colors.white.withValues(alpha: 0.15),
                     Colors.white.withValues(alpha: 0.0),
                   ],
                 ),
@@ -290,45 +347,45 @@ class _SoftGlassFace extends StatelessWidget {
             ),
           ),
         ),
-        // 椭圆形高光块
+        // 椭圆形高光块（更聚焦）
         Positioned(
-          left: size * 0.14,
-          top: size * 0.11,
+          left: size * 0.12,
+          top: size * 0.09,
           child: Container(
-            width: size * 0.34,
-            height: size * 0.14,
+            width: size * 0.28,
+            height: size * 0.11,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(size),
               gradient: LinearGradient(
                 colors: [
-                  Colors.white.withValues(alpha: 0.72),
+                  Colors.white.withValues(alpha: 0.85),
                   Colors.white.withValues(alpha: 0.0),
                 ],
               ),
             ),
           ),
         ),
-        // 内描边
+        // 内描边（边缘光）
         DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(radius),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.50),
-              width: 1.15,
+              color: Colors.white.withValues(alpha: 0.55),
+              width: 1.2,
             ),
           ),
         ),
-        // 外缘淡环
+        // 外缘淡环（深度）
         DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(radius),
             border: Border.all(
-              color: deep.withValues(alpha: 0.18),
-              width: 0.6,
+              color: deep.withValues(alpha: 0.22),
+              width: 0.7,
             ),
           ),
         ),
-        // 符号：A 档立体图标略放大，层次更清晰
+        // 符号
         Center(
           child: PhoneGlyph(
             id: def.id,
@@ -402,6 +459,29 @@ class _Badge extends StatelessWidget {
           fontSize: 10,
           fontWeight: FontWeight.w800,
         ),
+      ),
+    );
+  }
+}
+
+class _NewDot extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          colors: [Color(0xFF00E0C6), Color(0xFF0FB8AD)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E0C6).withValues(alpha: 0.6),
+            blurRadius: 6,
+            spreadRadius: 1,
+          ),
+        ],
       ),
     );
   }

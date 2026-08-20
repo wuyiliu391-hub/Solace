@@ -8,4 +8,6 @@ Future<void> initWorkmanager() async {
   await scheduleLetterTask();
   // 注册角色主动发朋友圈周期任务
   await scheduleMomentPostTask();
+  // 注册微信 iLink 轮询兜底任务（15 分钟；未启用时 handler 内空转）
+  await scheduleWeChatPollTask();
 }

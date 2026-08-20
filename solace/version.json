@@ -1,14 +1,18 @@
 {
-  "version": "18.2.1",
-  "build": 6302,
+  "version": "19.0.0",
+  "build": 6303,
   "minSdk": 23,
   "forceUpdate": false,
-  "releaseDate": "2026-08-18",
-  "downloadUrl": "https://solace-auth-v2.pages.dev/api/v1/download?v=18.2.0",
+  "releaseDate": "2026-08-20",
+  "downloadUrl": "https://solace-auth-v2.pages.dev/api/v1/download?v=19.0.0",
   "changelog": [
-    "修复手动输入后语音通话失效：发送文本不再卡死回合循环，文字立即上屏并正常合成语音",
-    "修复文字消息合成语音偶发连接中断：MiMo TTS 请求超时放宽至 120 秒",
-    "移除 3.8MB 冗余资源 sky.mp3，安装包更轻"
+    "微信 Bot 重磅上线：接入微信 iLink 协议，AI 角色进驻真实微信对话，扫码登录、前台长轮询收发、完整人格管线回复，配套 1:1 微信风格界面与前台保活服务",
+    "工程架构重构：拆分 main.dart、AI 服务、记忆引擎和本地存储仓库等大型文件，对外接口保持兼容，降低维护复杂度",
+    "测试体系补齐：新增 125+ 个测试用例，覆盖语音链路、朋友圈、小说和商店 BLoC；提交记录显示全量 555 个测试通过",
+    "联网搜索修复：移除三处占位 URL，统一接入 BingCnMcpService 真实抓取，并补全 chat_screen_v2 的待办实现",
+    "语音通话持续优化：完善 VAD、STT、TTS、音色克隆、手动打字、通话记录和记忆沉淀，改善超时、音频处理与稳定性",
+    "平台收敛：移除 Flutter Web 与 Windows runner，项目聚焦 Android 单平台",
+    "仓库与包体积治理：移除约 3.8MB 的冗余 sky.mp3，忽略部署产物，并清理死代码与占位实现"
   ],
-  "announcement": "Solace 18.2.0 — 修复手动打字后通话失效，文字也能开口说"
+  "announcement": "Solace 19.0.0 — 微信 Bot 重磅上线，工程架构与语音通话大更"
 }

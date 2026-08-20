@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
@@ -345,86 +345,14 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
       String? description,
       Future<void> Function()? onSubmitted,
     }) {
-      final controller = TextEditingController(text: value.toString());
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(title,
-                    style:
-                        TextStyle(fontSize: 15, color: colorScheme.onSurface)),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 56,
-                      height: 32,
-                      child: TextField(
-                        controller: controller,
-                        textAlign: TextAlign.center,
-                        keyboardType: TextInputType.number,
-                        style: TextStyle(
-                            fontSize: 14, color: colorScheme.onSurface),
-                        decoration: InputDecoration(
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 6),
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide:
-                                BorderSide(color: colorScheme.outlineVariant),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide:
-                                BorderSide(color: colorScheme.outlineVariant),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: BorderSide(
-                                color: colorScheme.primary, width: 1.2),
-                          ),
-                        ),
-                        onSubmitted: (s) async {
-                          final n = int.tryParse(s) ?? value;
-                          onChanged(n > 0 ? n : value);
-                          if (onSubmitted != null) await onSubmitted();
-                        },
-                      ),
-                    ),
-                    if (suffixTag != null) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: colorScheme.surfaceContainerLowest,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(suffixTag,
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: colorScheme.outlineVariant,
-                                fontWeight: FontWeight.w500)),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-            if (description != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(description!,
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: colorScheme.onSurface.withOpacity(0.4))),
-              ),
-          ],
-        ),
+      return _NumberInputTile(
+        title: title,
+        value: value,
+        onChanged: onChanged,
+        suffixTag: suffixTag,
+        description: description,
+        onSubmitted: onSubmitted,
+        colorScheme: colorScheme,
       );
     }
 
@@ -864,6 +792,140 @@ class _InteractionSettingsScreenState extends State<InteractionSettingsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 数字输入设置行 — 独立 StatefulWidget，避免 build 重复创建 TextEditingController
+class _NumberInputTile extends StatefulWidget {
+  final String title;
+  final int value;
+  final ValueChanged<int> onChanged;
+  final String? suffixTag;
+  final String? description;
+  final Future<void> Function()? onSubmitted;
+  final ColorScheme colorScheme;
+
+  const _NumberInputTile({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.suffixTag,
+    this.description,
+    this.onSubmitted,
+    required this.colorScheme,
+  });
+
+  @override
+  State<_NumberInputTile> createState() => _NumberInputTileState();
+}
+
+class _NumberInputTileState extends State<_NumberInputTile> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value.toString());
+  }
+
+  @override
+  void didUpdateWidget(_NumberInputTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      _controller.text = widget.value.toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(widget.title,
+                  style: TextStyle(
+                      fontSize: 15, color: widget.colorScheme.onSurface)),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 56,
+                    height: 32,
+                    child: TextField(
+                      controller: _controller,
+                      textAlign: TextAlign.center,
+                      keyboardType: TextInputType.number,
+                      style: TextStyle(
+                          fontSize: 14, color: widget.colorScheme.onSurface),
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 6),
+                        isDense: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                              color: widget.colorScheme.outlineVariant),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                              color: widget.colorScheme.outlineVariant),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                              color: widget.colorScheme.primary, width: 1.2),
+                        ),
+                      ),
+                      onSubmitted: (s) async {
+                        final n = int.tryParse(s) ?? widget.value;
+                        widget.onChanged(n > 0 ? n : widget.value);
+                        if (widget.onSubmitted != null) {
+                          await widget.onSubmitted!();
+                        }
+                      },
+                    ),
+                  ),
+                  if (widget.suffixTag != null) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: widget.colorScheme.surfaceContainerLowest,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(widget.suffixTag!,
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: widget.colorScheme.outlineVariant,
+                              fontWeight: FontWeight.w500)),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+          if (widget.description != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(widget.description!,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: widget.colorScheme.onSurface.withOpacity(0.4))),
+            ),
+        ],
       ),
     );
   }

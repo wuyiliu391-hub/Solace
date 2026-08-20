@@ -153,47 +153,50 @@ class PhoneWallpaperPalette {
       case PhoneWallpaperTheme.dawn:
         return const PhoneWallpaperPalette(
           gradient: [
-            Color(0xFF5BB8DC),
-            Color(0xFF8FD0EA),
-            Color(0xFFC5E8F6),
-            Color(0xFFEAF6FC),
+            Color(0xFF0A4A6E),
+            Color(0xFF1B7A8C),
+            Color(0xFF2BA88A),
+            Color(0xFF1B8A6E),
+            Color(0xFF0E6B5C),
           ],
-          mid: Color(0xFFA8DCF0),
-          bokehA: Color(0x77FFFFFF),
-          bokehB: Color(0x3AA8E0F5),
-          fog: Color(0x55EAF6FC),
+          mid: Color(0xFF1B8A6E),
+          bokehA: Color(0x5500E0C6),
+          bokehB: Color(0x33F27AA5),
+          fog: Color(0x44F27AA5),
           clockTop: Color(0xFFFFFFFF),
-          clockBottom: Color(0xD9F2FBFF),
+          clockBottom: Color(0xFFE0FFF4),
         );
       case PhoneWallpaperTheme.dusk:
         return const PhoneWallpaperPalette(
           gradient: [
-            Color(0xFF2B3A67),
-            Color(0xFF6B4E8C),
-            Color(0xFFE07A5F),
-            Color(0xFFF2CC8F),
+            Color(0xFF1A0B2E),
+            Color(0xFF2B1B4E),
+            Color(0xFF4A2B6E),
+            Color(0xFF6B3A8E),
+            Color(0xFF3A1B5E),
           ],
-          mid: Color(0xFF8B5E83),
-          bokehA: Color(0x55FFD6A5),
-          bokehB: Color(0x44E07A5F),
-          fog: Color(0x44F2CC8F),
-          clockTop: Color(0xFFFFF6E8),
-          clockBottom: Color(0xDDFFD6A5),
+          mid: Color(0xFF4A2B6E),
+          bokehA: Color(0x559B8AE8),
+          bokehB: Color(0x33E07A5F),
+          fog: Color(0x446C4ED0),
+          clockTop: Color(0xFFFFF0FF),
+          clockBottom: Color(0xFFE8D0FF),
         );
       case PhoneWallpaperTheme.night:
         return const PhoneWallpaperPalette(
           gradient: [
-            Color(0xFF0B1026),
+            Color(0xFF050A18),
+            Color(0xFF0B1626),
             Color(0xFF1B2748),
-            Color(0xFF2E3A5F),
-            Color(0xFF1A2744),
+            Color(0xFF0E1A30),
+            Color(0xFF050A18),
           ],
-          mid: Color(0xFF1B2748),
-          bokehA: Color(0x44A5B4FC),
-          bokehB: Color(0x3387CEEB),
-          fog: Color(0x330B1026),
-          clockTop: Color(0xFFF0F4FF),
-          clockBottom: Color(0xDDC7D2FE),
+          mid: Color(0xFF0B1626),
+          bokehA: Color(0x4400E0C6),
+          bokehB: Color(0x2200B4D0),
+          fog: Color(0x3300E0C6),
+          clockTop: Color(0xFFE0FFF8),
+          clockBottom: Color(0xFF00E0C6),
         );
     }
   }

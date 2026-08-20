@@ -14,19 +14,16 @@ import '../../models/memory.dart';
 import '../../models/intimacy_event.dart';
 import '../../models/ai_stream_chunk.dart';
 import '../../models/ai_turn_state.dart';
+import '../../models/money_transaction.dart';
 import '../../models/proactive_policy.dart';
 import '../../repositories/local_storage_repository.dart';
 
 import '../../services/ai_service.dart';
 import '../../services/ai_status_service.dart';
 import '../../services/bt_agent_execution_service.dart';
-import '../../services/device_agent_execution_service.dart';
-import '../../services/device_action_policy.dart';
-import '../../services/character_desire_engine.dart';
 import '../../services/core_hub.dart';
 import '../../services/agent/agent_tools.dart';
 import '../../models/bt_agent_action.dart';
-import '../../models/device_agent_action.dart';
 import '../../services/pure_ai_service.dart';
 import '../../services/bridge/ai_service_adapter.dart';
 import '../../services/builtin_sticker_service.dart';
@@ -50,26 +47,8 @@ import '../../utils/prefs_helper.dart';
 import '../../models/app_config_data.dart';
 import '../../services/llm_service.dart';
 import '../../services/wellbeing_service.dart';
-import '../../services/device_notification_service.dart';
-import '../../services/accessibility_service.dart';
-import '../../services/device_service.dart';
-import '../../services/tools/tools.dart';
-import '../../services/tools/tool_registry.dart';
-import '../../services/tools/tool.dart';
-import '../../services/tools/tool_executor.dart';
-import '../../services/tools/agent_tool_gateway.dart';
-import '../../services/tools/conversation_turn.dart';
-import '../../services/tools/deterministic_device_router.dart';
-import '../../services/tools/device_intent_router.dart';
-import '../../services/tools/packages/proactive_skill_tool_pkg.dart';
-import 'tool_aware_service.dart';
 import 'chat_bloc_utils.dart';
 import 'chat_bloc_intimacy.dart';
-import '../../models/tool_task_state.dart';
-import '../../services/tool_permission_policy.dart';
-import '../../services/recent_tool_context.dart';
-import '../../services/unified_intent_classifier.dart';
-import '../../services/tool_task_store.dart';
 import '../../services/story_state_service.dart';
 import '../../services/proactive_decision_engine.dart';
 import '../../services/proactive_action_executor.dart';
@@ -123,24 +102,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   /// 微记忆冷却时间戳，按 chatId 跟踪，避免同会话短时刷入多条
   final Map<String, DateTime> _lastMicroTime = {};
   late final BtAgentExecutionService _btAgentExecutionService;
-  late final DeviceAgentExecutionService _deviceAgentExecutionService;
-  late final CharacterDesireEngine _desireEngine;
-  late final ToolPermissionPolicy _toolPermissionPolicy;
-  late final ToolTaskStore _toolTaskStore;
   late final StoryStateService _storyStateService;
   late final ProactiveDecisionEngine _proactiveDecisionEngine;
-  final Set<String> _cancelledToolTasks = {};
-  final Map<String, Completer<bool>> _toolPermissionWaiters = {};
   final AIServiceAdapter? _aiAdapter;
-
-  /// 工具注册表 — 全局唯一，所有设备操控工具在此注册
-  final ToolRegistry _toolRegistry = createToolRegistry();
-
-  /// 工具感知服务 — 延迟初始化（需要 LlmService）
-  ToolAwareService? _toolAwareService;
-
-  /// 对齐 Operit InputProcessingState 的处理阶段
-  ChatProcessingState _chatProcessingState = ChatProcessingState.idle;
 
   // ── 预编译正则（避免每条消息重复编译）──
   static final RegExp _stickerTagRe =
@@ -156,50 +120,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
   final WellbeingService _wellbeing = WellbeingService();
 
   bool _isAIRefusal(String content) => isAIRefusal(content);
-
-  bool _containsAuthoritativeFact(String text, String result) {
-    final numbers = RegExp(r'\d+(?:[.,]\d+)?')
-        .allMatches(result)
-        .map((match) => match.group(0)!)
-        .toList();
-    // 列表型结果（应用列表、进程列表、使用排行）含大量序号数字，
-    // 角色无法也无需逐条复述；数字多时只要求反馈存在即可，不强制全含。
-    if (numbers.length <= 8 &&
-        numbers.isNotEmpty &&
-        numbers.any((number) => !text.contains(number))) {
-      return false;
-    }
-    final factWords = <String>[
-      if (result.contains('充电中')) '充电中',
-      if (result.contains('已充满')) '已充满',
-      if (result.contains('未充电')) '未充电',
-      if (result.contains('交流电')) '交流电',
-      if (result.contains('USB')) 'USB',
-      if (result.contains('无线充电')) '无线充电',
-    ];
-    return factWords.every(text.contains);
-  }
-
-  String _toolStatusText(ToolProcessingState state) {
-    switch (state) {
-      case ToolProcessingState.preparing:
-        return '正在准备工作任务…';
-      case ToolProcessingState.connecting:
-        return '正在联系模型规划下一步…';
-      case ToolProcessingState.receiving:
-        return '正在理解任务计划…';
-      case ToolProcessingState.executingTool:
-        return '正在执行工作区操作…';
-      case ToolProcessingState.processingToolResult:
-        return '正在整理真实执行结果…';
-      case ToolProcessingState.completed:
-        return '工作任务已完成';
-      case ToolProcessingState.error:
-        return '工作任务遇到问题，可恢复';
-      case ToolProcessingState.idle:
-        return '等待开始工作任务…';
-    }
-  }
 
   bool get _isPureAIForced => _storage.isPureAiModeEnabled();
 
@@ -306,16 +226,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
         super(ChatInitial()) {
     _pureAIService = PureAIService(_storage);
     _btAgentExecutionService = BtAgentExecutionService(_storage);
-    _deviceAgentExecutionService =
-        DeviceAgentExecutionService(_storage, registry: _toolRegistry);
-    _toolPermissionPolicy = ToolPermissionPolicy(_storage);
-    _toolTaskStore = ToolTaskStore(_storage);
-    _desireEngine = CharacterDesireEngine(_storage);
     _commitmentService = CharacterCommitmentService(_storage);
     _relationshipService = RelationshipContextService(_storage);
     _storyStateService = StoryStateService(_storage);
     _proactiveDecisionEngine = ProactiveDecisionEngine();
-    _toolAwareService = null; // 延迟到第一次使用时初始化（需要在 onSendMessage 中拿到 LlmService）
     on<ChatLoadSessions>(_onLoadSessions);
     on<ChatLoadMessages>(_onLoadMessages);
     on<ChatLoadMoreMessages>(_onLoadMoreMessages);
@@ -328,6 +242,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     on<ChatSendRedPacket>(_onSendRedPacket);
     on<ChatSendGift>(_onSendGift);
     on<ChatAISendCoins>(_onAISendCoins);
+    on<ChatSendMoneyMessage>(_onSendMoneyMessage);
+    on<ChatClaimMoney>(_onClaimMoney);
     on<ChatBlockByUser>(_onBlockByUser);
     on<ChatUnblockByUser>(_onUnblockByUser);
     on<ChatAIForgaveUser>(_onAIForgaveUser);
@@ -347,11 +263,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     on<ChatMoveMessageDown>(_onMoveMessageDown);
     on<ChatCreateBranch>(_onCreateBranch);
     on<ChatClearContext>(_onClearContext);
-    on<ChatRunAutoGlm>(_onRunAutoGlm);
-    on<ChatCancelAutoGlm>(_onCancelAutoGlm);
-    on<ChatSetToolPermission>(_onSetToolPermission);
-    on<ChatResolveToolPermission>(_onResolveToolPermission);
-    on<ChatResumeToolTask>(_onResumeToolTask);
     on<ChatEditAIReply>(_onEditAIReply);
     on<ChatRegenerateAIReply>(_onRegenerateAIReply);
   }
@@ -999,80 +910,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState>
     } catch (_) {
       return null;
     }
-  }
-
-  /// 设备通知上下文 — 让角色感知用户手机上的最新通知
-  Future<String?> _buildNotificationContext() async {
-    try {
-      return await () async {
-        final svc = DeviceNotificationService();
-        final hasAccess = await svc.hasAccess();
-        if (!hasAccess) return null;
-        final notifications = await svc.getNotifications(limit: 5);
-        if (notifications.isEmpty) return null;
-
-        final buf = StringBuffer();
-        buf.writeln('【TA 的手机通知 · 本地感知】');
-        buf.writeln('以下是 TA 设备上最近收到的通知，你可以据此了解 TA 正在关注什么：');
-        for (final n in notifications) {
-          buf.writeln('- ${n.toDisplayString()}');
-        }
-        buf.writeln('注意：这是 TA 的私人信息，请自然地引用，不要逐条念出，不要显得像在监控TA。');
-        return buf.toString().trim();
-      }()
-          .timeout(const Duration(milliseconds: 600));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// 设备状态上下文 — 当前前台应用、屏幕状态等
-  Future<String?> _buildDeviceContext() async {
-    try {
-      return await () async {
-        final a11y = AccessibilityService();
-        final enabled = await a11y.isEnabled();
-        if (!enabled) return null;
-
-        final app = await a11y.getCurrentApp();
-        if (app.isUnknown) return null;
-
-        final buf = StringBuffer();
-        buf.writeln('【TA 的设备状态 · 本地感知】');
-        buf.writeln('TA 当前正在使用：${app.displayName}。');
-        buf.writeln('你可以自然地引用这个信息，但不要表现得像在"监控"TA。');
-        return buf.toString().trim();
-      }()
-          .timeout(const Duration(milliseconds: 600));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// BDI：世界信念 + 人设欲望 + 本轮意图（LLM 精炼画像可选）
-  Future<String?> _buildDeviceAgentContext(
-    AICharacter character,
-    String chatId,
-  ) async {
-    try {
-      return await _desireEngine
-          .buildTurnDirective(
-            character: character,
-            sessionId: chatId,
-            deviceAgentAllowed:
-                _deviceAgentExecutionService.isRolePathAllowed(),
-            isToolPermitted: _deviceAgentExecutionService.isToolPermitted,
-            loadLlmSettings: _loadLlmSettings,
-          )
-          .timeout(const Duration(seconds: 2));
-    } catch (e) {
-      debugPrint('[DesireEngine] buildTurnDirective skip: $e');
-      return null;
-    }
-  }
-
-  Future<String?> _buildDeviceFeedbackContext(String chatId) async {
-    return _deviceAgentExecutionService.consumeFeedback(chatId);
   }
 
   /// 滚动摘要（桥接）
@@ -2120,13 +1957,10 @@ $tail
     if (s is ChatTransferStatusUpdated) return s.messages;
     if (s is ChatAITyping) return s.messages;
     if (s is ChatAIStreaming) return s.messages;
-    if (s is ChatAIProcessing) return s.messages;
     if (s is ChatAIObserving) return s.messages;
     if (s is ChatBlockedByAI) return s.messages;
     if (s is ChatUnblockedByAI) return s.messages;
     if (s is ChatAICoinsSent) return s.messages;
-    if (s is ChatAutoGlmRunning) return s.messages;
-    if (s is ChatAutoGlmCompleted) return s.messages;
     return const [];
   }
 
@@ -2653,14 +2487,8 @@ $tail
       final chatMsgs = await _storage.getChatMessages(event.chatId);
       final july15EasterEggDirective =
           _buildJuly15EasterEggDirective(event.content);
-      // 并行收集上下文，避免串行设备通道/欲望引擎拖死首条消息
-      final ctxResults = await Future.wait([
-        _buildWellbeingContext(),
-        _buildNotificationContext(),
-        _buildDeviceContext(),
-        Future.value(_buildDeviceFeedbackContext(event.chatId)),
-        _buildDeviceAgentContext(character, event.chatId),
-      ]);
+      // 作息上下文（本地 Wellbeing，与设备操控无关）
+      final wellbeingContext = await _buildWellbeingContext();
       String? sessionStateContext = _buildSessionStateAnchor(chatMsgs);
       sessionStateContext = _mergeInternalSystemContext(
         sessionStateContext,
@@ -2674,15 +2502,7 @@ $tail
         );
       }
       sessionStateContext =
-          _mergeInternalSystemContext(sessionStateContext, ctxResults[0]);
-      sessionStateContext =
-          _mergeInternalSystemContext(sessionStateContext, ctxResults[1]);
-      sessionStateContext =
-          _mergeInternalSystemContext(sessionStateContext, ctxResults[2]);
-      sessionStateContext =
-          _mergeInternalSystemContext(sessionStateContext, ctxResults[3]);
-      sessionStateContext =
-          _mergeInternalSystemContext(sessionStateContext, ctxResults[4]);
+          _mergeInternalSystemContext(sessionStateContext, wellbeingContext);
       if (!isSideStory) {
         final relatedGroupMemory = await _memoryEngine
             .buildRelatedGroupMemoryContext(character.id, event.content);
@@ -2703,502 +2523,10 @@ $tail
       // 声明后续会用到的变量
       String aiVisibleText = '';
       String reasoningText = '';
-      bool agentHadTool = false;
-      bool deviceRequestAttempted = false;
-      List<ToolExecutionRecord> toolExecutions = [];
-      final toolTaskId = _uuid.v4();
-      var persistedTask = ToolTaskState(
-        taskId: toolTaskId,
-        chatId: event.chatId,
-        task: event.content,
-        status: ToolTaskStatus.running,
-      );
-      await _toolTaskStore.save(persistedTask);
 
-      // 1) 统一意图分类：一次 LLM 调用同时完成意图判断、工具选择和参数提取
-      final recentTool = RecentToolContext.fromMessages(chatMsgs);
-      UnifiedIntentResult intentResult;
-      try {
-        final intentClassifier = UnifiedIntentClassifier(
-          llm: LlmService(settings: await _loadLlmSettings()),
-          registry: _toolRegistry,
-        );
-        intentResult = await intentClassifier.classify(
-          message: event.content,
-          recentMessages: chatMsgs,
-          recentTool: recentTool,
-        );
-        LogService.instance.i(
-          'UnifiedIntent',
-          'kind=${intentResult.kind.name} tool=${intentResult.toolName} '
-              'confidence=${intentResult.confidence} reason=${intentResult.reason}',
-          chatId: event.chatId,
-        );
-      } catch (e, stack) {
-        LogService.instance.e(
-          'UnifiedIntent',
-          '分类失败: $e\n$stack',
-          chatId: event.chatId,
-        );
-        intentResult = const UnifiedIntentResult.conversation(
-          reason: 'classifier_error',
-        );
-      }
-
-      DeterministicDeviceRoute? deterministicRoute;
-      if (intentResult.kind == UnifiedIntentKind.directTool ||
-          intentResult.kind == UnifiedIntentKind.continueTool) {
-        if (intentResult.toolName != null) {
-          deterministicRoute = DeterministicDeviceRoute(
-            toolName: intentResult.toolName!,
-            args: intentResult.args,
-          );
-        }
-      } else if (intentResult.kind == UnifiedIntentKind.clarificationRequired) {
-        aiVisibleText = '我大概明白你的意思了，但这一步需要你把目标说得更具体一点。';
-      } else if (intentResult.kind == UnifiedIntentKind.notAllowed) {
-        aiVisibleText = '这项操作我不能在没有明确确认的情况下替你执行。';
-      }
-      if (deterministicRoute != null) {
-        deviceRequestAttempted = true;
-        debugPrint(
-            '[DeterministicRoute] 命中 ${deterministicRoute.toolName} args=${deterministicRoute.args}');
-        LogService.instance.i(
-          'DeterministicRoute',
-          '命中 ${deterministicRoute.toolName}',
-          chatId: event.chatId,
-        );
-        try {
-          final policy = DeviceActionPolicy.instance;
-          if (!policy.allowTool(event.chatId, deterministicRoute.toolName)) {
-            debugPrint(
-                '[DeterministicRoute] 频控拒绝 ${deterministicRoute.toolName}');
-            aiVisibleText = '操作过快，请稍后再试。';
-            agentHadTool = true;
-          } else {
-            _chatProcessingState = ChatProcessingState.executingTool;
-            emit(ChatAIProcessing(
-              chatMsgs,
-              '执行工具: ${deterministicRoute.toolName}...',
-              character.name,
-              processingState: _chatProcessingState,
-            ));
-
-            final action = await _deviceAgentExecutionService.executeFromJson(
-              jsonEncode({
-                'action': deterministicRoute.toolName,
-                'params': deterministicRoute.args,
-                'reason': '用户明确发起的设备请求',
-              }),
-              characterId: character.id,
-              sessionId: event.chatId,
-              checkRateLimit: false,
-            );
-            if (action == null) {
-              throw StateError('设备操作未生成执行记录');
-            }
-            final record = ToolExecutionRecord(
-              toolName: deterministicRoute.toolName,
-              args: deterministicRoute.args,
-              result: action.result == DeviceActionResult.success
-                  ? ToolResult.success(action.message)
-                  : ToolResult.error(action.message),
-              startedAt: action.createdAt,
-              endedAt: action.createdAt,
-            );
-            toolExecutions = [record];
-            agentHadTool = true;
-            if (record.result.success) {
-              policy.markSuccess(event.chatId);
-              policy.pushFeedback(
-                sessionId: event.chatId,
-                toolName: deterministicRoute.toolName,
-                message: record.result.message,
-                success: true,
-                isRead: policy.isReadTool(deterministicRoute.toolName),
-              );
-            }
-            aiVisibleText = '';
-          }
-
-          if (toolExecutions.isNotEmpty) {
-            final executionTrace =
-                toolExecutions.map((e) => e.toTraceJson()).toList();
-            await _storage.saveChatMessage(ChatMessage(
-              id: _uuid.v4(),
-              chatId: event.chatId,
-              senderId: 'system_tool',
-              senderName: '工具执行',
-              content: '执行了 ${toolExecutions.length} 个工具',
-              type: MessageType.system,
-              status: MessageStatus.sent,
-              createdAt: DateTime.now(),
-              isUser: false,
-              isSystem: true,
-              metadata: {
-                'isToolTrace': true,
-                'toolTrace': executionTrace,
-              },
-            ));
-          }
-          _chatProcessingState = ChatProcessingState.completed;
-        } catch (e, stack) {
-          LogService.instance.e(
-            'DeterministicRoute',
-            '执行失败: $e\n$stack',
-            chatId: event.chatId,
-          );
-          aiVisibleText = '';
-          agentHadTool = false;
-          toolExecutions = [];
-        }
-      }
-
-      // 2) 未命中确定性路由时，再尝试 LLM 工具路径
-      // 工具请求走 ToolAwareService（纯工具助手，无角色人设干扰）
-      // 普通聊天走 _streamAndProcessAIResponse（角色扮演，无工具干扰）
-      final bool isToolRequest =
-          !agentHadTool && (intentResult.kind == UnifiedIntentKind.directTool);
-
-      if (isToolRequest) {
-        deviceRequestAttempted = true;
-        debugPrint('[ToolAware] 进入工具路径');
-        LogService.instance
-            .i('ToolAware', '检测到工具请求，尝试工具感知', chatId: event.chatId);
-
-        try {
-          // 创建 ToolAwareService（使用数据库中的 AI 配置）
-          final toolLlm = LlmService(settings: await _loadLlmSettings());
-          final toolRegistry = _toolRegistry;
-          final toolAwareService = ToolAwareService(
-            llmService: toolLlm,
-            registry: toolRegistry,
-            guardedExecute: (toolName, args) async {
-              final mode = _toolPermissionPolicy.mode(toolName);
-              if (mode == ToolPermissionMode.alwaysDeny) {
-                return ToolExecutionRecord(
-                  toolName: toolName,
-                  args: args,
-                  result: ToolResult.error(
-                    '此工具已被设置为始终拒绝。',
-                    errorCode: 'PERMISSION_DENIED',
-                    needsPermission: false,
-                    permissionName: toolName,
-                  ),
-                  startedAt: DateTime.now(),
-                  endedAt: DateTime.now(),
-                );
-              }
-              if (mode == ToolPermissionMode.ask) {
-                await _toolPermissionPolicy.requestOnce(
-                    event.chatId, toolName, args);
-                final waiter = Completer<bool>();
-                // 用本轮唯一 toolTaskId 作 key，避免同会话并发权限请求互相覆盖
-                _toolPermissionWaiters[toolTaskId] = waiter;
-                emit(ChatToolPermissionRequired(
-                  chatId: event.chatId,
-                  taskId: toolTaskId,
-                  toolName: toolName,
-                  args: args,
-                ));
-                final approved = await waiter.future.timeout(
-                  const Duration(minutes: 2),
-                  onTimeout: () => false,
-                );
-                _toolPermissionWaiters.remove(toolTaskId);
-                await _toolPermissionPolicy.resolveOnce(event.chatId);
-                if (!approved) {
-                  return ToolExecutionRecord(
-                    toolName: toolName,
-                    args: args,
-                    result: ToolResult.error(
-                      '用户未批准该工具执行。',
-                      errorCode: 'PERMISSION_DENIED',
-                      permissionName: toolName,
-                    ),
-                    startedAt: DateTime.now(),
-                    endedAt: DateTime.now(),
-                  );
-                }
-              }
-              final action = await _deviceAgentExecutionService.executeFromJson(
-                jsonEncode({
-                  'action': toolName,
-                  'params': args,
-                  'reason': '用户明确发起的设备请求',
-                }),
-                characterId: character!.id,
-                sessionId: event.chatId,
-              );
-              if (action == null) {
-                return ToolExecutionRecord(
-                  toolName: toolName,
-                  args: args,
-                  result: ToolResult.error('设备操作未生成执行记录'),
-                  startedAt: DateTime.now(),
-                  endedAt: DateTime.now(),
-                );
-              }
-              return ToolExecutionRecord(
-                toolName: toolName,
-                args: args,
-                result: action.result == DeviceActionResult.success
-                    ? ToolResult.success(action.message)
-                    : ToolResult.error(action.message),
-                startedAt: action.createdAt,
-                endedAt: action.createdAt,
-              );
-            },
-            isCancelled: () => _cancelledToolTasks.contains(event.chatId),
-          );
-
-          // 构建 LLM 消息列表
-          final llmMessages = <Map<String, dynamic>>[];
-
-          // 系统提示：纯工具助手（不注入角色人设，避免角色扮演压制工具调用）
-          final toolDesc = _toolRegistry.toDescriptionText();
-          final systemPrompt = StringBuffer();
-          systemPrompt.writeln('【重要指令】你是 Solace 设备操作代理，当前用户请求已被判定为真实设备操作。');
-          systemPrompt.writeln('你必须调用工具来完成任务，而不是把请求当作普通文本对话。');
-          systemPrompt.writeln('工具执行后，必须根据工具返回的真实结果，用角色自然的口吻向用户反馈；不得虚构成功。');
-          systemPrompt.writeln('禁止事项：不要进行角色扮演、不要闲聊、不要说你做不到、不要问用户更多信息。');
-          systemPrompt.writeln('如果用户说"打开微信"，你必须调用 open_app 工具，而不是回复文字。');
-          if (toolDesc.isNotEmpty) {
-            systemPrompt.writeln('');
-            systemPrompt.writeln('## 可用工具');
-            systemPrompt.writeln(toolDesc);
-            systemPrompt.writeln('');
-            systemPrompt.writeln('## 调用方式（二选一，必须调用）：');
-            systemPrompt
-                .writeln('方式1 - Function Calling：如果模型支持，直接调用 function call');
-            systemPrompt.writeln(
-                '方式2 - XML 标签：<tool name="工具名"><param name="参数名">参数值</param></tool>');
-            systemPrompt.writeln('');
-            systemPrompt.writeln('## 常用参考：');
-            systemPrompt.writeln(
-                '微信=com.tencent.mm, QQ=com.tencent.mobileqq, 设置=com.android.settings');
-            systemPrompt
-                .writeln('相册/图库=com.android.gallery, 浏览器=com.android.browser');
-          }
-          systemPrompt.writeln('## 角色反馈风格');
-          systemPrompt.writeln(
-              '角色名：${character.name}\n角色人设：${character.personality ?? ''}');
-          systemPrompt.writeln('每次角色反馈也必须在可见正文之后输出一次 TURN_STATE：'
-              '[TURN_STATE]{"emoji":"🙂","emotion":"简短情绪","intensity":0.0,"thought":"本轮新想法"}[/TURN_STATE]。'
-              'emoji 必须根据本轮语境重新选择，不能沿用上一轮。');
-          if (sessionStateContext != null && sessionStateContext.isNotEmpty) {
-            systemPrompt.writeln(
-                '以下是只用于生成执行后反馈的关系与剧情上下文，不得替代工具调用，也不得声称未执行的操作已完成：\n$sessionStateContext');
-          }
-
-          llmMessages.add({
-            'role': 'system',
-            'content': systemPrompt.toString(),
-          });
-
-          // 聊天历史（最多 20 条）
-          final recentMsgs = chatMsgs.length > 20
-              ? chatMsgs.sublist(chatMsgs.length - 20)
-              : chatMsgs;
-          for (final msg in recentMsgs) {
-            if (msg.isHidden || msg.isGhost) continue;
-            llmMessages.add({
-              'role': msg.isUser ? 'user' : 'assistant',
-              'content': msg.content,
-            });
-          }
-
-          // 用户消息：有括号时结构化，说明已在 system/internal，勿再塞 user 台词
-          final toolUserContent = hasActionBracket
-              ? _formatActionBracketUserMessage(event.content)
-              : event.content;
-          llmMessages.add({
-            'role': 'user',
-            'content': toolUserContent,
-          });
-
-          _chatProcessingState = ChatProcessingState.connecting;
-          emit(ChatAIProcessing(
-            chatMsgs,
-            '准备中...',
-            character.name,
-            processingState: _chatProcessingState,
-          ));
-
-          final result = await toolAwareService.run(
-            turns: [],
-            llmMessages: llmMessages,
-            maxSteps: 10,
-            requireToolOnFirstStep: true,
-            onStep: (step) {
-              final trace = [
-                ...persistedTask.trace,
-                {
-                  'step': step.step,
-                  'tool': step.toolName,
-                  'args': step.args,
-                  'status': step.status,
-                  'result': step.result,
-                },
-              ];
-              persistedTask = persistedTask.copyWith(
-                step: step.step,
-                trace: trace,
-              );
-              unawaited(_toolTaskStore.save(persistedTask));
-              LogService.instance.i('ToolAware',
-                  '步骤 ${step.step}: ${step.toolName}(${step.args}) -> ${step.status}',
-                  chatId: event.chatId);
-              _chatProcessingState = ChatProcessingState.executingTool;
-              emit(ChatAIProcessing(
-                chatMsgs,
-                '执行工具: ${step.toolName}...',
-                character?.name ?? '',
-                processingState: _chatProcessingState,
-              ));
-            },
-            onStateChange: (state) {
-              _chatProcessingState = switch (state) {
-                ToolProcessingState.preparing => ChatProcessingState.preparing,
-                ToolProcessingState.connecting =>
-                  ChatProcessingState.connecting,
-                ToolProcessingState.receiving => ChatProcessingState.receiving,
-                ToolProcessingState.executingTool =>
-                  ChatProcessingState.executingTool,
-                ToolProcessingState.processingToolResult =>
-                  ChatProcessingState.processingToolResult,
-                ToolProcessingState.completed => ChatProcessingState.completed,
-                ToolProcessingState.error => ChatProcessingState.error,
-                ToolProcessingState.idle => ChatProcessingState.idle,
-              };
-              emit(ChatAIProcessing(
-                chatMsgs,
-                _toolStatusText(state),
-                character?.name ?? '',
-                processingState: _chatProcessingState,
-              ));
-            },
-            onContextCompacted: (summary) {
-              persistedTask = persistedTask.copyWith(summary: summary);
-              unawaited(_toolTaskStore.save(persistedTask));
-            },
-          );
-
-          final (finalContent, records, hadTools) = result;
-
-          aiVisibleText = finalContent;
-          toolExecutions = records;
-          agentHadTool = hadTools;
-
-          // 工具执行后的最终文字统一交给梦角收尾管线生成；这里不再写入
-          // 通用 Agent 成功话术，避免工具面板和角色气泡割裂。
-          if (aiVisibleText.trim().isEmpty && agentHadTool) {
-            aiVisibleText = '';
-          }
-
-          // 如果 LLM 没有调用任何工具，说明模型不配合，重试一次更强制提示
-          if (!agentHadTool) {
-            debugPrint('[ToolAware] 第一轮未调工具，发起重试');
-            llmMessages.add({
-              'role': 'user',
-              'content': '【系统指令】你没有调用工具！请立即调用工具执行以下操作，'
-                  '不要用文字回复，不要角色扮演，直接调用工具：${event.content}',
-            });
-            final retryResult = await toolAwareService.run(
-              turns: [],
-              llmMessages: llmMessages,
-              maxSteps: 5,
-              requireToolOnFirstStep: true,
-              onStep: (step) {
-                _chatProcessingState = ChatProcessingState.executingTool;
-                emit(ChatAIProcessing(
-                  chatMsgs,
-                  '执行工具: ${step.toolName}...',
-                  character?.name ?? '',
-                  processingState: _chatProcessingState,
-                ));
-              },
-              onStateChange: (processingState) {
-                final status = processingState == ToolProcessingState.error
-                    ? ToolTaskStatus.recoverable
-                    : processingState == ToolProcessingState.completed
-                        ? ToolTaskStatus.completed
-                        : ToolTaskStatus.running;
-                persistedTask = persistedTask.copyWith(status: status);
-                unawaited(_toolTaskStore.save(persistedTask));
-              },
-            );
-            final (retryContent, retryRecords, retryHadTools) = retryResult;
-            if (retryHadTools) {
-              aiVisibleText = retryContent;
-              toolExecutions = retryRecords;
-              agentHadTool = true;
-              debugPrint('[ToolAware] 重试成功，调用了 ${retryRecords.length} 个工具');
-            } else {
-              debugPrint('[ToolAware] 重试仍未调用工具，保留设备请求失败反馈');
-              aiVisibleText = retryContent.isNotEmpty
-                  ? retryContent
-                  : '设备请求未执行：当前模型没有发起工具调用。';
-            }
-          }
-
-          _chatProcessingState = ChatProcessingState.completed;
-          if (toolExecutions.isNotEmpty) {
-            final executionTrace =
-                toolExecutions.map((e) => e.toTraceJson()).toList();
-            await _storage.saveChatMessage(ChatMessage(
-              id: _uuid.v4(),
-              chatId: event.chatId,
-              senderId: 'system_tool',
-              senderName: '工具执行',
-              content: '执行了 ${toolExecutions.length} 个工具',
-              type: MessageType.system,
-              status: MessageStatus.sent,
-              createdAt: DateTime.now(),
-              isUser: false,
-              isSystem: true,
-              metadata: {
-                'isToolTrace': true,
-                'toolTrace': executionTrace,
-              },
-            ));
-            LogService.instance.i(
-              'ToolAware',
-              '工具执行完成: ${toolExecutions.length} 个工具',
-              chatId: event.chatId,
-            );
-          }
-
-          persistedTask = persistedTask.copyWith(
-            status: _cancelledToolTasks.contains(event.chatId)
-                ? ToolTaskStatus.cancelled
-                : ToolTaskStatus.completed,
-            trace: toolExecutions.map((e) => e.toTraceJson()).toList(),
-          );
-          await _toolTaskStore.save(persistedTask);
-
-          LogService.instance.i('ToolAware',
-              '工具路径完成: hadTools=$agentHadTool, 回复长度=${aiVisibleText.length}',
-              chatId: event.chatId);
-        } catch (e, stack) {
-          LogService.instance
-              .e('ToolAware', '工具路径异常: $e\n$stack', chatId: event.chatId);
-          _chatProcessingState = ChatProcessingState.error;
-          persistedTask = persistedTask.copyWith(
-            status: ToolTaskStatus.recoverable,
-            error: e.toString(),
-            trace: toolExecutions.map((e) => e.toTraceJson()).toList(),
-          );
-          await _toolTaskStore.save(persistedTask);
-
-          aiVisibleText = '设备请求未执行：工具服务异常，请检查模型配置和 Operit 权限后重试。';
-        }
-      } // end if (isToolRequest)
-
-      // 如果 AI 没有返回内容且没有执行工具，走普通角色聊天路径
-      // （非工具请求也会走到这里，aiVisibleText 为空，触发 normal AI response）
+      // 普通角色聊天路径（无设备意图分类/工具执行）
       List<RegExpMatch> aiStickerMatches = const [];
-      if (aiVisibleText.isEmpty && !agentHadTool && !deviceRequestAttempted) {
+      if (aiVisibleText.isEmpty) {
         // ── 主动决策引擎：在普通聊天前评估是否需要主动执行动作 ──
         ProactiveDecisionResult? proactiveDecision;
         ProactiveActionResult? proactiveAction;
@@ -3222,21 +2550,10 @@ $tail
 
             if (proactiveDecision.shouldAct &&
                 proactiveDecision.actionType != null) {
-              // 主动技能与当前角色/用户绑定，不能放入全局注册表。
-              final proactiveRegistry = ToolRegistry();
-              proactiveRegistry.register(ProactiveSkillToolPkg(
-                storyStateService: _storyStateService,
-                characterId: character.id,
-                userId: event.userId,
-              ));
-              final proactiveGateway = AgentToolGateway(
-                registry: proactiveRegistry,
-              );
               final executor = ProactiveActionExecutor(
                 storyStateService: _storyStateService,
                 characterId: character.id,
                 userId: event.userId,
-                toolGateway: proactiveGateway,
               );
               proactiveAction = await executor.execute(
                 proactiveDecision.actionType!,
@@ -3284,164 +2601,10 @@ $tail
           aiVisibleText = normalResult.cleanText;
           reasoningText = normalResult.reasoning;
           aiStickerMatches = normalResult.stickerMatches;
-
-          if (aiVisibleText.contains('<DEVICE_ACTION>')) {
-            final deviceResult =
-                await _deviceAgentExecutionService.processActionTags(
-              aiVisibleText,
-              characterId: character.id,
-              sessionId: event.chatId,
-              allowTextInput:
-                  DeviceIntentRouter.isExplicitTextInputRequest(event.content),
-            );
-            aiVisibleText = deviceResult.visibleText;
-            if (deviceResult.actions.isNotEmpty) {
-              agentHadTool = deviceResult.actions
-                  .any((a) => a.result == DeviceActionResult.success);
-              for (final a in deviceResult.actions) {
-                if (a.result == DeviceActionResult.success) {
-                  toolExecutions.add(ToolExecutionRecord(
-                    toolName: deviceActionToToolName(a.actionType),
-                    args: a.params,
-                    result: ToolResult.success(a.message),
-                    startedAt: a.createdAt,
-                    endedAt: a.createdAt,
-                  ));
-                }
-              }
-              debugPrint('[DeviceAgent] 处理 ${deviceResult.actions.length} 个动作');
-            }
-            // 意图 + 设备结果写入记忆（异步，不阻塞）；番外平行会话不写主线记忆。
-            if (!isSideStory) {
-              unawaited(_desireEngine.writeEpisodeMemory(
-                characterId: character.id,
-                userId: event.userId,
-                intention: _desireEngine.lastIntention,
-                actions: deviceResult.actions,
-              ));
-            }
-          } else if (!isSideStory) {
-            unawaited(_desireEngine.writeEpisodeMemory(
-              characterId: character.id,
-              userId: event.userId,
-              intention: _desireEngine.lastIntention,
-              actions: const [],
-            ));
-          }
         } catch (e) {
           LogService.instance
               .e('ChatBloc', '角色聊天路径异常: $e', chatId: event.chatId);
           aiVisibleText = MessageSanitizer.failureFallbackText();
-        }
-      }
-
-      // 电量、通知数量等读操作的返回值来自设备 API，不是模型推断。
-      // 角色可以自然回应，但必须逐字保留事实结果，避免改写数值。
-      const authoritativeReadTools = {
-        'get_battery_info',
-        'get_notifications',
-        'get_notification_count',
-        'get_current_app',
-        'get_installed_apps',
-        'get_app_usage_time',
-        'get_processes',
-        'take_screenshot',
-      };
-      final hasAuthoritativeDeviceResult = toolExecutions.any(
-        (record) => authoritativeReadTools.contains(record.toolName),
-      );
-      ToolExecutionRecord? authoritativeRecord;
-      if (hasAuthoritativeDeviceResult) {
-        authoritativeRecord = toolExecutions.firstWhere(
-          (record) => authoritativeReadTools.contains(record.toolName),
-        );
-      }
-
-      // 本地工具的执行记录是事实源；角色只负责把真实结果融入关系语境。
-      if (toolExecutions.isNotEmpty &&
-          (deterministicRoute != null || agentHadTool)) {
-        final record = authoritativeRecord ?? toolExecutions.first;
-        final resultContext = '''
-【刚刚获得的真实信息，仅供当前角色理解】
-用户刚才说：${event.content}
-真实来源：${record.toolName}
-执行状态：${record.result.success ? '成功' : '失败'}
-事实内容：${record.result.message}
-
-这不是一条需要复述的系统消息，而是角色刚刚亲自观察到/完成后的经历。请把它自然地融入当前角色的回复，最重要的：请以角色平时与人聊天的完整篇幅和风格自由展开，像一场自然连贯的接续一样回复，不要因为它是设备操作的结果就只回一句话。
-- 继续使用当前角色的人设、关系、语气和故事上下文，完整回应用户原话；
-- 在小说模式/长文风格中，回复的长度、语气、口吻与平时完全一致，不要明显缩短；
-- 不要提工具名、API、代理、系统提示、执行记录或"结果详情"；
-- 不要用"我帮你看了一下""操作已完成"等固定话术开头；
-- 真实数字、百分比、状态和异常原因是不可改变的事实，但不要机械照贴整段机器文本；
-- 失败时也要自然表达，不要假装成功，也不要把"我看不了"当作闲聊的终结，而是继续像平日一样与用户聊下去。
-''';
-        try {
-          final feedback = await _streamAndProcessAIResponse(
-            character: character,
-            userId: event.userId,
-            // 保留原始用户话题，让角色在同一轮对话中自然接话，而不是
-            // 让第二次模型调用生成脱离上下文的“任务总结”。
-            messageForAI: event.content,
-            messages: messages,
-            memories: memories,
-            session: session,
-            sentiment: sentiment,
-            chatMsgs: chatMsgs,
-            emit: emit,
-            chatId: event.chatId,
-            originalUserMessage: event.content,
-            imageDescription: imageDescription,
-            imagePaths: imagePaths,
-            enableWebSearch: false,
-            internalSystemContext:
-                _mergeInternalSystemContext(sessionStateContext, resultContext),
-            isSideStory: isSideStory,
-          );
-          final feedbackText = feedback.cleanText.trim();
-          final containsAuthoritativeFact = !hasAuthoritativeDeviceResult ||
-              _containsAuthoritativeFact(feedbackText, record.result.message);
-          if (feedbackText.isNotEmpty && containsAuthoritativeFact) {
-            aiVisibleText = feedback.cleanText;
-            reasoningText = feedback.reasoning;
-          } else if (feedbackText.isEmpty) {
-            // 反馈为空 → 用角色管道补一次，避免直接贴机器文本。
-            final repaired = await _streamAndProcessAIResponse(
-              character: character,
-              userId: event.userId,
-              messageForAI: event.content,
-              messages: messages,
-              memories: memories,
-              session: session,
-              sentiment: sentiment,
-              chatMsgs: chatMsgs,
-              emit: emit,
-              chatId: event.chatId,
-              originalUserMessage: event.content,
-              imageDescription: imageDescription,
-              imagePaths: imagePaths,
-              enableWebSearch: false,
-              internalSystemContext: _mergeInternalSystemContext(
-                sessionStateContext,
-                '$resultContext\n请用角色自然完整的口吻回应用户，不要复述机器文本。',
-              ),
-              isSideStory: isSideStory,
-            );
-            final repairedText = repaired.cleanText.trim();
-            if (repairedText.isNotEmpty) {
-              aiVisibleText = repaired.cleanText;
-              reasoningText = repaired.reasoning;
-            } else if (feedbackText.isNotEmpty) {
-              aiVisibleText = feedback.cleanText;
-              reasoningText = feedback.reasoning;
-            }
-          }
-        } catch (e, stack) {
-          LogService.instance.e(
-            'DeterministicRoute',
-            '角色反馈生成失败: $e\n$stack',
-            chatId: event.chatId,
-          );
         }
       }
 
@@ -3451,43 +2614,9 @@ $tail
           '_onSendMessage: AI response was empty',
           chatId: event.chatId,
         );
-        if (toolExecutions.isNotEmpty) {
-          // 工具执行成功/失败但角色反馈为空 → 再用角色管道补一次完整回复，
-          // 而不是直接把机器执行文本丢给用户。
-          try {
-            final lastRecord = toolExecutions.last;
-            final fallbackResult = await _streamAndProcessAIResponse(
-              character: character,
-              userId: event.userId,
-              messageForAI: event.content,
-              messages: messages,
-              memories: memories,
-              session: session,
-              sentiment: sentiment,
-              chatMsgs: chatMsgs,
-              emit: emit,
-              chatId: event.chatId,
-              originalUserMessage: event.content,
-              imageDescription: imageDescription,
-              imagePaths: imagePaths,
-              enableWebSearch: false,
-              internalSystemContext: _mergeInternalSystemContext(
-                sessionStateContext,
-                '【已办成的真实信息】工具：${lastRecord.toolName}，状态：${lastRecord.result.success ? '成功' : '失败'}，'
-                '结果：${lastRecord.result.message}。请用角色自然完整的口吻继续刚才的话题，把这件事当作角色自己的经历来回应，不要复述机器文本。',
-              ),
-              isSideStory: isSideStory,
-            );
-            aiVisibleText = fallbackResult.cleanText.trim();
-            reasoningText = fallbackResult.reasoning;
-          } catch (_) {
-            // 角色管道也失败时保留角色低语，绝不落机器文本
-          }
-        }
-        if (aiVisibleText.trim().isEmpty) {
-          aiVisibleText = '${character.name}才刚说完，你先别急。';
-        }
+        aiVisibleText = '${character.name}才刚说完，你先别急。';
       }
+
 
       // 组装最终 AI 回复消息
       final aiReply = ChatMessage(
@@ -3501,9 +2630,6 @@ $tail
         createdAt: DateTime.now(),
         isUser: false,
         reasoning: reasoningText.isNotEmpty ? reasoningText : null,
-        metadata: {
-          if (agentHadTool) 'isAutoGlmSummary': true,
-        },
       );
 
       try {
@@ -3631,7 +2757,6 @@ $tail
       LogService.instance.e(
           'Bloc', '_onSendMessage: unhandled error: $e\n$stack',
           chatId: event.chatId);
-      _chatProcessingState = ChatProcessingState.error;
       // Show actual error instead of generic message
       String errorDisplay = e.toString();
       if (errorDisplay.contains('Timeout') ||
@@ -3641,12 +2766,7 @@ $tail
           errorDisplay.contains('connection')) {
         errorDisplay = '连接AI服务失败，请检查网络设置';
       }
-      emit(ChatAIProcessing(
-        await _storage.getChatMessages(event.chatId),
-        errorDisplay,
-        '',
-        processingState: _chatProcessingState,
-      ));
+      emit(ChatError(errorDisplay));
     }
   }
 
@@ -4092,48 +3212,67 @@ $tail
     final now = DateTime.now();
 
     try {
+      final intAmount = event.amount.toInt();
       // 检查 AI 余额
       final wallet = await _storage.getAIWallet(event.characterId);
-      if (wallet == null || wallet.balance < event.amount) {
-        LogService.instance.e('Transfer', 'AI余额不足', chatId: event.chatId);
+      if (wallet == null || wallet.balance < intAmount) {
+        LogService.instance.e('Money', 'AI余额不足', chatId: event.chatId);
         return;
       }
 
-      // 扣除AI金币
-      final deducted =
-          await _storage.deductAICoins(event.characterId, event.amount.toInt());
+      // 扣除 AI 金币（先扣后挂账，收款时入账用户；过期退回见 _onClaimMoney）
+      final deducted = await _storage.deductAICoins(event.characterId, intAmount);
       if (!deducted) {
-        LogService.instance.e('Transfer', 'AI金币扣除失败', chatId: event.chatId);
+        LogService.instance.e('Money', 'AI金币扣除失败', chatId: event.chatId);
         return;
       }
 
-      // 增加用户金币
       final session = await _storage.getChatSession(event.chatId);
-      if (session != null) {
-        await _storage.addCoins(session.userId, event.amount.toInt());
-      }
+      if (session == null) return;
+      final character =
+          await _storage.getAICharacter(session.aiCharacterId);
 
-      // 保存转账消息
-      final transferMessage = ChatMessage(
+      // 流水（pending，等用户点击收款/拆开）
+      final messageId = _uuid.v4();
+      final tx = MoneyTransaction(
         id: _uuid.v4(),
+        kind: event.isRedPacket ? MoneyKind.redPacket : MoneyKind.transfer,
+        userToCharacter: false,
+        chatId: event.chatId,
+        messageId: messageId,
+        characterId: event.characterId,
+        userId: session.userId,
+        amount: intAmount,
+        note: event.message,
+        status: MoneyStatus.pending,
+        receiverName: character?.name,
+        createdAt: now,
+        expireAt: now.add(const Duration(hours: 24)),
+      );
+      await _storage.saveMoneyTransaction(tx);
+
+      // 新钱系统气泡
+      await _storage.saveChatMessage(ChatMessage(
+        id: messageId,
         chatId: event.chatId,
         senderId: 'ai_${event.characterId}',
-        content: '${event.amount}',
-        type: MessageType.system,
+        senderName: character?.name ?? '',
+        content: '$intAmount',
+        type: event.isRedPacket ? MessageType.redPacket : MessageType.transfer,
         status: MessageStatus.sent,
         createdAt: now,
-        metadata: {
-          'type': 'red_packet',
-          'amount': event.amount,
-          'message': event.message ?? '',
-          'transferStatus': 'accepted',
-          'direction': 'ai_to_user',
-        },
-      );
-      await _storage.saveChatMessage(transferMessage);
+        metadata: {'money': tx.toMessageMetadata()},
+      ));
 
-      LogService.instance
-          .i('Transfer', 'AI转账成功: ${event.amount}金币', chatId: event.chatId);
+      await _storage.updateChatSessionLastMessage(
+        event.chatId,
+        event.isRedPacket ? '[红包]' : '[转账]',
+        now,
+      );
+
+      LogService.instance.i('Money',
+          'AI发出${event.isRedPacket ? '红包' : '转账'}: ${intAmount}金币 status=pending',
+          chatId: event.chatId);
 
       final messages = await _storage.getChatMessages(event.chatId);
       emit(ChatAICoinsSent(
@@ -4143,8 +3282,202 @@ $tail
       ));
       emit(ChatMessagesLoaded(messages));
     } catch (e) {
-      LogService.instance.e('Transfer', 'AI转账异常: $e', chatId: event.chatId);
+      LogService.instance.e('Money', 'AI转账异常: $e', chatId: event.chatId);
       emit(ChatError('AI转账失败'));
+    }
+  }
+
+  /// 新版钱系统：用户 → 角色 转账/红包。
+  /// 真实扣款（spendCoins 内部处理免费模式）+ money_transactions 流水 +
+  /// 新气泡（MessageType.transfer/redPacket）+ 角色回应后确认收款入账角色钱包。
+  Future<void> _onSendMoneyMessage(
+    ChatSendMoneyMessage event,
+    Emitter<ChatState> emit,
+  ) async {
+    final now = DateTime.now();
+    try {
+      if (event.amount < 1 || event.amount > 2000) {
+        emit(ChatError('金额需在 1-2000 之间'));
+        return;
+      }
+      final session = await _storage.getChatSession(event.chatId);
+      if (session == null) {
+        LogService.instance
+            .e('Money', '_onSendMoneyMessage: session null', chatId: event.chatId);
+        return;
+      }
+      final character = await _storage.getAICharacter(event.characterId);
+      if (character == null) {
+        LogService.instance
+            .e('Money', '_onSendMoneyMessage: character null', chatId: event.chatId);
+        return;
+      }
+      final userId = session.userId;
+
+      // 1) 扣款（免费模式恒成功）；失败即余额不足，不落任何消息
+      final spent = await _storage.spendCoins(userId, event.amount);
+      if (!spent) {
+        emit(ChatError('余额不足'));
+        return;
+      }
+
+      // 2) 落流水（pending）
+      final messageId = _uuid.v4();
+      final tx = MoneyTransaction(
+        id: _uuid.v4(),
+        kind: event.isRedPacket ? MoneyKind.redPacket : MoneyKind.transfer,
+        userToCharacter: true,
+        chatId: event.chatId,
+        messageId: messageId,
+        characterId: event.characterId,
+        userId: userId,
+        amount: event.amount,
+        note: event.note,
+        status: MoneyStatus.pending,
+        receiverName: character.name,
+        createdAt: now,
+        expireAt: now.add(const Duration(hours: 24)),
+      );
+      await _storage.saveMoneyTransaction(tx);
+
+      // 3) 气泡消息
+      await _storage.saveChatMessage(ChatMessage(
+        id: messageId,
+        chatId: event.chatId,
+        senderId: userId,
+        content: '${event.amount}',
+        type: event.isRedPacket ? MessageType.redPacket : MessageType.transfer,
+        status: MessageStatus.sent,
+        createdAt: now,
+        isUser: true,
+        metadata: {'money': tx.toMessageMetadata()},
+      ));
+
+      await _storage.updateChatSessionLastMessage(
+        event.chatId,
+        event.isRedPacket ? '[红包]' : '[转账]',
+        now,
+      );
+
+      var messages = await _storage.getChatMessages(event.chatId);
+      emit(ChatMessagesLoaded(messages));
+
+      // 4) 角色回应（manual 模式不回）
+      if (character.interactionConfig?.replyMode == ReplyMode.manual) return;
+      emit(ChatAITyping(messages, character.name));
+      await Future.delayed(Duration(seconds: _getTypingDelay(character.personality)));
+
+      final memories = await _storage.getMemories(
+        characterId: character.id,
+        userId: userId,
+        limit: Limit.memoryFetch,
+      );
+      final kindLabel = event.isRedPacket ? '红包' : '转账';
+      final buf = StringBuffer()
+        ..write(event.isRedPacket
+            ? '对方给你发了一个红包'
+            : '对方给你转了一笔账')
+        ..write('，金额：${event.amount} 金币');
+      if (event.note != null && event.note!.isNotEmpty) {
+        buf.write('，备注：${event.note}');
+      }
+      buf.write('。请根据角色性格做出真实自然的回应。');
+
+      final aiResponse = await _bridgeSendMessage(
+        character: character,
+        userId: userId,
+        userMessage: buf.toString(),
+        chatHistory: messages,
+        memories: memories,
+        intimacyLevel: session.intimacyLevel,
+      );
+      final responseText = aiResponse.trim().isNotEmpty
+          ? MessageSanitizer.filterForbiddenPhrases(
+              MessageSanitizer.sanitizeFinal(_stripAIStickerOutput(aiResponse)),
+              _storage.getForbiddenPhrases(),
+            )
+          : (event.isRedPacket ? '谢谢老板的红包！' : '收到啦，谢谢！');
+      await _storage.saveChatMessage(ChatMessage(
+        id: _uuid.v4(),
+        chatId: event.chatId,
+        senderId: 'ai_${character.id}',
+        senderName: character.name,
+        content: responseText,
+        type: MessageType.text,
+        status: MessageStatus.sent,
+        createdAt: DateTime.now(),
+      ));
+
+      // 5) 角色确认收款：入账角色钱包 + 流水状态机推进 + 刷新气泡快照
+      final acceptedStatus =
+          event.isRedPacket ? MoneyStatus.opened : MoneyStatus.accepted;
+      await _storage.addAICoins(event.characterId, event.amount);
+      await _storage.updateMoneyTransactionStatus(tx.id, acceptedStatus,
+          actedAt: DateTime.now());
+      final moneyMeta = tx.toMessageMetadata()..update('status', (_) => acceptedStatus.name);
+      await _storage.updateMessageMetadata(messageId, {'money': moneyMeta});
+      LogService.instance.i('Money',
+          '用户$kindLabel ${event.amount}金币 已被角色接收 status=${acceptedStatus.name}',
+          chatId: event.chatId);
+
+      messages = await _storage.getChatMessages(event.chatId);
+      emit(ChatMoneyStatusUpdated(
+        messageId: messageId,
+        status: acceptedStatus,
+        messages: messages,
+      ));
+      emit(ChatMessagesLoaded(messages));
+    } catch (e) {
+      LogService.instance
+          .e('Money', '_onSendMoneyMessage 异常: $e', chatId: event.chatId);
+      emit(ChatError('发送失败'));
+    }
+  }
+
+  /// 用户收款（AI→用户）/拆红包。幂等：终态流水不再处理；
+  /// 超时则标记 expired 并原路退回角色钱包。
+  Future<void> _onClaimMoney(
+    ChatClaimMoney event,
+    Emitter<ChatState> emit,
+  ) async {
+    try {
+      final tx = await _storage.getMoneyTransactionByMessage(event.messageId);
+      if (tx == null) {
+        LogService.instance
+            .e('Money', '_onClaimMoney: 流水不存在 messageId=${event.messageId}',
+                chatId: event.chatId);
+        return;
+      }
+      if (tx.isTerminal) return;
+      if (tx.userToCharacter) return; // 用户发出方无可领取动作
+
+      final now = DateTime.now();
+      final expired = now.isAfter(tx.expireAt);
+      final finalStatus =
+          expired ? MoneyStatus.expired : MoneyStatus.accepted;
+
+      if (!expired) {
+        await _storage.addCoins(tx.userId, tx.amount);
+      } else {
+        // 过期：原路退回角色钱包
+        await _storage.addAICoins(tx.characterId, tx.amount);
+      }
+      await _storage.updateMoneyTransactionStatus(tx.id, finalStatus,
+          actedAt: now);
+      final moneyMeta = tx.toMessageMetadata()..update('status', (_) => finalStatus.name);
+      await _storage.updateMessageMetadata(tx.messageId, {'money': moneyMeta});
+
+      final messages = await _storage.getChatMessages(event.chatId);
+      emit(ChatMoneyStatusUpdated(
+        messageId: tx.messageId,
+        status: finalStatus,
+        messages: messages,
+      ));
+      emit(ChatMessagesLoaded(messages));
+    } catch (e) {
+      LogService.instance
+          .e('Money', '_onClaimMoney 异常: $e', chatId: event.chatId);
+      emit(ChatError('收款失败'));
     }
   }
 
@@ -5679,290 +5012,6 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
       LogService.instance
           .e('Bloc', '_onClearContext failed: $e', chatId: event.chatId);
     }
-  }
-
-  // ═══════════════════════════════════════════════════
-  // 设备工具自动化（ToolPkg 架构）
-  // ═══════════════════════════════════════════════════
-
-  /// 执行设备工具调用任务（通过 LLM 自主选择工具）
-  Future<void> _onRunAutoGlm(
-    ChatRunAutoGlm event,
-    Emitter<ChatState> emit,
-  ) async {
-    // 保存用户消息
-    final userMsg = ChatMessage(
-      id: _uuid.v4(),
-      chatId: event.chatId,
-      senderId: event.userId,
-      content: event.task,
-      type: MessageType.text,
-      status: MessageStatus.sent,
-      createdAt: DateTime.now(),
-      isUser: true,
-    );
-    await _storage.saveChatMessage(userMsg);
-
-    var messages = await _storage.getChatMessages(event.chatId);
-    if (!messages.any((m) => m.id == userMsg.id)) {
-      messages.add(userMsg);
-      messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-    }
-    emit(ChatMessagesLoaded(messages));
-
-    // 保存"正在执行"的系统消息
-    var statusMsg = ChatMessage(
-      id: _uuid.v4(),
-      chatId: event.chatId,
-      senderId: 'system_autoglm',
-      senderName: '工具执行',
-      content: '正在理解任务: ${event.task}',
-      type: MessageType.system,
-      status: MessageStatus.sending,
-      createdAt: DateTime.now(),
-      isUser: false,
-      metadata: {
-        'isAutoGlmStatus': true,
-        'autoGlmStatus': 'running',
-        'step': 0,
-        'maxSteps': 10,
-      },
-    );
-    await _storage.saveChatMessage(statusMsg);
-    messages = await _storage.getChatMessages(event.chatId);
-    emit(ChatAutoGlmRunning(
-      messages: messages,
-      currentStep: 0,
-      maxSteps: 10,
-    ));
-
-    try {
-      // 初始化工具感知服务
-      _toolAwareService ??= ToolAwareService(
-        llmService: LlmService(settings: await _loadLlmSettings()),
-        registry: _toolRegistry,
-      );
-
-      // 构建 LLM 消息
-      final session = await _storage.getChatSession(event.chatId);
-      final character = session != null
-          ? await _storage.getAICharacter(session.aiCharacterId)
-          : null;
-
-      final chatMsgs = await _storage.getChatMessages(event.chatId);
-      final llmMessages = <Map<String, dynamic>>[];
-
-      // 系统提示（简化：包含工具描述作为系统消息）
-      llmMessages.add({
-        'role': 'system',
-        'content': '你是 Solace AI 助手，可以通过设备操控工具帮助用户。',
-      });
-
-      if (character != null) {
-        llmMessages.add({
-          'role': 'system',
-          'content':
-              '你正在扮演角色：${character.name}。${character.personality ?? ""}用角色的口吻回复用户，但要先正确执行工具操作。',
-        });
-      }
-
-      // 工具描述注入
-      final toolDesc = _toolRegistry.toDescriptionText();
-      if (toolDesc.isNotEmpty) {
-        llmMessages.add({
-          'role': 'system',
-          'content': '你拥有以下设备操控工具。如果用户的请求需要使用工具，请调用对应工具。\n\n'
-              '当前可用工具：\n$toolDesc\n\n'
-              '规则：\n'
-              '1. 先用工具查询或操作，再用自然语言总结结果\n'
-              '2. 不能关闭 Solace 自身（com.solace.solace）\n'
-              '3. 缺权限时告知用户如何开启',
-        });
-      }
-
-      // 最近聊天历史（最多20条）
-      final recent = chatMsgs.length > 20
-          ? chatMsgs.sublist(chatMsgs.length - 20)
-          : chatMsgs;
-      for (final msg in recent) {
-        llmMessages.add({
-          'role': msg.isUser ? 'user' : 'assistant',
-          'content': msg.content,
-        });
-      }
-
-      int currentStep = 0;
-      final (finalText, records, hadTools) = await _toolAwareService!.run(
-        turns: [],
-        llmMessages: llmMessages,
-        maxSteps: 10,
-        onStep: (step) {
-          currentStep = step.step;
-          final actionDesc = '${step.toolName}(${step.args}) → ${step.status}';
-          statusMsg = statusMsg.copyWith(
-            content: '步骤 ${step.step}/${10}: $actionDesc',
-            metadata: {
-              'isAutoGlmStatus': true,
-              'autoGlmStatus': 'running',
-              'step': step.step,
-              'maxSteps': 10,
-              'action': step.toolName,
-              'actionArgs': step.args,
-              'stepResult': step.result,
-            },
-          );
-          _storage.saveChatMessage(statusMsg);
-        },
-      );
-
-      final success =
-          records.isNotEmpty && records.any((e) => e.result.success);
-
-      // 工具详情保存为独立系统面板，默认折叠
-      if (records.isNotEmpty) {
-        final executionTrace = records.map((e) => e.toTraceJson()).toList();
-        await _storage.saveChatMessage(ChatMessage(
-          id: _uuid.v4(),
-          chatId: event.chatId,
-          senderId: 'system_tool',
-          senderName: '工具执行',
-          content: '执行了 ${records.length} 个工具',
-          type: MessageType.system,
-          status: MessageStatus.sent,
-          createdAt: DateTime.now(),
-          isUser: false,
-          isSystem: true,
-          metadata: {
-            'isToolTrace': true,
-            'toolTrace': executionTrace,
-          },
-        ));
-      }
-
-      // 保存 AI 总结消息
-      if (hadTools || finalText.isNotEmpty) {
-        final aiContent = finalText.isNotEmpty
-            ? finalText
-            : (success ? '这件事已经处理好了。' : '这件事没有成功完成，咱们再想想别的办法。');
-
-        // 保存工具执行的 AI 总结
-        final aiName = character?.name ?? 'AI';
-        final summaryMsg = ChatMessage(
-          id: _uuid.v4(),
-          chatId: event.chatId,
-          senderId: character != null ? 'ai_${character.id}' : 'system',
-          senderName: aiName,
-          content: aiContent,
-          type: MessageType.text,
-          status: MessageStatus.sent,
-          createdAt: DateTime.now(),
-          isUser: false,
-          metadata: {
-            'isAutoGlmSummary': true,
-            'task': event.task,
-            'success': success,
-            'executionCount': records.length,
-          },
-        );
-        await _storage.saveChatMessage(summaryMsg);
-      }
-
-      // 标记最终状态
-      statusMsg = statusMsg.copyWith(
-        content: hadTools ? (success ? '任务完成' : '任务结束') : '无需执行工具',
-        status: MessageStatus.sent,
-        metadata: {
-          'isAutoGlmStatus': true,
-          'autoGlmStatus':
-              hadTools ? (success ? 'completed' : 'failed') : 'skipped',
-          'step': currentStep,
-          'maxSteps': 10,
-        },
-      );
-      await _storage.saveChatMessage(statusMsg);
-
-      messages = await _storage.getChatMessages(event.chatId);
-      emit(ChatAutoGlmCompleted(
-        messages: messages,
-        success: hadTools ? success : true,
-        resultMessage: finalText.isNotEmpty ? finalText : '无需执行',
-        totalSteps: currentStep,
-      ));
-      emit(ChatMessagesLoaded(messages));
-    } catch (e) {
-      LogService.instance
-          .e('ChatBloc', 'ToolAware 执行失败: $e', chatId: event.chatId);
-      statusMsg = statusMsg.copyWith(
-        content: '工具执行失败: $e',
-        status: MessageStatus.sent,
-        metadata: {'autoGlmStatus': 'failed'},
-      );
-      await _storage.saveChatMessage(statusMsg);
-      messages = await _storage.getChatMessages(event.chatId);
-      emit(ChatAutoGlmCompleted(
-        messages: messages,
-        success: false,
-        resultMessage: '执行失败: $e',
-        totalSteps: 0,
-      ));
-      emit(ChatMessagesLoaded(messages));
-    }
-  }
-
-  /// 取消工具执行
-  void _onCancelAutoGlm(
-    ChatCancelAutoGlm event,
-    Emitter<ChatState> emit,
-  ) {
-    _cancelledToolTasks.add(event.chatId);
-    LogService.instance
-        .i('Bloc', 'Tool call cancel requested', chatId: event.chatId);
-  }
-
-  Future<void> _onSetToolPermission(
-    ChatSetToolPermission event,
-    Emitter<ChatState> emit,
-  ) async {
-    final mode = ToolPermissionMode.values.firstWhere(
-      (value) => value.name == event.mode,
-      orElse: () => ToolPermissionMode.ask,
-    );
-    await _toolPermissionPolicy.setMode(event.toolName, mode);
-  }
-
-  void _onResolveToolPermission(
-    ChatResolveToolPermission event,
-    Emitter<ChatState> emit,
-  ) {
-    final waiter = _toolPermissionWaiters[event.taskId];
-    if (waiter != null && !waiter.isCompleted) {
-      waiter.complete(event.allow);
-    }
-  }
-
-  Future<void> _onResumeToolTask(
-    ChatResumeToolTask event,
-    Emitter<ChatState> emit,
-  ) async {
-    final task = _toolTaskStore.load(event.taskId);
-    if (task == null || task.chatId.isEmpty) {
-      emit(const ChatError('找不到可恢复的工作任务。'));
-      return;
-    }
-    if (task.status == ToolTaskStatus.completed) {
-      emit(const ChatError('该任务已经完成，无需继续。'));
-      return;
-    }
-    _cancelledToolTasks.remove(task.chatId);
-    final context = task.trace
-        .map((entry) =>
-            '${entry['tool']}: ${entry['status']} ${entry['result'] ?? ''}')
-        .join('\n');
-    add(ChatSendMessage(
-      chatId: task.chatId,
-      userId: event.userId,
-      content: '继续之前的工作任务：${task.task}\n已执行步骤：\n$context',
-    ));
   }
 
   Future<LlmSettings> _loadLlmSettings() async {

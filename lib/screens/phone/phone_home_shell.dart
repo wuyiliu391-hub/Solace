@@ -47,25 +47,21 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // 入场缩短：切换模式时别卡 900ms 全树动画
     _enterCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
+      duration: const Duration(milliseconds: 500),
     )..forward();
-    // 呼吸/视差仅驱动壁纸层，不再 rebuild 图标网格
     _breathCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 5600),
+      duration: const Duration(milliseconds: 4800),
     );
     _parallaxCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 28),
+      duration: const Duration(seconds: 32),
     );
 
     _load();
-    // 大时钟只按分钟刷新，避免每秒 setState 整页
     _scheduleMinuteTick();
-    // 等首帧布局完成后再开循环动画，降低「一切换就卡」
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _syncMotionPreference();
@@ -79,6 +75,7 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
       _startAmbientIfAllowed();
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       _stopAmbient();
     }
@@ -86,7 +83,6 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
 
   @override
   void didChangePlatformBrightness() {
-    // 无强制关联，但可借机同步无障碍偏好
     _syncMotionPreference();
   }
 
@@ -166,6 +162,12 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
     return '$h:$m';
   }
 
+  String get _dateText {
+    final weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+    final wd = weekdays[_now.weekday - 1];
+    return '${_now.month}月${_now.day}日 周$wd';
+  }
+
   Animation<double> _stagger(double begin, double end) {
     return CurvedAnimation(
       parent: _enterCtrl,
@@ -174,7 +176,6 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
   }
 
   int get _sessionBadge {
-    // 轻量角标：有角色时给消息一个存在感（真实未读可后续接 ChatBloc）
     return _characters.isEmpty
         ? 0
         : (_characters.length > 9 ? 9 : _characters.length);
@@ -183,23 +184,20 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
   @override
   Widget build(BuildContext context) {
     final palette = PhoneWallpaperPalette.of(_wallpaper);
-    // 关键：壁纸动画层 与 前景内容层 分离。
-    // 旧实现把整棵 Column（图标/毛玻璃/PageView）包进 AnimatedBuilder，
-    // 呼吸+视差每帧重建全部子树 → 一切换手机模式就卡。
     return Scaffold(
       backgroundColor: palette.mid,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 仅壁纸吃动画；内容用 child 槽位固定，不随 tick rebuild
+          // 壁纸层：独立动画
           AnimatedBuilder(
             animation: Listenable.merge([_breathCtrl, _parallaxCtrl]),
             builder: (context, child) {
               final breath =
-                  _reduceMotion ? 1.0 : (0.97 + _breathCtrl.value * 0.03);
+                  _reduceMotion ? 1.0 : (0.96 + _breathCtrl.value * 0.04);
               final t = _parallaxCtrl.value * math.pi * 2;
-              final px = _reduceMotion ? 0.0 : math.sin(t) * 6;
-              final py = _reduceMotion ? 0.0 : math.cos(t) * 4;
+              final px = _reduceMotion ? 0.0 : math.sin(t) * 5;
+              final py = _reduceMotion ? 0.0 : math.cos(t) * 3.5;
               return PhoneWallpaper(
                 theme: _wallpaper,
                 parallax: Offset(px, py),
@@ -210,41 +208,41 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
             },
             child: const SizedBox.expand(),
           ),
+          // 内容层
           SafeArea(
             bottom: false,
             child: Column(
               children: [
                 FadeTransition(
-                  opacity: _stagger(0.0, 0.45),
+                  opacity: _stagger(0.0, 0.4),
                   child: _StatusBar(
-                    // 秒级时钟独立组件，不拖整页
-                    onThemeTap: _cycleWallpaper,
+                    onThemeTap: _showWallpaperPicker,
                     themeLabel: _wallpaper.label,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 FadeTransition(
-                  opacity: _stagger(0.05, 0.55),
+                  opacity: _stagger(0.05, 0.5),
                   child: SlideTransition(
                     position: Tween<Offset>(
-                      begin: const Offset(0, 0.08),
+                      begin: const Offset(0, 0.06),
                       end: Offset.zero,
-                    ).animate(_stagger(0.05, 0.55)),
-                    child: _BigClock(
+                    ).animate(_stagger(0.05, 0.5)),
+                    child: _ClockBlock(
                       time: _timeText,
-                      breath: 1.0,
+                      date: _dateText,
                       palette: palette,
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 FadeTransition(
-                  opacity: _stagger(0.12, 0.65),
+                  opacity: _stagger(0.12, 0.6),
                   child: SlideTransition(
                     position: Tween<Offset>(
-                      begin: const Offset(0, 0.10),
+                      begin: const Offset(0, 0.08),
                       end: Offset.zero,
-                    ).animate(_stagger(0.12, 0.65)),
+                    ).animate(_stagger(0.12, 0.6)),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 18),
                       child: _WorldCard(
@@ -257,7 +255,7 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
                 ),
                 const SizedBox(height: 10),
                 FadeTransition(
-                  opacity: _stagger(0.18, 0.7),
+                  opacity: _stagger(0.18, 0.65),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 18),
                     child: _SwitchWorldBar(
@@ -268,10 +266,10 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Expanded(
                   child: FadeTransition(
-                    opacity: _stagger(0.22, 0.9),
+                    opacity: _stagger(0.22, 0.85),
                     child: PageView.builder(
                       controller: _pageController,
                       itemCount: PhoneAppIconCatalog.homePages.length,
@@ -296,13 +294,13 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
                   opacity: _stagger(0.35, 1.0),
                   child: SlideTransition(
                     position: Tween<Offset>(
-                      begin: const Offset(0, 0.2),
+                      begin: const Offset(0, 0.15),
                       end: Offset.zero,
                     ).animate(_stagger(0.35, 1.0)),
                     child: _buildDock(),
                   ),
                 ),
-                SizedBox(height: MediaQuery.paddingOf(context).bottom + 10),
+                SizedBox(height: MediaQuery.paddingOf(context).bottom + 12),
               ],
             ),
           ),
@@ -314,31 +312,46 @@ class _PhoneHomeShellState extends State<PhoneHomeShell>
   Widget _buildDock() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          for (final id in PhoneAppIconCatalog.defaultDockIds)
-            _DockBubble(
-              id: id,
-              size: PhoneTheme.dockIconSize,
-              badge: id == 'chat' ? _sessionBadge : 0,
-              onTap: () {
-                final def = PhoneAppIconCatalog.byId(id);
-                _handleIconTap(id, def?.routeHint);
-              },
-            ),
-        ],
+      child: PhoneGlassPanel(
+        radius: PhoneTheme.dockRadius,
+        fillOpacity: 0.25,
+        borderOpacity: 0.4,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            for (final id in PhoneAppIconCatalog.defaultDockIds)
+              _DockBubble(
+                id: id,
+                size: PhoneTheme.dockIconSize,
+                badge: id == 'chat' ? _sessionBadge : 0,
+                onTap: () {
+                  final def = PhoneAppIconCatalog.byId(id);
+                  _handleIconTap(id, def?.routeHint);
+                },
+              ),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _cycleWallpaper() async {
-    const order = PhoneWallpaperTheme.values;
-    final next = order[(_wallpaper.index + 1) % order.length];
-    setState(() => _wallpaper = next);
-    await context
-        .read<LocalStorageRepository>()
-        .setPhoneWallpaperThemeId(next.id);
+  Future<void> _showWallpaperPicker() async {
+    final picked = await showModalBottomSheet<PhoneWallpaperTheme>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => _WallpaperPickerSheet(
+        current: _wallpaper,
+        palette: PhoneWallpaperPalette.of(_wallpaper),
+      ),
+    );
+    if (picked != null && picked != _wallpaper) {
+      setState(() => _wallpaper = picked);
+      await context
+          .read<LocalStorageRepository>()
+          .setPhoneWallpaperThemeId(picked.id);
+    }
   }
 
   void _handleIconTap(String id, String? routeHint) {
@@ -510,20 +523,20 @@ class _PageDots extends StatelessWidget {
       children: List.generate(count, (i) {
         final active = i == index;
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: const Duration(milliseconds: 250),
           margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: active ? 10 : 8,
-          height: active ? 10 : 8,
+          width: active ? 12 : 6,
+          height: active ? 12 : 6,
           decoration: BoxDecoration(
             color: active
                 ? Colors.white.withValues(alpha: 0.95)
-                : Colors.white.withValues(alpha: 0.30),
-            borderRadius: BorderRadius.circular(3),
+                : Colors.white.withValues(alpha: 0.25),
+            borderRadius: BorderRadius.circular(active ? 4 : 3),
             boxShadow: active
                 ? [
                     BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.35),
-                      blurRadius: 6,
+                      color: Colors.white.withValues(alpha: 0.4),
+                      blurRadius: 8,
                       spreadRadius: 1,
                     ),
                   ]
@@ -538,7 +551,7 @@ class _PageDots extends StatelessWidget {
 
 // ─────────────────────────── chrome ───────────────────────────
 
-/// 状态栏时钟：仅自身每秒刷新，不触发 PhoneHomeShell setState。
+/// 状态栏时钟：仅自身每分钟刷新
 class _LiveStatusClock extends StatefulWidget {
   const _LiveStatusClock();
 
@@ -554,9 +567,20 @@ class _LiveStatusClockState extends State<_LiveStatusClock> {
   void initState() {
     super.initState();
     _now = DateTime.now();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _scheduleMinuteTick();
+  }
+
+  void _scheduleMinuteTick() {
+    _timer?.cancel();
+    final now = DateTime.now();
+    final nextMinute =
+        DateTime(now.year, now.month, now.day, now.hour, now.minute)
+            .add(const Duration(minutes: 1));
+    final delay = nextMinute.difference(now) + const Duration(milliseconds: 50);
+    _timer = Timer(delay, () {
       if (!mounted) return;
       setState(() => _now = DateTime.now());
+      _scheduleMinuteTick();
     });
   }
 
@@ -570,9 +594,8 @@ class _LiveStatusClockState extends State<_LiveStatusClock> {
   Widget build(BuildContext context) {
     final h = _now.hour.toString().padLeft(2, '0');
     final m = _now.minute.toString().padLeft(2, '0');
-    final s = _now.second.toString().padLeft(2, '0');
     return Text(
-      '$h:$m:$s',
+      '$h:$m',
       style: TextStyle(
         color: PhoneTheme.textOnWallpaper,
         fontSize: 13,
@@ -597,14 +620,14 @@ class _StatusBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 4, 12, 0),
       child: Row(
         children: [
-          // 秒表独立刷新，避免拖整页 setState
           const _LiveStatusClock(),
           const Spacer(),
           GestureDetector(
             onTap: onThemeTap,
             child: PhoneGlassPanel(
               radius: 12,
-              fillOpacity: 0.22,
+              fillOpacity: 0.18,
+              borderOpacity: 0.35,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -625,75 +648,63 @@ class _StatusBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          // Solace-style dot-matrix status indicators (not iOS-like)
-          Container(
-            width: 14,
-            height: 14,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: PhoneTheme.textOnWallpaper.withValues(alpha: 0.6),
-                width: 1.2,
-              ),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  PhoneTheme.textOnWallpaper.withValues(alpha: 0.35),
-                  PhoneTheme.textOnWallpaper.withValues(alpha: 0.15),
-                ],
-              ),
-            ),
+          // 信号指示
+          _SignalDots(),
+          const SizedBox(width: 6),
+          // 电池
+          _BatteryIndicator(),
+        ],
+      ),
+    );
+  }
+}
+
+class _SignalDots extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(4, (i) {
+        final active = i < 3; // 3格信号
+        return Container(
+          width: 3.5,
+          height: 3.5 + i * 1.2,
+          margin: const EdgeInsets.only(right: 2),
+          decoration: BoxDecoration(
+            color: active
+                ? Colors.white.withValues(alpha: 0.9)
+                : Colors.white.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(1),
           ),
-          const SizedBox(width: 5),
+        );
+      }),
+    );
+  }
+}
+
+class _BatteryIndicator extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 24,
+      height: 12,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(3.5),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.6),
+          width: 1.2,
+        ),
+      ),
+      child: Stack(
+        children: [
           Container(
-            width: 14,
-            height: 14,
+            width: 16,
+            margin: const EdgeInsets.all(1.5),
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: PhoneTheme.textOnWallpaper.withValues(alpha: 0.6),
-                width: 1.2,
+              borderRadius: BorderRadius.circular(2),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF34C759), Color(0xFF30D158)],
               ),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  PhoneTheme.textOnWallpaper.withValues(alpha: 0.55),
-                  PhoneTheme.textOnWallpaper.withValues(alpha: 0.25),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 5),
-          Container(
-            width: 18,
-            height: 10,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(3),
-              border: Border.all(
-                color: PhoneTheme.textOnWallpaper.withValues(alpha: 0.6),
-                width: 1.2,
-              ),
-              gradient: LinearGradient(
-                colors: [
-                  PhoneTheme.textOnWallpaper.withValues(alpha: 0.35),
-                  PhoneTheme.textOnWallpaper.withValues(alpha: 0.15),
-                ],
-              ),
-            ),
-            child: Stack(
-              children: [
-                Container(
-                  width: 12,
-                  height: 6,
-                  margin: const EdgeInsets.all(1.5),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(1.5),
-                    color: PhoneTheme.textOnWallpaper.withValues(alpha: 0.75),
-                  ),
-                ),
-              ],
             ),
           ),
         ],
@@ -702,45 +713,51 @@ class _StatusBar extends StatelessWidget {
   }
 }
 
-class _BigClock extends StatelessWidget {
+/// 大时钟区块：时间 + 日期
+class _ClockBlock extends StatelessWidget {
   final String time;
-  final double breath;
+  final String date;
   final PhoneWallpaperPalette palette;
-  const _BigClock({
+
+  const _ClockBlock({
     required this.time,
-    this.breath = 1,
+    required this.date,
     required this.palette,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Transform.scale(
-      scale: 0.98 + (breath - 0.96) * 0.5,
-      child: ShaderMask(
-        blendMode: BlendMode.srcIn,
-        shaderCallback: (bounds) => LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [palette.clockTop, palette.clockBottom],
-        ).createShader(bounds),
-        child: Text(
-          time,
-          style: TextStyle(
-            fontSize: 76,
-            height: 1.0,
-            fontWeight: FontWeight.w200,
-            letterSpacing: 3,
-            color: Colors.white,
-            shadows: [
-              Shadow(
-                color: const Color(0x33000000),
-                blurRadius: 22 * breath,
-                offset: const Offset(0, 8),
-              ),
-            ],
+    return Column(
+      children: [
+        ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback: (bounds) => LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [palette.clockTop, palette.clockBottom],
+          ).createShader(bounds),
+          child: Text(
+            time,
+            style: const TextStyle(
+              fontSize: 72,
+              height: 1.0,
+              fontWeight: FontWeight.w100,
+              letterSpacing: 4,
+              color: Colors.white,
+            ),
           ),
         ),
-      ),
+        const SizedBox(height: 6),
+        Text(
+          date,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w400,
+            letterSpacing: 1,
+            color: Colors.white.withValues(alpha: 0.75),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -762,11 +779,11 @@ class _WorldCard extends StatelessWidget {
     final avatar = character?.avatarUrl;
 
     return PhoneGlassPanel(
-      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
       child: Row(
         children: [
           _Avatar(url: avatar, name: name),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -775,8 +792,9 @@ class _WorldCard extends StatelessWidget {
                   '角色世界',
                   style: TextStyle(
                     fontSize: 11,
-                    color: Colors.white.withValues(alpha: 0.75),
+                    color: Colors.white.withValues(alpha: 0.7),
                     fontWeight: FontWeight.w500,
+                    letterSpacing: 0.5,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -788,6 +806,7 @@ class _WorldCard extends StatelessWidget {
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
                     color: Colors.white,
+                    letterSpacing: 0.3,
                   ),
                 ),
               ],
@@ -801,8 +820,8 @@ class _WorldCard extends StatelessWidget {
           Container(
             width: 1,
             height: 36,
-            margin: const EdgeInsets.symmetric(horizontal: 6),
-            color: Colors.white.withValues(alpha: 0.35),
+            margin: const EdgeInsets.symmetric(horizontal: 8),
+            color: Colors.white.withValues(alpha: 0.3),
           ),
           _MiniAction(
             icon: Icons.devices_rounded,
@@ -833,9 +852,14 @@ class _Avatar extends StatelessWidget {
             Border.all(color: Colors.white.withValues(alpha: 0.7), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: 0.2),
+            blurRadius: 6,
+            offset: const Offset(0, -2),
           ),
         ],
       ),
@@ -852,7 +876,13 @@ class _Avatar extends StatelessWidget {
   }
 
   Widget _letter(String letter) => Container(
-        color: const Color(0xFF8FD0EA),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF5BB8DC), Color(0xFF3A8EBA)],
+          ),
+        ),
         alignment: Alignment.center,
         child: Text(
           letter,
@@ -918,9 +948,10 @@ class _SwitchWorldBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return PhoneGlassPanel(
-      radius: 18,
-      fillOpacity: 0.22,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      radius: 16,
+      fillOpacity: 0.18,
+      borderOpacity: 0.35,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       onTap: () {
         if (characters.isEmpty) {
           onCreate();
@@ -931,20 +962,20 @@ class _SwitchWorldBar extends StatelessWidget {
       child: Row(
         children: [
           Icon(Icons.swap_horiz_rounded,
-              size: 18, color: Colors.white.withValues(alpha: 0.9)),
+              size: 18, color: Colors.white.withValues(alpha: 0.85)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               characters.isEmpty ? '还没有角色世界，去创建一个' : '切换角色世界',
               style: TextStyle(
                 fontSize: 13,
-                color: Colors.white.withValues(alpha: 0.92),
+                color: Colors.white.withValues(alpha: 0.88),
                 fontWeight: FontWeight.w500,
               ),
             ),
           ),
           Icon(Icons.chevron_right_rounded,
-              size: 20, color: Colors.white.withValues(alpha: 0.85)),
+              size: 20, color: Colors.white.withValues(alpha: 0.8)),
         ],
       ),
     );
@@ -955,16 +986,15 @@ class _SwitchWorldBar extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
-        // 底部选择器：半透明即可，避免再开一层大 sigma BackdropFilter
         return ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           child: Container(
             padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.55),
+              color: Colors.black.withValues(alpha: 0.6),
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(24)),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1002,7 +1032,7 @@ class _SwitchWorldBar extends StatelessWidget {
                           : '?';
                       return ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: const Color(0xFF8FD0EA),
+                          backgroundColor: const Color(0xFF5BB8DC),
                           child: Text(letter,
                               style: const TextStyle(color: Colors.white)),
                         ),
@@ -1053,18 +1083,324 @@ class _DockBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: PhoneGlassPanel(
-        radius: 20,
-        fillOpacity: 0.28,
-        borderOpacity: 0.45,
-        padding: EdgeInsets.all(size * 0.22),
-        child: PhoneAppIcon.fromId(
-          id,
-          size: size,
-          showLabel: false,
-          badge: badge,
+      child: PhoneAppIcon.fromId(
+        id,
+        size: size,
+        showLabel: false,
+        badge: badge,
+      ),
+    );
+  }
+}
+
+// ─────────────────── 壁纸选择面板 ───────────────────
+
+class _WallpaperPickerSheet extends StatelessWidget {
+  final PhoneWallpaperTheme current;
+  final PhoneWallpaperPalette palette;
+
+  const _WallpaperPickerSheet({required this.current, required this.palette});
+
+  @override
+  Widget build(BuildContext context) {
+    const themes = PhoneWallpaperTheme.values;
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              palette.gradient.first.withValues(alpha: 0.92),
+              palette.mid.withValues(alpha: 0.88),
+            ],
+          ),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(28)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 拖拽指示
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            palette.clockTop.withValues(alpha: 0.9),
+                            palette.clockBottom.withValues(alpha: 0.7),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: palette.clockTop.withValues(alpha: 0.4),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.wallpaper_rounded,
+                          color: Colors.white, size: 18),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      '选择壁纸',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '长按预览 · 点按应用',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 14,
+                    crossAxisSpacing: 14,
+                    childAspectRatio: 0.72,
+                  ),
+                  itemCount: themes.length,
+                  itemBuilder: (context, i) {
+                    final theme = themes[i];
+                    final p = PhoneWallpaperPalette.of(theme);
+                    final selected = theme == current;
+                    return GestureDetector(
+                      onTap: () => Navigator.of(context).pop(theme),
+                      child: AnimatedScale(
+                        scale: selected ? 1.05 : 1.0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: selected
+                                  ? Colors.white.withValues(alpha: 0.9)
+                                  : Colors.white.withValues(alpha: 0.15),
+                              width: selected ? 2 : 1,
+                            ),
+                            boxShadow: selected
+                                ? [
+                                    BoxShadow(
+                                      color: p.clockTop.withValues(alpha: 0.4),
+                                      blurRadius: 16,
+                                      spreadRadius: 2,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                // 迷你壁纸预览
+                                _MiniWallpaperPreview(palette: p),
+                                // 顶部时钟预览
+                                Positioned(
+                                  top: 8,
+                                  left: 0,
+                                  right: 0,
+                                  child: Center(
+                                    child: ShaderMask(
+                                      blendMode: BlendMode.srcIn,
+                                      shaderCallback: (bounds) =>
+                                          LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                            p.clockTop,
+                                            p.clockBottom,
+                                          ],
+                                      ).createShader(bounds),
+                                      child: const Text(
+                                        '9:41',
+                                        style: TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w200,
+                                          color: Colors.white,
+                                          letterSpacing: 1,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                // 底部标签
+                                Positioned(
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 6, horizontal: 8),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Colors.transparent,
+                                          Colors.black.withValues(alpha: 0.4),
+                                        ],
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            theme.label,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                        if (selected)
+                                          const Icon(Icons.check_circle_rounded,
+                                              color: Colors.white, size: 14),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// 迷你壁纸预览：还原大气光效的缩略版
+class _MiniWallpaperPreview extends StatelessWidget {
+  final PhoneWallpaperPalette palette;
+  const _MiniWallpaperPreview({required this.palette});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 基础渐变
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                palette.gradient.first,
+                palette.mid,
+                palette.gradient.last,
+              ],
+              stops: const [0.0, 0.5, 1.0],
+            ),
+          ),
+        ),
+        // 大气光斑 1
+        Positioned(
+          top: -20,
+          right: -30,
+          child: Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  palette.clockTop.withValues(alpha: 0.5),
+                  palette.clockTop.withValues(alpha: 0),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // 大气光斑 2
+        Positioned(
+          bottom: -25,
+          left: -20,
+          child: Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  palette.clockBottom.withValues(alpha: 0.4),
+                  palette.clockBottom.withValues(alpha: 0),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // 星点
+        Positioned(
+          top: 25,
+          left: 15,
+          child: Container(
+            width: 2,
+            height: 2,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.8),
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+        Positioned(
+          top: 40,
+          right: 20,
+          child: Container(
+            width: 1.5,
+            height: 1.5,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.6),
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

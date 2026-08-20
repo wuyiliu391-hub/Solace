@@ -347,12 +347,12 @@ class UsageMeterService {
           _cachedRecords!.sublist(_cachedRecords!.length - _maxRecords);
     }
 
-    // 缓冲满 20 条立即刷，否则 5 秒后刷
+    // 缓冲满 20 条立即刷，否则 10 秒后刷
     if (_pendingBuffer.length >= 20) {
       _flushNow();
     } else {
       _flushTimer?.cancel();
-      _flushTimer = Timer(const Duration(seconds: 5), _flushNow);
+      _flushTimer = Timer(const Duration(seconds: 10), _flushNow);
     }
   }
 

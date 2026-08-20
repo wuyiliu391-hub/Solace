@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -10,6 +10,7 @@ import '../../config/constants.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../settings/ai_config_screen.dart';
 import '../settings/about_screen.dart';
+import '../wechat/wechat_bot_screen.dart';
 import '../phone/phone_icon_preview_screen.dart';
 
 import '../../utils/safe_file_picker.dart';
@@ -184,6 +185,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+
+    apiKeyController.dispose();
+
     if (ok == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('MiMo TTS 设置已保存')),
@@ -241,6 +245,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: '配置 AI 接口和模型',
               onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const AIConfigScreen())),
+              colorScheme: colorScheme,
+            ),
+          ], colorScheme),
+          const SizedBox(height: 12),
+          _buildSectionTitle('连接', colorScheme),
+          _buildCard([
+            _buildNavTile(
+              icon: Icons.chat_bubble_outline_rounded,
+              iconBgColor: const Color(0xFF07C160).withOpacity(0.1),
+              title: '微信机器人',
+              subtitle: '扫码接入微信，让 TA 替你回消息',
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const WeChatBotScreen())),
               colorScheme: colorScheme,
             ),
           ], colorScheme),
@@ -699,11 +716,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           colorScheme: colorScheme,
                         ),
                         _buildVisualStyleChip(
-                          label: '现代',
+                          label: '微信',
                           isSelected:
-                              themeState.visualStyle == VisualStyle.modernist,
+                              themeState.visualStyle == VisualStyle.wechat,
                           onTap: () => context.read<ThemeBloc>().add(
-                              const VisualStyleChanged(VisualStyle.modernist)),
+                              const VisualStyleChanged(VisualStyle.wechat)),
                           colorScheme: colorScheme,
                         ),
                       ],

@@ -1,4 +1,4 @@
-// 群聊列表页面（对标 ChatListScreen 模式）
+﻿// 群聊列表页面（对标 ChatListScreen 模式）
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -472,7 +472,7 @@ class _GroupChatTile extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ).then((_) => controller.dispose());
   }
 
   void _confirmDelete(BuildContext context) {

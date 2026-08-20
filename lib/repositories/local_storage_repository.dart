@@ -41,7 +41,7 @@ import '../models/virtual_phone/vp_note.dart';
 import '../models/virtual_phone/vp_moment.dart';
 import '../models/pure_ai_message.dart';
 import '../models/bt_agent_action.dart';
-import '../models/device_agent_action.dart';
+import '../models/money_transaction.dart';
 import '../models/novel.dart';
 import '../models/group_chat_session.dart';
 import '../models/group_chat_message.dart';
@@ -58,6 +58,7 @@ import '../utils/global_mode_prompt.dart';
 part 'storage_parts/chat_messages.dart';
 part 'storage_parts/export_moments_shop.dart';
 part 'storage_parts/bt_virtual_phone.dart';
+part 'storage_parts/money_transactions.dart';
 
 /// isolate：gzip 解码
 String _decodeGzipBytes(List<int> bytes) {
@@ -210,7 +211,7 @@ abstract class _LocalStorageRepositoryCore {
   Future<AILetter?> getAILetter(String id);
 }
 
-class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStorageRepositoryChatMessagesApi, LocalStorageRepositoryMomentsShopApi, LocalStorageRepositoryBtVPhoneApi {
+class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStorageRepositoryChatMessagesApi, LocalStorageRepositoryMomentsShopApi, LocalStorageRepositoryBtVPhoneApi, LocalStorageRepositoryMoneyApi {
   LocalStorageRepository({bool? isWeb}) : super(isWeb: isWeb);
 
   /// 公开数据库引用（供 LifeEndEngine 等外部引擎使用）
@@ -1054,6 +1055,14 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       await createRelationshipContextsTable(db);
       debugPrint(' v70 迁移: 关系上下文表已就绪');
     }
+    if (oldVersion < 71) {
+      await db.execute(createMoneyTransactionsSql);
+      await db.execute(
+          ''' CREATE INDEX IF NOT EXISTS idx_money_chatId ON money_transactions(chatId) ''');
+      await db.execute(
+          ''' CREATE INDEX IF NOT EXISTS idx_money_userId ON money_transactions(userId) ''');
+      debugPrint(' v71 迁移: 转账/红包流水表已就绪');
+    }
   }
   Future<void> _onCreate(Database db, int version) async {
     await db.execute(
@@ -1075,6 +1084,11 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
     await createIntimacyEventsTable(db);
     await createCharacterCommitmentsTable(db);
     await createRelationshipContextsTable(db);
+    await db.execute(createMoneyTransactionsSql);
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_money_chatId ON money_transactions(chatId) ''');
+    await db.execute(
+        ''' CREATE INDEX IF NOT EXISTS idx_money_userId ON money_transactions(userId) ''');
     await db.execute(
         ''' CREATE TABLE memories ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, userId TEXT NOT NULL, type INTEGER NOT NULL, content TEXT NOT NULL, importance INTEGER NOT NULL DEFAULT 1, keywords TEXT, createdAt TEXT NOT NULL, lastAccessedAt TEXT, accessCount INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, weight REAL NOT NULL DEFAULT 1.0, pinned INTEGER NOT NULL DEFAULT 0, lastRecalledAt TEXT, summary TEXT ) ''');
     await db.execute(
@@ -2589,7 +2603,9 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       }
       await createMissingTable(db, 'group_chat_sessions');
       await createMissingTable(db, 'group_chat_messages');
-      await createMissingTable(db, 'group_chat_branches');
+    await createMissingTable(db, 'group_chat_branches');
+    // 显式创建 shop_items 表（不依赖 reconcileSchema 兜底，确保新用户首装即有）
+    await _ensureShopItemsSchema(db);
       await createMissingTable(db, 'group_chat_summaries');
       await createMissingTable(db, 'group_public_event_memories');
       await createMissingTable(db, 'group_chat_lorebook_entries');

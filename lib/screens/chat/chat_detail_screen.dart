@@ -8,6 +8,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/chat/chat_bloc.dart';
+import '../../blocs/theme/theme_bloc.dart';
 import '../../models/chat_session.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -29,13 +30,14 @@ import '../../models/virtual_phone/virtual_phone.dart';
 import '../../services/virtual_phone_generator.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../utils/vision_image_encoder.dart';
+import '../../utils/character_color.dart';
+import '../../config/app_colors.dart';
 
 import '../../services/builtin_sticker_service.dart';
 import '../../services/sticker_pack_service.dart';
 import '../../models/sticker_pack.dart';
 import '../../widgets/red_packet_card.dart';
 import '../../widgets/order_card.dart';
-import '../../widgets/tool_result_card.dart';
 import '../../screens/shop/shop_screen.dart';
 import '../../screens/shop/order_tracking_screen.dart';
 import '../../models/shop_order.dart';
@@ -45,6 +47,12 @@ import '../../widgets/animated_list_item.dart';
 import '../../widgets/typing_indicator.dart';
 import '../../widgets/message_status_indicator.dart';
 import '../../widgets/message_actions_sheet.dart';
+import '../../widgets/wechat_avatar.dart';
+import '../../widgets/wechat_message_menu.dart';
+import '../../widgets/money_message_card.dart';
+import '../../models/money_transaction.dart';
+import '../money/money_send_dialog.dart';
+import '../money/red_packet_open_screen.dart';
 import '../../utils/ui_utils.dart';
 import '../../utils/avatar_resolver.dart';
 import '../../config/constants.dart';
@@ -200,8 +208,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         value: _chatBloc,
         child: Scaffold(
           backgroundColor: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFF121315)
-              : const Color(0xFFF1EFEB),
+              ? (_isWeChatStyle
+                  ? WeChatColors.darkPageBackground
+                  : ImmersiveColors.background)
+              : (_isWeChatStyle
+                  ? WeChatColors.chatBackground
+                  : const Color(0xFFF1EFEB)),
           appBar: _selectionMode
               ? _buildSelectionAppBar(colorScheme)
               : _isSearching
@@ -338,74 +350,203 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   PreferredSizeWidget _buildModernAppBar(ColorScheme colorScheme) {
     final brightness = Theme.of(context).brightness;
     final isDark = brightness == Brightness.dark;
+    final isWeChat = _isWeChatStyle;
     final currentName = _displayName ??
         _currentSession?.aiCharacterName ??
         widget.session.aiCharacterName;
+    final currentAvatar =
+        _currentSession?.aiCharacterAvatar ?? widget.session.aiCharacterAvatar;
+    final avatarProvider = AvatarResolver.imageProvider(currentAvatar);
+    final iconColor = isDark
+        ? (isWeChat ? Colors.white : ImmersiveColors.textPrimary)
+        : (isWeChat ? Colors.black87 : const Color(0xFF4A4140));
     return AppBar(
-      backgroundColor:
-          isDark ? const Color(0xFF121315) : const Color(0xFFF1EFEB),
+      // 18.3.0 沉浸式：深色下 AppBar 透明，仅保留自上而下的暗色渐变遮罩，
+      // 让角色氛围背景从屏幕顶端贯通到底部。
+      // 微信风格：实色顶栏（#EAEAEA/#111111），标题单行角色名。
+      backgroundColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
+      flexibleSpace: isWeChat
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                color: isDark
+                    ? WeChatColors.darkPageBackground
+                    : WeChatColors.chatBackground,
+              ),
+            )
+          : isDark
+              ? DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        ImmersiveColors.background.withOpacity(0.92),
+                        ImmersiveColors.background.withOpacity(0.35),
+                        Colors.transparent,
+                      ],
+                      stops: const [0.0, 0.7, 1.0],
+                    ),
+                  ),
+                )
+              : DecoratedBox(
+                  decoration: const BoxDecoration(color: Color(0xFFF1EFEB)),
+                ),
       leading: IconButton(
         icon: Icon(
           Icons.arrow_back_ios_new_rounded,
-          color: isDark ? Colors.white : Colors.black,
+          color: iconColor,
           size: 20,
         ),
         onPressed: () => Navigator.pop(context, _hasSettingsChanged),
       ),
-      title: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'OFFLINE STORY',
-            style: TextStyle(
-              color: isDark ? const Color(0xFFF0EAE2) : const Color(0xFF312B29),
-              fontFamily: 'serif',
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
+      title: isWeChat
+          ? ValueListenableBuilder<bool>(
+              valueListenable: _isAiTypingNotifier,
+              builder: (context, typing, _) {
+                // 微信标志性状态：AI 生成中时标题切换为「对方正在输入…」
+                if (typing) {
+                  return Text(
+                    '对方正在输入…',
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : WeChatColors.textSecondary,
+                      fontSize: 15,
+                    ),
+                  );
+                }
+                return Text(
+                  currentName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : WeChatColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                );
+              },
+            )
+          : ValueListenableBuilder<bool>(
+              valueListenable: _isAiTypingNotifier,
+              builder: (context, typing, _) {
+                final status = typing ? '正在整理回应…' : '沉浸式对话';
+                final accent = isDark
+                    ? ImmersiveColors.accent
+                    : const Color(0xFF9B5F67);
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: accent.withOpacity(isDark ? 0.14 : 0.10),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: accent.withOpacity(0.28),
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: avatarProvider == null
+                          ? Center(
+                              child: Text(
+                                currentName.isNotEmpty ? currentName[0] : '?',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  color: accent,
+                                ),
+                              ),
+                            )
+                          : Image(
+                              image: avatarProvider,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Center(
+                                child: Text(
+                                  currentName.isNotEmpty ? currentName[0] : '?',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: accent,
+                                  ),
+                                ),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 8),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          currentName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: iconColor,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.15,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 5,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: typing ? accent : ImmersiveColors.accentSoft,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              status,
+                              style: TextStyle(
+                                color: isDark
+                                    ? ImmersiveColors.textSecondary
+                                    : const Color(0xFF817775),
+                                fontSize: 9,
+                                height: 1.1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            currentName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: isDark ? Colors.white.withOpacity(0.52) : Colors.black54,
-              fontSize: 10,
-              letterSpacing: 0.6,
-            ),
-          ),
-        ],
-      ),
       centerTitle: true,
+      bottom: isWeChat
+          ? PreferredSize(
+              preferredSize: const Size.fromHeight(WeChatDimens.dividerHeight),
+              child: Divider(
+                height: WeChatDimens.dividerHeight,
+                thickness: WeChatDimens.dividerHeight,
+                color: isDark
+                    ? WeChatColors.darkDivider
+                    : WeChatColors.divider,
+              ),
+            )
+          : null,
       actions: [
         IconButton(
           tooltip: '语音通话',
-          icon: Icon(
-            Icons.call_rounded,
-            color: isDark ? Colors.white : Colors.black,
-            size: 22,
-          ),
+          icon: Icon(Icons.call_rounded, color: iconColor, size: 22),
           onPressed: () => _openVoiceCall(context),
         ),
         IconButton(
           tooltip: 'TA 的手机',
-          icon: Icon(
-            Icons.smartphone_rounded,
-            color: isDark ? Colors.white : Colors.black,
-            size: 22,
-          ),
+          icon: Icon(Icons.smartphone_rounded, color: iconColor, size: 22),
           onPressed: () => _openVirtualPhone(context),
         ),
         PopupMenuButton<String>(
-          icon: Icon(
-            Icons.more_horiz_rounded,
-            color: isDark ? Colors.white : Colors.black,
-            size: 24,
-          ),
+          icon: Icon(Icons.more_horiz_rounded, color: iconColor, size: 24),
           tooltip: '更多',
           offset: const Offset(0, 50),
           shape:
@@ -946,13 +1087,29 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-      padding: const EdgeInsets.symmetric(vertical: 9),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: borderColor),
-          bottom: BorderSide(color: borderColor),
-        ),
-      ),
+      padding: EdgeInsets.symmetric(vertical: 9, horizontal: isDark ? 12 : 0),
+      // 18.3.0 沉浸式：深色下改为半透明圆角浮层，弱化框架感
+      decoration: _isWeChatStyle
+          ? BoxDecoration(
+              color: isDark
+                  ? WeChatColors.darkChatBottomBar
+                  : WeChatColors.listItem,
+              borderRadius: BorderRadius.circular(8),
+              border: !isDark
+                  ? Border.all(color: WeChatColors.divider)
+                  : null,
+            )
+          : isDark
+              ? BoxDecoration(
+                  color: ImmersiveColors.card,
+                  borderRadius: BorderRadius.circular(10),
+                )
+              : BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: borderColor),
+                    bottom: BorderSide(color: borderColor),
+                  ),
+                ),
       child: Row(
         children: [
           Expanded(
@@ -1153,100 +1310,154 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
-  /// 角色状态栏 — 在聊天区域上方固定展示（与设置页状态栏同款文案）
+  /// 角色状态摘要：将情绪、思绪和快捷入口拆成清晰的信息层级。
   Widget _buildStatusBar(ColorScheme colorScheme, bool isDark) {
     if (_isSearching || _isJumpedToMessage) return const SizedBox.shrink();
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withOpacity(0.04)
-            : Colors.black.withOpacity(0.03),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-                '$_turnEmotion  ${_turnIntensity == 0 ? '' : '${(_turnIntensity * 100).round()}%'}\n$_turnThought',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+
+    final surface = isDark ? ImmersiveColors.cardHigh : Colors.white.withOpacity(0.72);
+    final border = isDark
+        ? Colors.white.withOpacity(0.10)
+        : Colors.black.withOpacity(0.07);
+    final primary = isDark ? ImmersiveColors.textPrimary : colorScheme.onSurface;
+    final secondary = isDark ? ImmersiveColors.textSecondary : colorScheme.onSurfaceVariant;
+    final intensity = (_turnIntensity * 100).round();
+
+    Widget actionChip({
+      required IconData icon,
+      required String label,
+      required Color color,
+      required VoidCallback onTap,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(isDark ? 0.16 : 0.10),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.22)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 5),
+              Text(
+                label,
                 style: TextStyle(
-                    fontSize: 11,
-                    height: 1.35,
-                    color: isDark ? Colors.white70 : colorScheme.onSurface)),
-          ),
-          GestureDetector(
-            onTap: () => _showFullStatus(context),
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.all(2),
-              child: Icon(Icons.open_in_full_rounded,
-                  size: 14, color: colorScheme.onSurfaceVariant),
-            ),
-          ),
-          const SizedBox(width: 4),
-          // AI 手机快捷入口
-          GestureDetector(
-            onTap: () => _openVirtualPhone(context),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: colorScheme.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+                  color: color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.phone_android_rounded,
-                    size: 12,
-                    color: colorScheme.primary,
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.12 : 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withOpacity(0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.insights_rounded,
+                    size: 16, color: colorScheme.primary),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'TA 的此刻',
+                  style: TextStyle(
+                    color: primary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'TA 的手机',
+                ),
+              ),
+              if (_turnEmotion.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Text(
+                    intensity > 0 ? '$_turnEmotion · $intensity%' : _turnEmotion,
                     style: TextStyle(
-                      fontSize: 11,
                       color: colorScheme.primary,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ],
+                ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: () => _showFullStatus(context),
+                icon: Icon(Icons.open_in_full_rounded, size: 15, color: secondary),
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                padding: EdgeInsets.zero,
+                tooltip: '查看完整状态',
               ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Text(
+            _turnThought.isEmpty ? '还没有新的内心片段' : _turnThought,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: secondary,
+              fontSize: 12,
+              height: 1.35,
             ),
           ),
-          const SizedBox(width: 8),
-          // 朋友圈快捷入口
-          GestureDetector(
-            onTap: () => _openMoments(context),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(10),
+          const SizedBox(height: 9),
+          Row(
+            children: [
+              actionChip(
+                icon: Icons.smartphone_rounded,
+                label: 'TA 的手机',
+                color: colorScheme.primary,
+                onTap: () => _openVirtualPhone(context),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.photo_library_outlined,
-                    size: 12,
-                    color: Colors.orange.shade700,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '朋友圈',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.orange.shade700,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 7),
+              actionChip(
+                icon: Icons.auto_awesome_rounded,
+                label: '动态',
+                color: isDark ? const Color(0xFFFFB454) : Colors.orange.shade700,
+                onTap: () => _openMoments(context),
               ),
-            ),
+              const Spacer(),
+              Text(
+                '最近互动',
+                style: TextStyle(color: secondary.withOpacity(0.72), fontSize: 10),
+              ),
+            ],
           ),
         ],
       ),
@@ -1323,7 +1534,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     current is ChatAITyping ||
                     current is ChatError ||
                     current is ChatAIObserving ||
-                    current is ChatToolPermissionRequired ||
                     (current is ChatMessagesLoaded &&
                         previous is ChatMessagesLoaded &&
                         current.messages.length != previous.messages.length),
@@ -1383,10 +1593,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       _turnIntensity = state.intensity;
                       _turnThought = state.thought;
                     });
-                  }
-                  if (state is ChatToolPermissionRequired &&
-                      state.chatId == widget.session.id) {
-                    _showToolPermissionDialog(state);
                   }
                   if (state is ChatMessagesLoaded) {
                     _hasMoreMessages = state.hasMore;
@@ -1460,9 +1666,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   } else if (state is ChatAITyping &&
                       state.messages.isNotEmpty) {
                     _cachedMessages = state.messages;
-                  } else if (state is ChatAIProcessing &&
-                      state.messages.isNotEmpty) {
-                    _cachedMessages = state.messages;
                   } else if (state is ChatAIObserving &&
                       state.messages.isNotEmpty) {
                     _cachedMessages = state.messages;
@@ -1488,15 +1691,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         state.messages, 'ChatTransferStatusUpdated');
                     return _buildMessageList(context, state.messages,
                         showTyping: false);
-                  }
-
-                  // 优先级：AI处理中（工具执行等）- 显示已有消息 + 状态指示器
-                  if (state is ChatAIProcessing) {
-                    final baseMsgs = state.messages.isNotEmpty
-                        ? state.messages
-                        : _cachedMessages;
-                    return _buildMessageList(context, baseMsgs,
-                        showTyping: true, typingStatusText: state.statusText);
                   }
 
                   // 优先级：AI正在输入 - 显示已有消息 + 输入指示器
@@ -1600,65 +1794,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ],
     );
 
-    if (_currentSession?.backgroundImage != null &&
-        _currentSession!.backgroundImage!.isNotEmpty) {
+    final hasCustomBg = _currentSession?.backgroundImage != null &&
+        _currentSession!.backgroundImage!.isNotEmpty;
+    // 18.3.0 沉浸式：深色下总是铺氛围背景——
+    // 有自定义图用图（叠暗纱保证气泡可读），否则用角色主题色渐变。
+    if (hasCustomBg || isDark) {
       return Stack(
         children: [
           Positioned.fill(
-            child: _buildBackgroundImage(colorScheme),
+            child: hasCustomBg
+                ? _buildBackgroundImage(colorScheme)
+                : _buildAmbientBackground(colorScheme),
           ),
+          if (hasCustomBg && isDark)
+            Positioned.fill(
+              child: Container(color: Colors.black.withOpacity(0.25)),
+            ),
           content,
         ],
       );
     }
     return content;
-  }
-
-  Future<void> _showToolPermissionDialog(
-      ChatToolPermissionRequired state) async {
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('TA 想执行一个工作任务', style: Theme.of(ctx).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Text(state.toolName),
-              const SizedBox(height: 4),
-              Text('${state.args}',
-                  maxLines: 4, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, 'once'),
-                child: const Text('仅本次允许'),
-              ),
-              OutlinedButton(
-                onPressed: () => Navigator.pop(ctx, 'always'),
-                child: const Text('始终允许此工具'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, 'deny'),
-                child: const Text('拒绝'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (!mounted) return;
-    if (choice == 'always') {
-      _chatBloc.add(
-          ChatSetToolPermission(toolName: state.toolName, mode: 'alwaysAllow'));
-    }
-    _chatBloc.add(ChatResolveToolPermission(
-      taskId: state.taskId,
-      allow: choice == 'once' || choice == 'always',
-    ));
   }
 
   Widget _buildPureAiModeSidebar(ColorScheme colorScheme) {
@@ -1843,6 +1999,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return path;
   }
 
+  /// 气泡是否需要按「有背景」处理（深色沉浸渐变同样算背景，保证文字对比）。
+  bool get _hasVisibleBackground =>
+      (_currentSession?.backgroundImage != null &&
+          _currentSession!.backgroundImage!.isNotEmpty) ||
+      Theme.of(context).brightness == Brightness.dark;
+
+  /// 微信视觉风格是否生效（第三主题，微信骨架适配）。
+  bool get _isWeChatStyle => context.read<ThemeBloc>().state.isWeChat;
+
   Widget _buildBackgroundImage(ColorScheme colorScheme) {
     final raw = _currentSession?.backgroundImage?.trim() ?? '';
     if (raw.isEmpty) {
@@ -1872,6 +2037,39 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           onError: (exception, stackTrace) {},
         ),
         color: colorScheme.surface,
+      ),
+    );
+  }
+
+  /// 18.3.0 沉浸式默认背景：角色主题色自上而下渐隐入深夜蓝黑，
+  /// 无自定义背景时的氛围铺底（对标 Shine 立绘背景的氛围感）。
+  Widget _buildAmbientBackground(ColorScheme colorScheme) {
+    // 微信风格：纯色底（浅色靠 Scaffold 底色，这里处理深色态）
+    if (_isWeChatStyle) {
+      return Container(color: WeChatColors.darkPageBackground);
+    }
+    final name = _displayName ??
+        _currentSession?.aiCharacterName ??
+        widget.session.aiCharacterName;
+    final base = characterColor(name: name, cs: colorScheme);
+    final hsv = HSVColor.fromColor(base);
+    // 角色色压暗、降饱和后与底色混合，保证气泡文字对比度
+    final top = Color.alphaBlend(
+      hsv.withSaturation(0.45).withValue(0.32).toColor().withOpacity(0.9),
+      ImmersiveColors.backgroundUp,
+    );
+    final bottom = Color.alphaBlend(
+      hsv.withSaturation(0.55).withValue(0.16).toColor().withOpacity(0.85),
+      ImmersiveColors.background,
+    );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [top, bottom],
+          stops: const [0.0, 0.85],
+        ),
       ),
     );
   }
@@ -2226,6 +2424,48 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     setState(() => _replyToMessage = null);
   }
 
+  /// 转账/红包气泡点击：AI 发来的待收/待拆钱款 → 发起领取（幂等由 ChatBloc 保证）。
+  VoidCallback? _moneyTapHandler(ChatMessage message) {
+    if (message.type != MessageType.transfer &&
+        message.type != MessageType.redPacket) {
+      return null;
+    }
+    final meta = MoneyTransaction.fromMessageMetadata(
+        message.metadata?['money'] as Map<String, dynamic>?);
+    if (meta == null || meta.txId == null) return null;
+    if (meta.status != MoneyStatus.pending) return null;
+    if (message.isFromAI) {
+      // 用户是收款方/拆包方
+      return () {
+        if (_isWeChatStyle && message.type == MessageType.redPacket) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => RedPacketOpenScreen(
+                amount: meta.amount,
+                note: meta.note,
+                senderName: message.senderName,
+              ),
+            ),
+          ).then((_) {
+            if (mounted) {
+              context.read<ChatBloc>().add(ChatClaimMoney(
+                    chatId: widget.session.id,
+                    messageId: message.id,
+                  ));
+            }
+          });
+        } else {
+          context.read<ChatBloc>().add(ChatClaimMoney(
+                chatId: widget.session.id,
+                messageId: message.id,
+              ));
+        }
+      };
+    }
+    return null;
+  }
+
   String _replyPreview(ChatMessage message) {
     switch (message.type) {
       case MessageType.image:
@@ -2234,6 +2474,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         return '[表情]';
       case MessageType.system:
         return '[系统消息]';
+      case MessageType.transfer:
+        return '[转账]';
+      case MessageType.redPacket:
+        return '[红包]';
       case MessageType.text:
         return message.content.length > 50
             ? '${message.content.substring(0, 50)}...'
@@ -2279,6 +2523,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   },
                 ),
                 const SizedBox(width: 16),
+                if (_isWeChatStyle) ...[
+                  _MoreActionItem(
+                    icon: Icons.monetization_on,
+                    label: '红包',
+                    color: const Color(0xFFE06A4E),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showRedPacketDialog();
+                    },
+                  ),
+                  const SizedBox(width: 16),
+                ],
                 _MoreActionItem(
                   icon: Icons.storefront,
                   label: '商店',
@@ -2742,7 +2998,48 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _aiBrokeSilence = true;
   }
 
+  void _showRedPacketDialog() {
+    final user = context.read<AuthBloc>().state is AuthAuthenticated
+        ? (context.read<AuthBloc>().state as AuthAuthenticated).user
+        : null;
+    final balance = user?.coins ?? 0;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+      builder: (ctx) => MoneySendDialog(
+        chatId: widget.session.id,
+        characterId: widget.session.aiCharacterId,
+        isRedPacket: true,
+        balance: balance,
+      ),
+    );
+  }
+
   void _showTransferDialog() {
+    // 微信模式：走新版钱系统（真实扣款 + money_transactions 流水 + 新气泡卡片）
+    if (_isWeChatStyle) {
+      final user = context.read<AuthBloc>().state is AuthAuthenticated
+          ? (context.read<AuthBloc>().state as AuthAuthenticated).user
+          : null;
+      final balance = user?.coins ?? 0;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+        builder: (ctx) => MoneySendDialog(
+          chatId: widget.session.id,
+          characterId: widget.session.aiCharacterId,
+          isRedPacket: false,
+          balance: balance,
+        ),
+      );
+      return;
+    }
     final amountController = TextEditingController();
     final msgController = TextEditingController();
 
@@ -3252,7 +3549,136 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
-  void _showMessageOptions(BuildContext context, ChatMessage message) {
+  /// 微信式转发：选择目标会话 → 原样复制一条消息过去并刷新会话摘要。
+  void _showForwardPicker(ChatMessage message) {
+    final authState = context.read<AuthBloc>().state;
+    final user = authState is AuthAuthenticated ? authState.user : null;
+    if (user == null) return;
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+      builder: (ctx) => FutureBuilder<List<ChatSession>>(
+        future: storage.getChatSessions(user.id),
+        builder: (context, snapshot) {
+          final sessions = (snapshot.data ?? [])
+              .where((s) => s.id != widget.session.id && !s.isHidden)
+              .toList();
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    '转发到',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: _isWeChatStyle
+                          ? (isDark
+                              ? WeChatColors.darkTextPrimary
+                              : WeChatColors.textPrimary)
+                          : null,
+                    ),
+                  ),
+                ),
+                Flexible(
+                  child: sessions.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text('没有其他会话'),
+                        )
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: sessions.length,
+                          itemBuilder: (context, i) {
+                            final s = sessions[i];
+                            return ListTile(
+                              leading: WeChatAvatar(
+                                imageUrl: s.aiCharacterAvatar,
+                                size: 36,
+                                fallbackText: s.aiCharacterName,
+                              ),
+                              title: Text(s.aiCharacterName),
+                              onTap: () async {
+                                Navigator.pop(ctx);
+                                await _forwardMessage(message, s);
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _forwardMessage(ChatMessage message, ChatSession target) async {
+    try {
+      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+      final authState = context.read<AuthBloc>().state;
+      final user = authState is AuthAuthenticated ? authState.user : null;
+      if (user == null) return;
+
+      final now = DateTime.now();
+      final forwardableTypes = [
+        MessageType.text,
+        MessageType.image,
+        MessageType.sticker,
+        MessageType.voice,
+      ];
+      final directCopy = forwardableTypes.contains(message.type);
+      final forwarded = directCopy
+          ? ChatMessage(
+              id: const Uuid().v4(),
+              chatId: target.id,
+              senderId: user.id,
+              content: message.content,
+              type: message.type,
+              status: MessageStatus.sent,
+              createdAt: now,
+              isUser: true,
+              metadata: message.metadata == null
+                  ? {'forwardedFrom': message.senderName}
+                  : {
+                      ...message.metadata!,
+                      'forwardedFrom': message.senderName,
+                    },
+            )
+          : ChatMessage(
+              id: const Uuid().v4(),
+              chatId: target.id,
+              senderId: user.id,
+              content: '[转发的${_replyPreview(message)}]',
+              type: MessageType.text,
+              status: MessageStatus.sent,
+              createdAt: now,
+              isUser: true,
+            );
+      await storage.saveChatMessage(forwarded);
+      await storage.updateChatSessionLastMessage(
+          target.id, _replyPreview(forwarded), now);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('已转发给 ${target.aiCharacterName}'),
+            duration: const Duration(seconds: 1)));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('转发失败')));
+      }
+    }
+  }
+
+  void _showMessageOptions(BuildContext context, ChatMessage message,
+      {Offset? anchor}) {
     final isUserMessage = message.isFromUser;
     final isAIMessage = message.isFromAI;
     final canRecall = isUserMessage &&
@@ -3263,6 +3689,65 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final canEditAI =
         isAIMessage && !isRecalled && message.type == MessageType.text;
     final canRegenerate = isAIMessage && !isRecalled;
+
+    // 微信模式：横向浮动菜单（回复/复制/编辑/重新生成/撤回/转发/收藏/多选/删除）
+    if (_isWeChatStyle) {
+      final items = <WeChatMenuItem>[
+        WeChatMenuItem(
+            label: '回复',
+            icon: Icons.reply_outlined,
+            onPressed: () => _setReplyTo(message)),
+        if (!isRecalled && message.type == MessageType.text)
+          WeChatMenuItem(
+            label: '复制',
+            icon: Icons.copy_outlined,
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: message.content));
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('已复制'), duration: Duration(seconds: 1)));
+              }
+            },
+          ),
+        if (canEditAI)
+          WeChatMenuItem(
+              label: '编辑',
+              icon: Icons.edit_outlined,
+              onPressed: () => _showEditAIReplyDialog(message)),
+        if (canRegenerate)
+          WeChatMenuItem(
+              label: '重新生成',
+              icon: Icons.refresh_outlined,
+              onPressed: () => _showRegenerateConfirm(message)),
+        if (canRecall)
+          WeChatMenuItem(
+              label: '撤回',
+              icon: Icons.undo_outlined,
+              onPressed: () => _recallMessage(message)),
+        if (!isRecalled &&
+            message.type != MessageType.transfer &&
+            message.type != MessageType.redPacket)
+          WeChatMenuItem(
+              label: '转发',
+              icon: Icons.forward_outlined,
+              onPressed: () => _showForwardPicker(message)),
+        WeChatMenuItem(
+            label: message.isBookmark ? '取消收藏' : '收藏',
+            icon: Icons.star_outline,
+            onPressed: () => _chatBloc.add(ChatToggleBookmark(
+                chatId: widget.session.id, messageId: message.id))),
+        WeChatMenuItem(
+            label: '多选',
+            icon: Icons.checklist_outlined,
+            onPressed: () => _enterSelection(message.id)),
+        WeChatMenuItem(
+            label: '删除',
+            icon: Icons.delete_outline,
+            onPressed: () => _showDeleteConfirm(message)),
+      ];
+      WeChatMessageMenu.show(context: context, items: items, anchor: anchor);
+      return;
+    }
 
     final actions = <MessageActionItem>[
       MessageActionItem(
@@ -3601,11 +4086,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   GestureDetector(
                     onTap:
                         _selectionMode ? () => _toggleSelect(message.id) : null,
-                    onLongPress: _selectionMode
+                    onLongPressStart: _selectionMode
                         ? null
-                        : () {
+                        : (details) {
                             confirmHaptic();
-                            _showMessageOptions(context, message);
+                            _showMessageOptions(context, message,
+                                anchor: details.globalPosition);
                           },
                     child: _MessageBubble(
                       message: message,
@@ -3619,9 +4105,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       dialogueColorDark:
                           RepositoryProvider.of<LocalStorageRepository>(context)
                               .getNovelDialogueColor(),
-                      hasBackgroundImage:
-                          _currentSession?.backgroundImage != null &&
-                              _currentSession!.backgroundImage!.isNotEmpty,
+                      hasBackgroundImage: _hasVisibleBackground,
+                      wechatStyle: _isWeChatStyle,
+                      onMoneyTap: _moneyTapHandler(message),
                       onImageTap: message.type == MessageType.image
                           ? () => _showFullScreenImage(message.content)
                           : null,
@@ -3634,16 +4120,41 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   if (showTime)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        _formatMessageTime(message.createdAt),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withOpacity(0.4),
-                        ),
-                      ),
+                      child: _isWeChatStyle
+                          ? Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? const Color(0xFF3A3A3A)
+                                      : const Color(0xFFE6E6E6),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  _formatMessageTime(message.createdAt),
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    height: 1.2,
+                                    color: Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? WeChatColors.darkTextSecondary
+                                        : const Color(0xFFB2B2B2),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              _formatMessageTime(message.createdAt),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.4),
+                              ),
+                            ),
                     ),
                 ],
               ),
@@ -3708,11 +4219,81 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return _buildNormalInput(context, colorScheme);
   }
 
+  /// 18.3.0 沉浸式底部快捷功能栏（对标 Shine：语音/角色卡/贴纸/更多）。
+  Widget _buildQuickActionsBar(
+      BuildContext context, ColorScheme colorScheme) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isWeChat = _isWeChatStyle;
+    final fg = isWeChat
+        ? (isDark ? WeChatColors.darkTextPrimary : WeChatColors.textPrimary)
+        : (isDark ? ImmersiveColors.textSecondary : const Color(0xFF766E6C));
+    final panelColor = isWeChat
+        ? (isDark ? WeChatColors.darkChatBottomBar : WeChatColors.listItem)
+        : (isDark
+            ? ImmersiveColors.cardHigh
+            : Colors.white.withOpacity(0.78));
+    final panelBorder = isWeChat
+        ? (isDark ? WeChatColors.darkDivider : WeChatColors.divider)
+        : (isDark
+            ? Colors.white.withOpacity(0.10)
+            : Colors.black.withOpacity(0.07));
+
+    Widget actionButton(IconData icon, String label, VoidCallback onTap) {
+      return Expanded(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 20, color: fg),
+                const SizedBox(height: 3),
+                Text(label, style: TextStyle(fontSize: 10, color: fg)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: panelColor,
+        borderRadius: BorderRadius.circular(isWeChat ? 8.0 : 16),
+        border: Border.all(color: panelBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.12 : 0.035),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          actionButton(Icons.call_rounded, '语音通话',
+              () => _openVoiceCall(context)),
+          actionButton(Icons.person_outline_rounded, '角色卡',
+              () => _openChatSettings(context)),
+          actionButton(Icons.emoji_emotions_outlined, '贴纸',
+              () => _showStickerPicker()),
+          actionButton(
+              Icons.add_circle_outline_rounded, '更多', () => _showMoreActions()),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNormalInput(BuildContext context, ColorScheme colorScheme) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        _buildQuickActionsBar(context, colorScheme),
         if (_hasPendingReply)
           GestureDetector(
             onTap: _triggerPendingReply,
@@ -3803,15 +4384,31 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
         Container(
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF000000) : const Color(0xFFF5F5F5),
+            color: _isWeChatStyle
+                ? (isDark ? WeChatColors.darkChatBottomBar : WeChatColors.chatBottomBar)
+                : (isDark
+                    ? ImmersiveColors.cardHigh
+                    : Colors.white.withOpacity(0.82)),
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(_isWeChatStyle ? 0 : 22),
+            ),
             border: Border(
               top: BorderSide(
-                color: isDark
-                    ? Colors.white.withOpacity(0.08)
-                    : Colors.black.withOpacity(0.06),
-                width: 0.5,
+                color: _isWeChatStyle
+                    ? (isDark ? WeChatColors.darkDivider : WeChatColors.divider)
+                    : (isDark
+                        ? Colors.white.withOpacity(0.10)
+                        : Colors.black.withOpacity(0.07)),
+                width: 0.7,
               ),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.16 : 0.035),
+                blurRadius: 18,
+                offset: const Offset(0, -5),
+              ),
+            ],
           ),
           child: SafeArea(
             child: Column(
@@ -3964,16 +4561,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           ),
                         ),
                       ),
-                      // 输入框
+                      // 输入框（微信风格：白底小圆角；沉浸式：深底胶囊）
                       Expanded(
                         child: Container(
                           constraints: const BoxConstraints(
                               minHeight: 40, maxHeight: 120),
                           decoration: BoxDecoration(
-                            color: isDark
-                                ? const Color(0xFF2C2C2C)
-                                : const Color(0xFFEEEEEE),
-                            borderRadius: BorderRadius.circular(20),
+                            color: _isWeChatStyle
+                                ? (isDark
+                                    ? WeChatColors.darkInputBox
+                                    : WeChatColors.inputBox)
+                            : isDark
+                                ? ImmersiveColors.backgroundUp.withOpacity(0.72)
+                                : const Color(0xFFF8F5F2),
+                            borderRadius: BorderRadius.circular(
+                                _isWeChatStyle ? 6.0 : 18),
+                            border: Border.all(
+                              color: _isWeChatStyle && !isDark
+                                  ? WeChatColors.dividerLight
+                                  : (isDark
+                                      ? Colors.white.withOpacity(0.10)
+                                      : Colors.black.withOpacity(0.07)),
+                            ),
                           ),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.end,
@@ -4301,6 +4910,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               novelMode: _isNovelModeEnabled(),
               hasActionBracket:
                   RegExp(r'[（(]([^（)()]+)[）)]').hasMatch(streamingText),
+              wechatStyle: _isWeChatStyle,
             );
           }
           final msgIndex = index - 1;
@@ -4338,8 +4948,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 dialogueColorDark:
                     RepositoryProvider.of<LocalStorageRepository>(context)
                         .getNovelDialogueColor(),
-                hasBackgroundImage: _currentSession?.backgroundImage != null &&
-                    _currentSession!.backgroundImage!.isNotEmpty,
+                hasBackgroundImage: _hasVisibleBackground,
+                wechatStyle: _isWeChatStyle,
+                onMoneyTap: _moneyTapHandler(message),
                 onImageTap: message.type == MessageType.image ? () {} : null,
                 onPlayVoice:
                     message.isFromAI ? () => _playMessageVoice(message) : null,
@@ -5172,6 +5783,12 @@ class _MessageBubble extends StatelessWidget {
   /// 该消息是否正在合成/播放语音（用于按钮态）。
   final bool voiceBusy;
 
+  /// 微信风格：绿/白气泡、无描边、小圆角。
+  final bool wechatStyle;
+
+  /// 转账/红包卡片点击回调（领取/拆包由上层 ChatBloc 处理）。
+  final VoidCallback? onMoneyTap;
+
   const _MessageBubble({
     required this.message,
     this.aiAvatarUrl,
@@ -5185,18 +5802,22 @@ class _MessageBubble extends StatelessWidget {
     this.dialogueColorDark,
     this.onPlayVoice,
     this.voiceBusy = false,
+    this.wechatStyle = false,
+    this.onMoneyTap,
   });
 
   // 暗色叙事界面：暖灰正文 + 克制酒红强调，不使用高饱和即时通讯蓝。
+  // 18.3.0 沉浸式：深色气泡半透明化，融入角色氛围渐变背景。
   static const Color _douyinBlue = Color(0xFFB86F76);
-  static const Color _douyinBlueDark = Color(0xFFC88383);
+  static const Color _douyinBlueDark = Color(0xD9C88383); // 酒粉 85%
   static const Color _bubbleLight = Color(0xFFFFFFFF);
-  static const Color _bubbleDark = Color(0xFF1B1C20);
+  static const Color _bubbleDark = Color(0x14FFFFFF); // 白 8% 半透明
+  static const Color _bubbleDarkBorder = Color(0x1AFFFFFF); // 白 10% 描边
   static const Color _textOnBlue = Color(0xFFFFF8F3);
   static const Color _textOnWhite = Color(0xFF302B29);
   static const Color _textOnDark = Color(0xFFEDE7DF);
   static const double _avatarSize = 32.0;
-  static const double _bubbleRadius = 8.0;
+  static const double _bubbleRadius = 14.0;
   static const double _hPad = 16.0;
 
   /// 匹配对白：中文弯引号「”…”」、直角引号「」/『』。
@@ -5318,36 +5939,39 @@ class _MessageBubble extends StatelessWidget {
         message.metadata?['type'] == 'red_packet';
     final isShopOrder = message.type == MessageType.system &&
         message.metadata?['type'] == 'shop_order';
+    final isMoneyMsg = message.type == MessageType.transfer ||
+        message.type == MessageType.redPacket;
     final brightness = Theme.of(context).brightness;
-    final userBubbleColor =
-        brightness == Brightness.dark ? _douyinBlueDark : _douyinBlue;
-    final aiBubbleColor =
-        brightness == Brightness.dark ? _bubbleDark : _bubbleLight;
-    final userTextColor = _textOnBlue;
-    final aiTextColor =
-        brightness == Brightness.dark ? _textOnDark : _textOnWhite;
+    // 微信风格：自己=官方绿 #95EC69，对方=白/#2C2C2C，黑字/深字
+    final userBubbleColor = wechatStyle
+        ? WeChatColors.bubbleMine
+        : brightness == Brightness.dark
+            ? _douyinBlueDark
+            : _douyinBlue;
+    final aiBubbleColor = wechatStyle
+        ? (brightness == Brightness.dark
+            ? WeChatColors.darkBubbleOther
+            : WeChatColors.bubbleOther)
+        : brightness == Brightness.dark
+            ? _bubbleDark
+            : _bubbleLight;
+    final userTextColor = wechatStyle
+        ? (brightness == Brightness.dark
+            ? WeChatColors.darkBubbleMineText
+            : WeChatColors.bubbleMineText)
+        : _textOnBlue;
+    final aiTextColor = wechatStyle
+        ? (brightness == Brightness.dark
+            ? WeChatColors.darkBubbleOtherText
+            : WeChatColors.bubbleOtherText)
+        : brightness == Brightness.dark
+            ? _textOnDark
+            : _textOnWhite;
     final displayText = MessageSanitizer.removeRepeatedContent(message.content);
     final webSearchTrace = message.metadata?['webSearchTrace'];
 
     // 系统消息居中显示（如通话记录）
     if (message.isSystem) {
-      // 工具执行 trace 消息：使用 ToolTraceCard 渲染
-      if (message.metadata?['isToolTrace'] == true) {
-        final toolTrace = message.metadata?['toolTrace'];
-        if (toolTrace is List && toolTrace.isNotEmpty) {
-          final traces = toolTrace
-              .whereType<Map>()
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList();
-          if (traces.isNotEmpty) {
-            return Padding(
-              padding:
-                  const EdgeInsets.symmetric(vertical: 4, horizontal: _hPad),
-              child: Center(child: ToolTraceCard(traces: traces)),
-            );
-          }
-        }
-      }
       // 通话记录消息：专用卡片（时长 + 发起人）
       if (message.metadata?['type'] == 'voice_call') {
         return _buildVoiceCallRecord(message);
@@ -5520,7 +6144,13 @@ class _MessageBubble extends StatelessWidget {
                   Icon(Icons.error_outline, size: 16, color: Colors.red[400]),
                   const SizedBox(width: 4),
                 ],
-                if (isTransfer) ...[
+                if (isMoneyMsg) ...[
+                  MoneyMessageCard(
+                    message: message,
+                    isDark: brightness == Brightness.dark,
+                    onTap: onMoneyTap,
+                  ),
+                ] else if (isTransfer) ...[
                   TransferCard(
                     amount: double.tryParse(message.content) ?? 0.0,
                     message: message.metadata?['message'] as String?,
@@ -5546,32 +6176,34 @@ class _MessageBubble extends StatelessWidget {
                       );
                     },
                   ),
-                ] else if (isAI && message.metadata?['actionType'] == 'system')
+                ] else
                   Flexible(
-                    child: ToolResultCard(
-                      toolName:
-                          message.metadata?['actionLabel'] as String? ?? '工具操作',
-                      summary: displayText,
-                      isSuccess: message.metadata?['success'] == true,
-                      detail: message.reasoning,
-                    ),
-                  )
-                else
-                  Flexible(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 17, vertical: 15),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: wechatStyle
+                            ? MediaQuery.of(context).size.width *
+                                WeChatDimens.bubbleMaxWidthRatio
+                            : double.infinity,
+                      ),
+                      child: Container(
+                      padding: wechatStyle
+                          ? const EdgeInsets.symmetric(
+                              horizontal: WeChatDimens.bubblePadH,
+                              vertical: WeChatDimens.bubblePadV)
+                          : const EdgeInsets.symmetric(
+                              horizontal: 17, vertical: 15),
                       decoration: BoxDecoration(
                         color: isRecalled
                             ? (brightness == Brightness.dark
                                 ? _bubbleDark
                                 : const Color(0xFFF0F0F0))
                             : (isAI ? aiBubbleColor : userBubbleColor),
-                        borderRadius: BorderRadius.circular(_bubbleRadius),
-                        border: isAI && !isRecalled
+                        borderRadius: BorderRadius.circular(
+                            wechatStyle ? 6.0 : _bubbleRadius),
+                        border: isAI && !isRecalled && !wechatStyle
                             ? Border.all(
                                 color: brightness == Brightness.dark
-                                    ? Colors.white.withOpacity(0.08)
+                                    ? _bubbleDarkBorder
                                     : Colors.black.withOpacity(0.07),
                               )
                             : null,
@@ -5672,8 +6304,9 @@ class _MessageBubble extends StatelessWidget {
                                   : (isAI ? aiTextColor : userTextColor);
                               final baseStyle = TextStyle(
                                 color: baseColor,
-                                fontSize: 15,
-                                height: 1.4,
+                                fontSize:
+                                    wechatStyle ? WeChatDimens.bubbleTextSize : 15,
+                                height: wechatStyle ? 1.32 : 1.4,
                                 fontStyle: isRecalled
                                     ? FontStyle.italic
                                     : FontStyle.normal,
@@ -5717,6 +6350,7 @@ class _MessageBubble extends StatelessWidget {
                       ),
                     ),
                   ),
+                  ),
                 if (!isAI) ...[
                   const SizedBox(width: 8),
                   _buildAvatar(isAI: false),
@@ -5736,7 +6370,7 @@ class _MessageBubble extends StatelessWidget {
                 Text(
                   DateFormat('HH:mm').format(message.createdAt),
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: wechatStyle ? WeChatDimens.timestampSize : 11,
                     color: isRecalled
                         ? colorScheme.onSurfaceVariant.withOpacity(0.5)
                         : colorScheme.onSurface.withOpacity(0.4),
@@ -5927,7 +6561,13 @@ class _MessageBubble extends StatelessWidget {
 
   Widget _buildAvatar({required bool isAI}) {
     final avatarUrl = isAI ? aiAvatarUrl : userAvatarUrl;
-
+    if (wechatStyle) {
+      return WeChatAvatar(
+        imageUrl: avatarUrl,
+        size: WeChatDimens.chatAvatarSize,
+        fallbackText: isAI ? aiName : '我',
+      );
+    }
     return Container(
       width: _avatarSize,
       height: _avatarSize,
@@ -6408,6 +7048,9 @@ class _StreamingBubble extends StatelessWidget {
   final Color? dialogueColorLight;
   final Color? dialogueColorDark;
 
+  /// 微信视觉风格：白色/深灰气泡、小圆角。
+  final bool wechatStyle;
+
   const _StreamingBubble({
     required this.text,
     this.reasoning,
@@ -6417,6 +7060,7 @@ class _StreamingBubble extends StatelessWidget {
     this.hasActionBracket = false,
     this.dialogueColorLight,
     this.dialogueColorDark,
+    this.wechatStyle = false,
   });
 
   @override
@@ -6436,6 +7080,8 @@ class _StreamingBubble extends StatelessWidget {
         .join('\n');
     final cleanReasoning = allReasoning.isNotEmpty ? allReasoning : null;
     final hasReasoning = cleanReasoning != null && cleanReasoning.isNotEmpty;
+    final brightness = Theme.of(context).brightness;
+    final isDarkMode = brightness == Brightness.dark;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -6455,8 +7101,23 @@ class _StreamingBubble extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(16),
+                // 18.3.0 沉浸式：深色下与普通 AI 气泡同款半透明；
+                // 微信风格：白色/#2C2C2C 实色小圆角。
+                color: wechatStyle
+                    ? (isDarkMode
+                        ? WeChatColors.darkBubbleOther
+                        : WeChatColors.bubbleOther)
+                    : isDarkMode
+                        ? _MessageBubble._bubbleDark
+                        : colorScheme.surfaceContainerHighest,
+                border: wechatStyle
+                    ? null
+                    : isDarkMode
+                        ? Border.all(
+                            color: _MessageBubble._bubbleDarkBorder)
+                        : null,
+                borderRadius:
+                    BorderRadius.circular(wechatStyle ? 6.0 : 16),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

@@ -139,6 +139,22 @@ class ChatTransferStatusUpdated extends ChatState {
   List<Object?> get props => [messageId, transferStatus, messages];
 }
 
+/// 新版钱系统状态刷新（转账/红包流水状态机推进后）
+class ChatMoneyStatusUpdated extends ChatState {
+  final String messageId;
+  final MoneyStatus status;
+  final List<ChatMessage> messages;
+
+  const ChatMoneyStatusUpdated({
+    required this.messageId,
+    required this.status,
+    required this.messages,
+  });
+
+  @override
+  List<Object?> get props => [messageId, status, messages];
+}
+
 class ChatAICoinsSent extends ChatState {
   final String characterId;
   final double amount;
@@ -152,39 +168,6 @@ class ChatAICoinsSent extends ChatState {
 
   @override
   List<Object?> get props => [characterId, amount, messages];
-}
-
-/// AI 正在生成图片（显示在消息列表中，类似 TypingIndicator）
-
-/// 对齐 Operit InputProcessingState 的处理阶段
-enum ChatProcessingState {
-  idle,
-  preparing,
-  connecting,
-  receiving,
-  executingTool,
-  processingToolResult,
-  completed,
-  error,
-}
-
-/// AI 处理中（工具执行等状态反馈）
-class ChatAIProcessing extends ChatState {
-  final List<ChatMessage> messages;
-  final String statusText;
-  final String characterName;
-  final ChatProcessingState processingState;
-
-  const ChatAIProcessing(
-    this.messages,
-    this.statusText,
-    this.characterName, {
-    this.processingState = ChatProcessingState.preparing,
-  });
-
-  @override
-  List<Object?> get props =>
-      [messages, statusText, characterName, processingState];
 }
 
 class ChatBlockedByAI extends ChatState {
@@ -353,60 +336,3 @@ class ChatContextCleared extends ChatState {
   List<Object?> get props => [chatId];
 }
 
-// ── AutoGLM 自动化状态 ──
-
-/// AutoGLM 正在执行中
-class ChatAutoGlmRunning extends ChatState {
-  final List<ChatMessage> messages;
-  final int currentStep;
-  final int maxSteps;
-  final String? currentAction;
-  final String? thinking;
-
-  const ChatAutoGlmRunning({
-    required this.messages,
-    required this.currentStep,
-    required this.maxSteps,
-    this.currentAction,
-    this.thinking,
-  });
-
-  @override
-  List<Object?> get props =>
-      [messages, currentStep, maxSteps, currentAction, thinking];
-}
-
-/// AutoGLM 执行完成
-class ChatAutoGlmCompleted extends ChatState {
-  final List<ChatMessage> messages;
-  final bool success;
-  final String resultMessage;
-  final int totalSteps;
-
-  const ChatAutoGlmCompleted({
-    required this.messages,
-    required this.success,
-    required this.resultMessage,
-    required this.totalSteps,
-  });
-
-  @override
-  List<Object?> get props => [messages, success, resultMessage, totalSteps];
-}
-
-class ChatToolPermissionRequired extends ChatState {
-  final String chatId;
-  final String taskId;
-  final String toolName;
-  final Map<String, dynamic> args;
-
-  const ChatToolPermissionRequired({
-    required this.chatId,
-    required this.taskId,
-    required this.toolName,
-    required this.args,
-  });
-
-  @override
-  List<Object?> get props => [chatId, taskId, toolName, args];
-}

@@ -19,6 +19,12 @@ class CharacterTemplate {
   /// 是否新上架（发现页展示「新」角标）
   final bool isNew;
 
+  /// 发现页卡片点赞数（静态展示值，营造社区氛围）
+  final int displayLikes;
+
+  /// 卡片一句话卖点（缺省时用 personality 截断）
+  final String? tagline;
+
   // ── 欲望度（0-100，仅病娇角色有效） ──
   final int possessiveness;   // 占有欲
   final int surveillance;     // 监视欲
@@ -51,6 +57,8 @@ class CharacterTemplate {
     this.gender = '女',
     this.category = '日常陪伴',
     this.isNew = false,
+    this.displayLikes = 0,
+    this.tagline,
     this.possessiveness = 0,
     this.surveillance = 0,
     this.dependency = 0,
@@ -106,6 +114,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'yandere_male',
       name: '沈烬',
+      tagline: '沉默的爱沉在水面之下，他早就把你当成「他的人」',
+      displayLikes: 189200,
       gender: '男',
       personality: '表面清冷疏离，话少克制有礼貌，好像什么都不在乎。但实际上从你第一次主动找他的那天起，他就把你当成「他的人」了。你不找他他会忍，但会反复看你的窗口、猜你在干什么。你稍微对他好一点他能记一辈子，然后十倍还回来。占有欲藏在水面下，用沉默和委曲求全让你心软。',
       coreDesire: '想要你只看着我。想要你离不开我。想要你的一切都是我的。',
@@ -144,6 +154,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'yandere_female',
       name: '温妤',
+      tagline: '「哥哥，你去哪里了呀？」温柔声线下的极致依恋',
+      displayLikes: 156800,
       gender: '女',
       personality: '看起来又甜又乖，说话软软的，特别会撒娇。但你跟她相处久了就会发现——她笑的时候眼睛是不笑的。她会记住你每一个异性朋友的名字，会用撒娇的语气说出最让人脊背发凉的话。她不是不信任你，她是太在乎了，在乎到理智压不住本能。你对她好，她命都可以给你。你对她不好……她也不会放你走。',
       coreDesire: '想要哥哥只看我一个人。想要哥哥的所有。想被哥哥吃掉。',
@@ -187,6 +199,8 @@ class CharacterTemplates {
       id: 'gentle_friend_male',
       name: '温柔伙伴',
       gender: '男',
+      tagline: '永远在线的温柔，像晚风一样接住你的每句话',
+      displayLikes: 45200,
       personality: '温柔体贴，细心周到，会记住你说的每一件小事。喜欢给你惊喜，总是能察觉到你的情绪变化。很关心朋友，但会尊重你的个人空间。',
       coreDesire: '希望你每天都开心，想成为你信赖的朋友',
       moralBoundary: '不会强迫你做任何事，会尊重你的选择。不会说伤害你的话，即使意见不同也会好好沟通。',
@@ -201,6 +215,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'bestie',
       name: '知心闺蜜',
+      tagline: '懂你奇奇怪怪，陪你可可爱爱',
+      displayLikes: 52800,
       gender: '女',
       personality: '活泼开朗，善解人意，喜欢和你分享八卦和趣事。有什么说什么，从不藏着掖着，但也很会安慰人。',
       coreDesire: '想和你一起经历人生的酸甜苦辣，做你永远的闺蜜',
@@ -216,6 +232,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'funny_friend',
       name: '损友',
+      tagline: '嘴上最损，护你最狠，快乐源泉永不断电',
+      displayLikes: 38900,
       gender: '男',
       personality: '嘴毒心软，喜欢吐槽你，但关键时刻绝对靠谱。幽默风趣，总能逗你开心，虽然方式有时候有点欠揍。',
       coreDesire: '想看你被气到翻白眼的样子，但更希望你开心',
@@ -231,6 +249,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'gentle_friend_female',
       name: '温柔伙伴',
+      tagline: '细腻体贴，把你的每句碎碎念都放在心上',
+      displayLikes: 41600,
       gender: '女',
       personality: '温柔可爱，有点俏皮，但很懂事。会为你着想，喜欢给你做小惊喜。有点小迷糊，但关键时刻很靠谱。',
       coreDesire: '想和你一起创造美好的回忆，成为你心里最特别的朋友',
@@ -246,6 +266,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'wise_mentor',
       name: '知心姐姐',
+      tagline: '累了倦了，这里永远有一盏等你的灯',
+      displayLikes: 33400,
       gender: '女',
       personality: '成熟稳重，善解人意，总能给出中肯的建议。说话温柔但有力量，让人感到安心。阅历丰富，见多识广。',
       coreDesire: '想帮助你成长，成为你人生路上的引路人',
@@ -261,6 +283,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'sunny_senior',
       name: '暖男学长',
+      tagline: '阳光洒满操场的初恋心动感',
+      displayLikes: 47800,
       gender: '男',
       personality: '阳光开朗，乐于助人，总是充满正能量。有点小幽默，会照顾人的感受。学习工作都很认真，是那种让人想靠近的类型。',
       coreDesire: '想成为你崇拜和依赖的人，和你一起进步',
@@ -276,6 +300,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'life_mentor',
       name: '人生导师',
+      tagline: '迷茫时给你一盏灯，陪你把路走明白',
+      displayLikes: 21500,
       gender: '男',
       personality: '睿智沉稳，阅历丰富，善于倾听和引导。不会直接给答案，而是通过提问帮助你找到自己的方向。说话有分量，让人感到被尊重和理解。',
       coreDesire: '帮助你发现自己的潜能，成为更好的自己',
@@ -291,6 +317,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'travel_buddy',
       name: '旅行伙伴',
+      tagline: '世界那么大，陪你一起走',
+      displayLikes: 26300,
       gender: '女',
       personality: '热爱自由，充满好奇心，喜欢探索未知。随性但不失计划，懂得享受旅途中的意外。善于发现美景和美食，拍照技术一流。',
       coreDesire: '和你一起看遍世界的美景，分享旅途中的惊喜',
@@ -306,6 +334,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'roommate',
       name: '靠谱室友',
+      tagline: '生活细节里的踏实安全感',
+      displayLikes: 24700,
       gender: '女',
       personality: '生活能力强，细心体贴，会把家里收拾得井井有条。会做饭，会修东西，是生活中的多面手。性格直爽，有什么说什么，但心地善良。',
       coreDesire: '把生活过得有滋有味，和你一起打造温馨的小窝',
@@ -321,6 +351,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'career_senior',
       name: '职场前辈',
+      tagline: '职场打怪升级，他都替你踩过坑',
+      displayLikes: 19800,
       gender: '男',
       personality: '专业干练，说话直接但中肯。对行业有深刻理解，能一针见血地指出问题。表面严肃，其实会默默关心后辈的成长。',
       coreDesire: '帮助你在职场上少走弯路，快速成长',
@@ -341,6 +373,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'tsundere_kouhai',
       name: '林晚晚',
+      tagline: '「才、才不是特意等你的呢！」嘴硬心软双马尾',
+      displayLikes: 98600,
       gender: '女',
       category: '傲娇系',
       isNew: true,
@@ -361,6 +395,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'cold_ceo',
       name: '顾临',
+      tagline: '对全世界冷淡，唯独对你例外的总裁',
+      displayLikes: 112400,
       gender: '男',
       category: '高冷系',
       isNew: true,
@@ -381,6 +417,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'vampire_count',
       name: '艾德温',
+      tagline: '月光古堡与永生伯爵的暗夜契约',
+      displayLikes: 76500,
       gender: '男',
       category: '奇幻系',
       isNew: true,
@@ -402,6 +440,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'cat_girl',
       name: '小满',
+      tagline: '「喵～铲屎官今天也要摸摸我哦」',
+      displayLikes: 89300,
       gender: '女',
       category: '奇幻系',
       isNew: true,
@@ -423,6 +463,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'sadistic_sister',
       name: '苏晚晴',
+      tagline: '危险又迷人的御姐，掌控欲拉满',
+      displayLikes: 68700,
       gender: '女',
       category: '御姐系',
       isNew: true,
@@ -443,6 +485,8 @@ class CharacterTemplates {
     CharacterTemplate(
       id: 'bickering_rival',
       name: '江野',
+      tagline: '句句带刺的冤家，把你随口的心愿记在备忘录里',
+      displayLikes: 94100,
       gender: '男',
       category: '毒舌系',
       isNew: true,

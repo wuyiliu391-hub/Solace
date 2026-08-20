@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -590,7 +590,10 @@ class _IdentityPickerState extends State<IdentityPicker> {
           ),
         ),
       ),
-    );
+    ).then((_) {
+      nameCtrl.dispose();
+      handleCtrl.dispose();
+    });
   }
 
   Widget _genderChip(String? value, String label, IconData? icon,

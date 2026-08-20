@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:solace/repositories/local_storage_repository.dart';
-import 'package:solace/services/character_desire_engine.dart';
 import 'package:solace/services/memory_engine.dart';
 import 'package:solace/services/virtual_phone_generator.dart';
 import 'package:solace/utils/global_mode_prompt.dart';
@@ -33,17 +32,6 @@ void main() {
       expect(sys, contains(mode));
       // 固定人设指令仍完整保留
       expect(sys, contains('拟人真实感'));
-    });
-  });
-
-  group('欲望画像 · 法模式注入', () {
-    test('法模式开启时 system prompt 包含法功能文案', () {
-      final mode = _faModePrompt('欲望画像');
-      final sys = CharacterDesireEngine.composeDesireSystemPrompt(mode);
-
-      expect(sys, contains('法功能已开启'));
-      expect(sys, contains(mode));
-      expect(sys, contains('你是角色动机分析器'));
     });
   });
 

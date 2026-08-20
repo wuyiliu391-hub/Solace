@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>帮助 / Operit Agent / Solace</title>
   <meta name="description" content="Solace 和 Operit Agent 的配置、工作区安全与常见问题。">
-  <link rel="stylesheet" href="style.css?v=17.9.0-r4"><script src="site.js?v=17.9.0-r4" defer></script>
+  <link rel="stylesheet" href="style.css?v=19.0.0-r1"><script src="site.js?v=19.0.0-r1" defer></script>
 </head>
 <body>
   <nav class="site-nav"><a class="brand" href="index.html"><span class="brand-mark">S/</span>Solace</a><div class="nav-links"><a href="index.html">首页</a><a href="features.html">Operit Agent</a><a href="download.html">下载</a><a href="about.html">关于</a><a class="active" href="help.html">帮助</a></div><a class="nav-action" href="download.html">获取 App ↗</a><button class="menu-button" aria-label="打开菜单" data-menu-toggle>☰</button></nav>
@@ -15,6 +15,6 @@
     <section><div class="section-head"><div><span class="eyebrow">FAQ / Operit</span><h2>常见问题，<br>直接回答。</h2></div></div><div class="faq"><details open><summary>Operit Agent 和普通聊天有什么区别？</summary><p>普通聊天只生成回复；Operit 会识别明确任务、选择工具、按权限执行，并把真实结果交还给角色。工具协议和执行结果不会混入角色化的自然语言参数。</p></details><details><summary>我只想让它看代码，可以不允许写入吗？</summary><p>可以。目录列表和文件读取是只读工具；写入、编辑、回滚和命令执行使用独立权限。你可以在权限弹窗中拒绝本次操作。</p></details><details><summary>恢复默认目录会不会删除我的项目？</summary><p>不会。当前“恢复默认目录（解除绑定）”只删除当前聊天保存的工作区绑定键，原目录和文件保持不变。</p></details><details><summary>为什么工作区任务没有执行？</summary><p>先确认当前聊天已经绑定目录；再确认工具权限没有被设置为始终拒绝。Android 上执行命令还需要 Shizuku，文件读写与 Shell 命令是两条不同的能力链路。</p></details><details><summary>数据会上传到 Solace 吗？</summary><p>角色、聊天、记忆和设置默认留在设备本地。AI 请求由你的设备直接发送给你配置的服务商；工作区文件也只在你授权的本地路径上处理。</p></details></div></section>
     <section><div class="section-head"><div><span class="eyebrow">Troubleshooting</span><h2>遇到问题时，<br><em>先看真实结果。</em></h2></div></div><div class="number-list"><div><b>NO WORKSPACE</b><div><h3>未绑定工作区</h3><p>回到当前聊天设置，选择一个真实存在的目录。解除绑定不会删除目录。</p></div></div><div><b>PERMISSION</b><div><h3>用户未批准工具</h3><p>这是安全拒绝，不是执行失败。重新发起任务即可再次确认。</p></div></div><div><b>COMMAND</b><div><h3>命令执行失败</h3><p>查看返回的 exit code 和 stderr。Agent 不会把失败包装成成功。</p></div></div></div></section>
   </main>
-  <footer class="footer"><div class="footer-grid"><div class="footer-brand"><a class="brand" href="index.html"><span class="brand-mark">S/</span>Solace</a><p>一个更私密、更有行动力的 AI 陪伴空间。</p></div><div class="footer-col"><h4>PRODUCT</h4><a href="features.html">Operit Agent</a><a href="download.html">下载</a></div><div class="footer-col"><h4>PROJECT</h4><a href="about.html">关于 Solace</a><a href="privacy.html">隐私政策</a><a href="terms.html">用户协议</a></div></div><div class="footer-bottom"><p>© 2026 SOLACE / BUILT WITH INTENTION</p><span class="mono">v17.9.0+292</span></div></footer>
+  <footer class="footer"><div class="footer-grid"><div class="footer-brand"><a class="brand" href="index.html"><span class="brand-mark">S/</span>Solace</a><p>一个更私密、更有行动力的 AI 陪伴空间。</p></div><div class="footer-col"><h4>PRODUCT</h4><a href="features.html">Operit Agent</a><a href="download.html">下载</a></div><div class="footer-col"><h4>PROJECT</h4><a href="about.html">关于 Solace</a><a href="privacy.html">隐私政策</a><a href="terms.html">用户协议</a></div></div><div class="footer-bottom"><p>© 2026 SOLACE / BUILT WITH INTENTION</p><span class="mono">v19.0.0+6303</span></div></footer>
 </body>
 </html>

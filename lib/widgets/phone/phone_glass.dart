@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -34,7 +35,6 @@ class PhoneGlassPanel extends StatelessWidget {
     final reduce =
         MediaQuery.disableAnimationsOf(context) || PhoneTheme.preferLiteGlass;
     final effectiveBlur = reduce ? 0.0 : blur;
-    // 无真实模糊时略提不透明度，避免「发灰发脏」
     final effectiveFill =
         reduce ? (fillOpacity + 0.12).clamp(0.0, 0.55) : fillOpacity;
 
@@ -109,7 +109,7 @@ class PhoneGlassPanel extends StatelessWidget {
   }
 }
 
-/// 天空壁纸 + 柔光斑 + 轻视差（支持主题包）。
+/// 天空壁纸 + 体积光 + 微粒子（支持主题包）。
 ///
 /// [animate]=false 时只画静态渐变+少量光斑，适合无障碍「减少动态效果」。
 class PhoneWallpaper extends StatelessWidget {
@@ -134,56 +134,73 @@ class PhoneWallpaper extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // 渐变层静态，不跟 breath 重建
+        // 深层渐变：5 段式模拟大气透视
         DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: palette.gradient,
-              stops: const [0.0, 0.35, 0.7, 1.0],
+              stops: const [0.0, 0.28, 0.52, 0.76, 1.0],
             ),
           ),
         ),
-        // 主光斑（一层即可；旧实现双层 bokeh 每帧双倍 paint）
+        // 体积光主层：大团柔光，随视差缓慢漂移
         Transform.translate(
           offset: parallax,
           child: CustomPaint(
-            painter: _SkyBokehPainter(
+            painter: _AuroraLightPainter(
               intensity: breath,
               colorA: palette.bokehA,
               colorB: palette.bokehB,
+              fog: palette.fog,
+              theme: theme,
               lite: !animate,
             ),
           ),
         ),
+        // 次级光斑：反向微漂移，制造层次
         if (animate)
           Transform.translate(
-            offset: Offset(-parallax.dx * 0.5, -parallax.dy * 0.4),
+            offset: Offset(-parallax.dx * 0.4, -parallax.dy * 0.3),
             child: CustomPaint(
-              painter: _SkyBokehPainter(
-                intensity: breath,
+              painter: _AuroraLightPainter(
+                intensity: breath * 0.6,
                 colorA: palette.bokehB,
                 colorB: palette.bokehA,
+                fog: palette.fog,
+                theme: theme,
                 alt: true,
               ),
             ),
           ),
+        // 微粒子层：悬浮尘埃/星点
+        if (animate)
+          CustomPaint(
+            painter: _ParticleFieldPainter(
+              intensity: breath,
+              theme: theme,
+            ),
+          ),
+        // 夜空专属：星轨
         if (theme == PhoneWallpaperTheme.night && animate)
-          CustomPaint(painter: _StarFieldPainter(intensity: breath)),
+          CustomPaint(
+            painter: _StarTrailPainter(intensity: breath),
+          ),
+        // 底部雾化过渡
         Align(
           alignment: Alignment.bottomCenter,
           child: IgnorePointer(
             child: Container(
-              height: 180,
+              height: 200,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.white.withValues(alpha: 0.0),
-                    palette.fog.withValues(alpha: 0.25),
-                    palette.fog,
+                    Colors.transparent,
+                    palette.fog.withValues(alpha: 0.15),
+                    palette.fog.withValues(alpha: 0.45),
                   ],
                 ),
               ),
@@ -196,89 +213,155 @@ class PhoneWallpaper extends StatelessWidget {
   }
 }
 
-class _SkyBokehPainter extends CustomPainter {
+/// 极光体积光画家：用多层径向渐变模拟大气中的光散射
+class _AuroraLightPainter extends CustomPainter {
   final double intensity;
   final bool alt;
   final bool lite;
   final Color colorA;
   final Color colorB;
+  final Color fog;
+  final PhoneWallpaperTheme theme;
 
-  const _SkyBokehPainter({
+  const _AuroraLightPainter({
     this.intensity = 1,
     this.alt = false,
     this.lite = false,
     required this.colorA,
     required this.colorB,
+    required this.fog,
+    required this.theme,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    void blob(Offset c, double r, Color color) {
+    final w = size.width;
+    final h = size.height;
+
+    void glow(Offset c, double r, Color color, double alpha) {
       final paint = Paint()
         ..shader = RadialGradient(
-          colors: [color, color.withValues(alpha: 0)],
+          colors: [
+            color.withValues(alpha: alpha * intensity),
+            color.withValues(alpha: 0),
+          ],
         ).createShader(Rect.fromCircle(center: c, radius: r));
-      canvas.drawCircle(c, r * (0.96 + intensity * 0.06), paint);
+      canvas.drawCircle(c, r, paint);
     }
 
     if (!alt) {
-      blob(Offset(size.width * 0.15, size.height * 0.16), size.width * 0.46,
-          colorA);
-      blob(Offset(size.width * 0.88, size.height * 0.26), size.width * 0.38,
-          colorA.withValues(alpha: 0.45));
+      // 主光源：顶部偏左，模拟太阳/月亮位置
+      glow(Offset(w * 0.2, h * 0.12), w * 0.7, colorA, 0.35);
+      glow(Offset(w * 0.75, h * 0.3), w * 0.5, colorB, 0.22);
       if (!lite) {
-        blob(Offset(size.width * 0.55, size.height * 0.52), size.width * 0.55,
-            colorB);
-        blob(Offset(size.width * 0.18, size.height * 0.72), size.width * 0.42,
-            colorA.withValues(alpha: 0.3));
+        // 中层：大气散射
+        glow(Offset(w * 0.5, h * 0.5), w * 0.65, fog, 0.12);
+        glow(Offset(w * 0.15, h * 0.65), w * 0.4, colorA, 0.15);
+        glow(Offset(w * 0.85, h * 0.75), w * 0.35, colorB, 0.10);
       }
     } else {
-      blob(Offset(size.width * 0.72, size.height * 0.62), size.width * 0.32,
-          colorB.withValues(alpha: 0.28));
-      blob(Offset(size.width * 0.40, size.height * 0.22), size.width * 0.22,
-          colorA.withValues(alpha: 0.25));
+      // 次级：反向补光
+      glow(Offset(w * 0.8, h * 0.6), w * 0.35, colorB, 0.18);
+      glow(Offset(w * 0.3, h * 0.35), w * 0.25, colorA, 0.12);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _SkyBokehPainter oldDelegate) =>
-      // intensity 变化很密：仅当差值够大才重绘，减少无感刷新
-      (oldDelegate.intensity - intensity).abs() > 0.02 ||
-      oldDelegate.alt != alt ||
-      oldDelegate.lite != lite ||
-      oldDelegate.colorA != colorA ||
-      oldDelegate.colorB != colorB;
+  bool shouldRepaint(covariant _AuroraLightPainter old) =>
+      (old.intensity - intensity).abs() > 0.015 ||
+      old.alt != alt ||
+      old.lite != lite ||
+      old.colorA != colorA ||
+      old.colorB != colorB;
 }
 
-class _StarFieldPainter extends CustomPainter {
+/// 微粒子层：悬浮尘埃，增加空气感
+class _ParticleFieldPainter extends CustomPainter {
   final double intensity;
-  const _StarFieldPainter({this.intensity = 1});
+  final PhoneWallpaperTheme theme;
+
+  const _ParticleFieldPainter({
+    this.intensity = 1,
+    required this.theme,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = Colors.white.withValues(alpha: 0.55 * intensity);
-    final seeds = [
-      Offset(0.12, 0.10),
-      Offset(0.28, 0.18),
-      Offset(0.45, 0.08),
-      Offset(0.62, 0.15),
-      Offset(0.78, 0.11),
-      Offset(0.88, 0.22),
-      Offset(0.18, 0.28),
-      Offset(0.35, 0.32),
-      Offset(0.55, 0.26),
-      Offset(0.72, 0.30),
-      Offset(0.92, 0.35),
-      Offset(0.08, 0.40),
-    ];
-    for (var i = 0; i < seeds.length; i++) {
-      final o = Offset(seeds[i].dx * size.width, seeds[i].dy * size.height);
-      final r = 0.8 + (i % 3) * 0.5;
-      canvas.drawCircle(o, r, paint);
+    final random = math.Random(42); // 固定种子，粒子位置稳定
+    final count = theme == PhoneWallpaperTheme.night ? 35 : 20;
+
+    for (var i = 0; i < count; i++) {
+      final x = random.nextDouble() * size.width;
+      final y = random.nextDouble() * size.height;
+      final r = 0.5 + random.nextDouble() * 1.5;
+      final alpha = (0.08 + random.nextDouble() * 0.15) * intensity;
+
+      final paint = Paint()
+        ..color = Colors.white.withValues(alpha: alpha)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
+      canvas.drawCircle(Offset(x, y), r, paint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _StarFieldPainter oldDelegate) =>
-      oldDelegate.intensity != intensity;
+  bool shouldRepaint(covariant _ParticleFieldPainter old) =>
+      (old.intensity - intensity).abs() > 0.02;
+}
+
+/// 星轨画家：夜空主题的流星/星轨效果
+class _StarTrailPainter extends CustomPainter {
+  final double intensity;
+  const _StarTrailPainter({this.intensity = 1});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final random = math.Random(7);
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.35 * intensity)
+      ..strokeWidth = 0.8
+      ..strokeCap = StrokeCap.round;
+
+    // 固定位置的星星
+    for (var i = 0; i < 18; i++) {
+      final x = random.nextDouble() * size.width;
+      final y = random.nextDouble() * size.height * 0.6;
+      final r = 0.6 + random.nextDouble() * 1.2;
+      canvas.drawCircle(
+        Offset(x, y),
+        r,
+        Paint()..color = Colors.white.withValues(alpha: 0.4 * intensity),
+      );
+    }
+
+    // 两条流星轨迹
+    final trail1 = Path()
+      ..moveTo(size.width * 0.1, size.height * 0.15)
+      ..quadraticBezierTo(
+        size.width * 0.35,
+        size.height * 0.08,
+        size.width * 0.6,
+        size.height * 0.12,
+      );
+    canvas.drawPath(trail1, paint);
+
+    final trail2 = Path()
+      ..moveTo(size.width * 0.55, size.height * 0.25)
+      ..quadraticBezierTo(
+        size.width * 0.75,
+        size.height * 0.18,
+        size.width * 0.9,
+        size.height * 0.22,
+      );
+    canvas.drawPath(
+      trail2,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.2 * intensity)
+        ..strokeWidth = 0.5
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _StarTrailPainter old) =>
+      old.intensity != intensity;
 }

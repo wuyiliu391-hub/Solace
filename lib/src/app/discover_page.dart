@@ -38,6 +38,34 @@ class _DiscoverPageState extends State<_DiscoverPage>
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isWeChat = context.read<ThemeBloc>().state.isWeChat;
+    if (isWeChat) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).brightness == Brightness.dark
+            ? WeChatColors.darkPageBackground
+            : const Color(0xFFEDEDED),
+        appBar: AppBar(
+          backgroundColor: Theme.of(context).brightness == Brightness.dark
+              ? WeChatColors.darkPageBackground
+              : const Color(0xFFEDEDED),
+          elevation: 0,
+          title: const Text(
+            '发现',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          centerTitle: true,
+          bottom: const PreferredSize(
+            preferredSize: Size.fromHeight(WeChatDimens.dividerHeight),
+            child: Divider(
+              height: WeChatDimens.dividerHeight,
+              thickness: WeChatDimens.dividerHeight,
+              color: Color(0xFFD9D9D9),
+            ),
+          ),
+        ),
+        body: _buildWeChatFeaturesTab(),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         backgroundColor: cs.surface,
@@ -112,6 +140,116 @@ class _DiscoverPageState extends State<_DiscoverPage>
           style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
       trailing: Icon(Icons.chevron_right, color: cs.onSurfaceVariant, size: 20),
       onTap: () => widget.onNavigate?.call(route),
+    );
+  }
+
+  /// 微信发现页：圆角方形彩色图标 + 16sp 标题，分组白卡，组间间隔灰底。
+  Widget _buildWeChatFeaturesTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cellColor =
+        isDark ? WeChatColors.darkListItem : WeChatColors.listItem;
+    final titleColor = isDark
+        ? WeChatColors.darkTextPrimary
+        : WeChatColors.textPrimary;
+
+    Widget cell(
+      IconData icon,
+      Color iconBg,
+      String title,
+      String route, {
+      bool showDivider = false,
+      Widget? trailing,
+    }) {
+      return InkWell(
+        onTap: () => widget.onNavigate?.call(route),
+        child: Column(
+          children: [
+            SizedBox(
+              height: 54,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: iconBg,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 16),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style:
+                            TextStyle(fontSize: 16, color: titleColor),
+                      ),
+                    ),
+                    if (trailing != null) trailing,
+                  ],
+                ),
+              ),
+            ),
+            if (showDivider)
+              Divider(
+                height: WeChatDimens.dividerHeight,
+                thickness: WeChatDimens.dividerHeight,
+                indent: 54,
+                color: isDark
+                    ? WeChatColors.darkDivider
+                    : WeChatColors.dividerLight,
+              ),
+          ],
+        ),
+      );
+    }
+
+    Widget group(List<Widget> children) {
+      return Container(
+        color: cellColor,
+        child: Column(children: children),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: [
+        group([
+          cell(Icons.photo_library, const Color(0xFFFA9D3B), '朋友圈',
+              '/moments'),
+        ]),
+        const SizedBox(height: 8),
+        group([
+          cell(Icons.psychology, const Color(0xFF5A6CF0), '记忆库', '/memory',
+              showDivider: true),
+          cell(Icons.mark_email_unread_outlined, const Color(0xFFE06A4E),
+              '信箱', '/mailbox', showDivider: true),
+          cell(Icons.book_rounded, const Color(0xFF8D6E63), '角色日记',
+              '/diary'),
+        ]),
+        const SizedBox(height: 8),
+        group([
+          cell(Icons.photo_camera, WeChatColors.brandGreen, '发动态',
+              '/create_moment', showDivider: true),
+          cell(Icons.casino, const Color(0xFFE6A23C), '幸运转盘',
+              '/lucky_wheel', showDivider: true),
+          cell(Icons.auto_fix_high, const Color(0xFF9B59B6), '塔罗牌',
+              '/tarot'),
+        ]),
+        const SizedBox(height: 8),
+        group([
+          cell(Icons.trending_up, const Color(0xFF67C23A), '成长轨迹',
+              '/growth', showDivider: true),
+          cell(Icons.thermostat, const Color(0xFFE6735A), '关系温度',
+              '/relationship', showDivider: true),
+          cell(Icons.psychology_alt, const Color(0xFF5DA9E9), '角色心理',
+              '/psychology', showDivider: true),
+          cell(Icons.auto_awesome, const Color(0xFFB58AF5), 'AI 动态',
+              '/ai_activity'),
+        ]),
+      ],
     );
   }
 }

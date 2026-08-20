@@ -5,7 +5,9 @@ import '../../utils/character_color.dart';
 import '../../models/group_chat_session.dart';
 
 /// 输入框上方成员激活条（对标 ST 手动激活）：
-/// 单击 = 锁定该角色发言；再次点击 = 解锁；长按 = 多选模式
+/// 单击 = 锁定该角色发言；再次点击 = 解锁；长按 = 多选模式。
+///
+/// 视觉上作为输入区的一部分呈现，但所有选择行为和回调保持不变。
 class MemberActivationBar extends StatefulWidget {
   final List<AICharacter> members;
   final Set<String> disabledIds;
@@ -44,136 +46,180 @@ class _MemberActivationBarState extends State<MemberActivationBar> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     if (widget.members.isEmpty) return const SizedBox.shrink();
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_multiSelect)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-            color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+    final panelColor = isDark
+        ? cs.surfaceContainer.withValues(alpha: 0.72)
+        : cs.surface.withValues(alpha: 0.82);
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.06);
+    final helper = widget.forcedSpeakerIds.isEmpty
+        ? (widget.activationStrategy == GroupActivationStrategy.manual
+            ? '手动点名模式 · 请选择本轮发言角色'
+            : '点按指定发言 · 长按可多选')
+        : '本轮已锁定 ${widget.forcedSpeakerIds.length} 位成员 · 发送后自动清除';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+      decoration: BoxDecoration(
+        color: panelColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 10, 0),
             child: Row(
               children: [
+                Icon(
+                  widget.forcedSpeakerIds.isEmpty
+                      ? Icons.record_voice_over_outlined
+                      : Icons.push_pin_rounded,
+                  size: 14,
+                  color: widget.forcedSpeakerIds.isEmpty
+                      ? cs.onSurfaceVariant
+                      : cs.primary,
+                ),
+                const SizedBox(width: 6),
                 Text(
-                  '本轮指定 ${widget.forcedSpeakerIds.length} 人',
-                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  '本轮发言成员',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
                 ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => setState(() => _multiSelect = false),
-                  child: const Text('完成', style: TextStyle(fontSize: 12)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    helper,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
                 ),
+                if (_multiSelect)
+                  TextButton(
+                    onPressed: () => setState(() => _multiSelect = false),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 28),
+                      padding: const EdgeInsets.symmetric(horizontal: 7),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('完成', style: TextStyle(fontSize: 11)),
+                  ),
               ],
             ),
           ),
-        SizedBox(
-          height: 64,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            // 视口 = 64 - 2*4 = 56px ≥ 条目高度(38+2+名字行高≈53)，避免底部 1px 溢出
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            itemCount: widget.members.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (context, index) {
-              final c = widget.members[index];
-              final color =
-                  characterColor(colorHex: c.colorHex, name: c.name, cs: cs);
-              final forced = _isForced(c.id);
-              final disabled = widget.disabledIds.contains(c.id);
-              return GestureDetector(
-                onTap: () => _onTap(c),
-                onLongPress: () => setState(() => _multiSelect = true),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: disabled
-                            ? cs.surfaceContainerHighest
-                            : color.withValues(alpha: 0.16),
-                        border: Border.all(
-                          color: forced ? color : cs.outlineVariant,
-                          width: forced ? 2.5 : 1,
+          SizedBox(
+            height: 66,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(10, 7, 10, 5),
+              itemCount: widget.members.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final c = widget.members[index];
+                final color = characterColor(
+                    colorHex: c.colorHex, name: c.name, cs: cs);
+                final forced = _isForced(c.id);
+                final disabled = widget.disabledIds.contains(c.id);
+                return GestureDetector(
+                  onTap: () => _onTap(c),
+                  onLongPress: () => setState(() => _multiSelect = true),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: disabled
+                              ? cs.surfaceContainerHighest
+                              : forced
+                                  ? color.withValues(alpha: 0.22)
+                                  : color.withValues(alpha: 0.10),
+                          border: Border.all(
+                            color: forced ? color : borderColor,
+                            width: forced ? 2.5 : 1,
+                          ),
+                          boxShadow: forced
+                              ? [
+                                  BoxShadow(
+                                    color: color.withValues(alpha: 0.28),
+                                    blurRadius: 9,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Stack(
+                          children: [
+                            Center(child: _avatar(c, color)),
+                            if (forced)
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  width: 14,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    color: color,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.record_voice_over,
+                                      size: 9, color: Colors.white),
+                                ),
+                              ),
+                            if (disabled)
+                              Positioned.fill(
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    color: Colors.black38,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.block,
+                                      size: 14, color: Colors.white),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                      child: Stack(
-                        children: [
-                          Center(child: _avatar(c, color)),
-                          if (forced)
-                            Positioned(
-                              right: 0,
-                              bottom: 0,
-                              child: Container(
-                                width: 14,
-                                height: 14,
-                                decoration: BoxDecoration(
-                                  color: color,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.record_voice_over,
-                                    size: 9, color: Colors.white),
-                              ),
-                            ),
-                          if (disabled)
-                            Positioned.fill(
-                              child: Container(
-                                decoration: const BoxDecoration(
-                                  color: Colors.black38,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.block,
-                                    size: 14, color: Colors.white),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    SizedBox(
-                      width: 46,
-                      child: Text(
-                        c.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: forced ? color : cs.onSurfaceVariant,
-                          fontWeight:
-                              forced ? FontWeight.bold : FontWeight.normal,
+                      const SizedBox(height: 2),
+                      SizedBox(
+                        width: 46,
+                        child: Text(
+                          c.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: forced ? color : cs.onSurfaceVariant,
+                            fontWeight:
+                                forced ? FontWeight.bold : FontWeight.normal,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(left: 12, right: 12, bottom: 2),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              widget.forcedSpeakerIds.isEmpty
-                  ? (widget.activationStrategy == GroupActivationStrategy.manual
-                      ? '手动点名模式：请选择本轮发言角色'
-                      : '点按头像可指定本轮发言角色，长按可多选')
-                  : '已指定本轮发言，发送后自动清除',
-              style: TextStyle(
-                fontSize: 11,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

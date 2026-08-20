@@ -28,7 +28,7 @@ class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  /// 锁定屏幕方向为竖屏。在设备操控（Shizuku shell 命令）后，
+  /// 锁定屏幕方向为竖屏。
   /// Activity 可能经历 onPause→onResume 导致 Flutter 引擎丢失方向设定，
   /// 因此在每次 App 回到前台时重新锁定。
   void _lockPortrait() {
@@ -41,8 +41,7 @@ class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // App 从后台回到前台 — 重新锁定竖屏，
-      // 防止 Shizuku 设备操控（input keyevent 等）引起的方向配置丢失
+      // App 从后台回到前台 — 重新锁定竖屏，防止方向配置丢失
       _lockPortrait();
     }
   }

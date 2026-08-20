@@ -11,20 +11,56 @@ function versionCompare(v1, v2) {
 }
 
 const VERSION_DATA = {
-  latestVersion: '18.2.1',
-  buildNumber: 6302,
+  latestVersion: '19.0.0',
+  buildNumber: 6303,
   minSdk: 23,
-  releaseDate: '2026-08-18',
-  downloadUrl: 'https://solace-auth-v2.pages.dev/api/v1/download?v=18.2.0',
+  releaseDate: '2026-08-20',
+  downloadUrl: 'https://solace-auth-v2.pages.dev/api/v1/download?v=19.0.0',
   changelog: [
-    '修复手动输入后语音通话失效：发送文本不再卡死回合循环，文字立即上屏并正常合成语音',
-    '修复文字消息合成语音偶发连接中断：MiMo TTS 请求超时放宽至 120 秒',
-    '移除 3.8MB 冗余资源 sky.mp3，安装包更轻',
+    '微信 Bot 重磅上线：接入微信 iLink 协议，AI 角色进驻真实微信对话，扫码登录、前台长轮询收发、完整人格管线回复，配套 1:1 微信风格界面与前台保活服务',
+    '工程架构重构：拆分 main.dart、AI 服务、记忆引擎和本地存储仓库等大型文件，对外接口保持兼容，降低维护复杂度',
+    '测试体系补齐：新增 125+ 个测试用例，覆盖语音链路、朋友圈、小说和商店 BLoC；提交记录显示全量 555 个测试通过',
+    '联网搜索修复：移除三处占位 URL，统一接入 BingCnMcpService 真实抓取，并补全 chat_screen_v2 的待办实现',
+    '语音通话持续优化：完善 VAD、STT、TTS、音色克隆、手动打字、通话记录和记忆沉淀，改善超时、音频处理与稳定性',
+    '平台收敛：移除 Flutter Web 与 Windows runner，项目聚焦 Android 单平台',
+    '仓库与包体积治理：移除约 3.8MB 的冗余 sky.mp3，忽略部署产物，并清理死代码与占位实现',
   ],
   forceUpdate: false,
 };
 
 const ANNOUNCEMENTS = [
+  {
+    id: 'ann_1900',
+    title: 'Solace 19.0.0 大版本更新公告',
+    content: `Solace 19.0.0+6303 大版本更新公告
+
+━━━━━━━━━ 本次更新 ━━━━━━━━━
+
+🤖 微信 Bot 重磅上线
+接入微信 iLink 协议，AI 角色可直接进驻真实微信对话：扫码登录后以前台服务长轮询收发消息，完整走记忆、人格与情感管线回复；支持「正在输入」状态、消息去重、单联系人冷却与每小时回复上限，token 失效自动暂停并提醒重新扫码；搭配全新 1:1 微信风格界面（会话、通讯录、发现、朋友圈与转账卡片），并以前台保活服务防止系统断网杀进程。
+
+🧱 工程架构重构
+拆分 main.dart、AI 服务、记忆引擎和本地存储仓库等大型文件，采用更清晰的模块与 part 组织方式，在保持对外接口兼容的同时降低维护复杂度。
+
+🧪 测试体系补齐
+新增 125+ 个测试用例，覆盖语音链路、朋友圈、小说和商店 BLoC。最近提交记录显示全量 555 个测试通过，工程回归更有底气。
+
+🔎 联网搜索与占位实现治理
+移除三处联网搜索占位 URL，统一接入 BingCnMcpService 真实抓取；补全 chat_screen_v2 的待办，并清理死代码和桩方法。
+
+📞 语音通话持续强化
+完善 VAD 自动断句、本地 STT、MiMo TTS、音色克隆、手动打字输入、通话记录和记忆沉淀；同时改善参考音频处理、超时、音频转换、内存上限与异常恢复。
+
+📦 Android 单平台收敛
+移除 Flutter Web 与 Windows runner，项目从本版本起聚焦 Android，减少无效平台维护面。
+
+🧹 仓库与包体积治理
+移除约 3.8MB 的冗余 sky.mp3，部署产物加入忽略规则，持续清理遗留入口和无效代码。
+
+感谢你陪 Solace 走到 19.0.0。这个版本不只是在增加功能，也是在把基础打磨得更可靠。`,
+    date: '2026-08-20',
+    type: 'feature',
+  },
   {
     id: 'ann_1810',
     title: 'Solace 18.1.0 更新公告',

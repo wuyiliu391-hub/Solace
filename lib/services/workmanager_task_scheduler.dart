@@ -122,3 +122,28 @@ Future<void> scheduleMomentPostTask() async {
 }
 
 bool get _supportsWorkmanager => Platform.isAndroid || Platform.isIOS;
+
+/// 微信 iLink Bot 后台兜底轮询（15 分钟，Android WorkManager 最小粒度）。
+/// 高频实时回复由前台 WeChatBotService 的 30s Timer 负责。
+Future<void> scheduleWeChatPollTask() async {
+  if (!_supportsWorkmanager) {
+    debugPrint('当前平台不支持 WorkManager，跳过微信轮询周期任务');
+    return;
+  }
+
+  try {
+    await Workmanager().registerPeriodicTask(
+      'wechat_poll_periodic',
+      bgTaskWeChatPoll,
+      frequency: const Duration(minutes: 15),
+      initialDelay: const Duration(minutes: 5),
+      constraints: Constraints(networkType: NetworkType.connected),
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      backoffPolicy: BackoffPolicy.linear,
+      backoffPolicyDelay: const Duration(minutes: 15),
+    );
+    debugPrint('已安排微信 iLink 轮询周期任务');
+  } catch (e) {
+    debugPrint('安排微信轮询任务失败: $e');
+  }
+}

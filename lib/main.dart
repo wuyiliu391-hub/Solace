@@ -21,6 +21,7 @@ import 'screens/contacts/contacts_screen.dart';
 import 'screens/pure_ai/pure_ai_chat_screen.dart';
 import 'screens/memory/memory_screen.dart';
 import 'screens/moments/moments_screen.dart';
+import 'screens/moments/create_moment_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/discover/growth_track_screen.dart';
 import 'screens/discover/ai_activity_feed_screen.dart';
@@ -42,7 +43,6 @@ import 'screens/shop/shop_screen.dart';
 import 'blocs/group_chat/group_chat_bloc.dart';
 
 import 'screens/usage/usage_screen.dart';
-import 'screens/operit/operit_home_screen.dart';
 import 'screens/error/storage_recovery_screen.dart';
 import 'services/storage/storage_recovery_controller.dart';
 import 'package:sqflite/sqflite.dart';
@@ -58,6 +58,7 @@ import 'services/workmanager_helper.dart'
 import 'widgets/age_declaration_screen.dart';
 import 'widgets/update_dialog.dart';
 import 'config/constants.dart';
+import 'config/app_colors.dart';
 import 'services/log_service.dart';
 import 'services/ai_service.dart';
 import 'services/bridge/ai_service_adapter.dart';
@@ -69,6 +70,7 @@ import 'package:intl/intl.dart';
 import 'services/usage_meter_service.dart';
 import 'services/memory_rebuild_service.dart';
 import 'services/background_service.dart';
+import 'services/wechat/wechat_bot_service.dart';
 
 part 'src/app/auth_gate.dart';
 part 'src/app/main_shell.dart';

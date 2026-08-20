@@ -6,7 +6,7 @@ class ThemeState extends Equatable {
 
   const ThemeState(this.themeMode, [this.visualStyle = VisualStyle.classic]);
 
-  bool get isModernist => visualStyle == VisualStyle.modernist;
+  bool get isWeChat => visualStyle == VisualStyle.wechat;
 
   @override
   List<Object?> get props => [themeMode, visualStyle];
