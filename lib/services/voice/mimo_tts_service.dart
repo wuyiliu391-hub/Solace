@@ -142,6 +142,11 @@ class MiMoTtsConfigStore {
 /// - 无记忆：每次调用重传样本；本地按角色缓存 base64（文件 sha1 变化才失效）
 /// - 随机性：TTS 有随机性，官方建议多生成挑选；429 指数退避重试
 class MiMoTtsService implements LocalTtsService {
+  MiMoTtsService() {
+    // 预置音色切换时同步清除内存缓存，避免旧样本被复用
+    VoiceProfileStore.instance.onPresetChanged = _onPresetChanged;
+  }
+
   final Map<String, VoiceProfile> _profiles = {};
 
   /// 角色样本 base64 缓存（key: characterId，value: data URL）。
@@ -149,6 +154,14 @@ class MiMoTtsService implements LocalTtsService {
 
   /// 角色样本文件的 sha1 缓存（用于检测样本更换）。
   final Map<String, String> _sampleHashCache = {};
+
+  /// 预置音色切换回调：清除该角色的样本 base64 与 hash 缓存，
+  /// 避免切换音色后旧的 voiceclone 样本仍被命中。
+  void _onPresetChanged(String characterId) {
+    _sampleCache.remove(characterId);
+    _sampleHashCache.remove(characterId);
+    _profiles.remove(characterId);
+  }
 
   @override
   bool get enabled => AppConfig.localTtsEnabled;

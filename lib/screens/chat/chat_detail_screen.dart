@@ -18,7 +18,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../../models/chat_message.dart';
 import '../../models/ai_character.dart';
-import '../../models/intimacy_event.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/ai_status_service.dart';
@@ -72,6 +71,8 @@ import '../../services/voice/voice_player_service.dart';
 import '../../services/voice/voice_profile_store.dart';
 import '../../services/permission_service.dart';
 import '../voice/voice_clone_screen.dart';
+import '../character/v2/character_editor_screen.dart';
+import '../memory/memory_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final ChatSession session;
@@ -170,9 +171,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   /// 待发送附图：选图后先挂在输入区，可配文字再点发送
   final List<String> _pendingImagePaths = [];
-
-  List<IntimacyEvent> _intimacyEvents = [];
-  bool _isIntimacyExpanded = true;
 
   /// 小说模式全局生效（会话级覆盖已随调色板下线移除）
   bool _isNovelModeEnabled() {
@@ -356,7 +354,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         widget.session.aiCharacterName;
     final currentAvatar =
         _currentSession?.aiCharacterAvatar ?? widget.session.aiCharacterAvatar;
-    final avatarProvider = AvatarResolver.imageProvider(currentAvatar);
     final iconColor = isDark
         ? (isWeChat ? Colors.white : ImmersiveColors.textPrimary)
         : (isWeChat ? Colors.black87 : const Color(0xFF4A4140));
@@ -401,127 +398,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
         onPressed: () => Navigator.pop(context, _hasSettingsChanged),
       ),
-      title: isWeChat
-          ? ValueListenableBuilder<bool>(
-              valueListenable: _isAiTypingNotifier,
-              builder: (context, typing, _) {
-                // 微信标志性状态：AI 生成中时标题切换为「对方正在输入…」
-                if (typing) {
-                  return Text(
-                    '对方正在输入…',
-                    style: TextStyle(
-                      color: isDark ? Colors.white70 : WeChatColors.textSecondary,
-                      fontSize: 15,
-                    ),
-                  );
-                }
-                return Text(
-                  currentName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : WeChatColors.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                );
-              },
-            )
-          : ValueListenableBuilder<bool>(
-              valueListenable: _isAiTypingNotifier,
-              builder: (context, typing, _) {
-                final status = typing ? '正在整理回应…' : '沉浸式对话';
-                final accent = isDark
-                    ? ImmersiveColors.accent
-                    : const Color(0xFF9B5F67);
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 34,
-                      height: 34,
-                      decoration: BoxDecoration(
-                        color: accent.withOpacity(isDark ? 0.14 : 0.10),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: accent.withOpacity(0.28),
-                        ),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: avatarProvider == null
-                          ? Center(
-                              child: Text(
-                                currentName.isNotEmpty ? currentName[0] : '?',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  color: accent,
-                                ),
-                              ),
-                            )
-                          : Image(
-                              image: avatarProvider,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Center(
-                                child: Text(
-                                  currentName.isNotEmpty ? currentName[0] : '?',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                    color: accent,
-                                  ),
-                                ),
-                              ),
-                            ),
-                    ),
-                    const SizedBox(width: 8),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          currentName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: iconColor,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.15,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 5,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                color: typing ? accent : ImmersiveColors.accentSoft,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              status,
-                              style: TextStyle(
-                                color: isDark
-                                    ? ImmersiveColors.textSecondary
-                                    : const Color(0xFF817775),
-                                fontSize: 9,
-                                height: 1.1,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                );
-              },
-            ),
-      centerTitle: true,
+      title: _buildCompactChatTitle(
+        colorScheme,
+        isDark,
+        currentName,
+        currentAvatar,
+      ),
+      titleSpacing: 0,
+      centerTitle: false,
       bottom: isWeChat
           ? PreferredSize(
               preferredSize: const Size.fromHeight(WeChatDimens.dividerHeight),
@@ -540,11 +424,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           icon: Icon(Icons.call_rounded, color: iconColor, size: 22),
           onPressed: () => _openVoiceCall(context),
         ),
-        IconButton(
-          tooltip: 'TA 的手机',
-          icon: Icon(Icons.smartphone_rounded, color: iconColor, size: 22),
-          onPressed: () => _openVirtualPhone(context),
-        ),
         PopupMenuButton<String>(
           icon: Icon(Icons.more_horiz_rounded, color: iconColor, size: 24),
           tooltip: '更多',
@@ -552,6 +431,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'virtual_phone',
+              child: Row(
+                children: [
+                  Icon(Icons.smartphone_rounded, size: 20),
+                  SizedBox(width: 12),
+                  Text('TA 的手机'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'moments',
+              child: Row(
+                children: [
+                  Icon(Icons.auto_awesome_rounded, size: 20),
+                  SizedBox(width: 12),
+                  Text('查看动态'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'turn_state',
+              child: Row(
+                children: [
+                  Icon(Icons.insights_outlined, size: 20),
+                  SizedBox(width: 12),
+                  Text('TA 的当前状态'),
+                ],
+              ),
+            ),
             if (!_isSideStory)
               const PopupMenuItem(
                 value: 'side_story_new',
@@ -584,18 +493,138 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 ],
               ),
             ),
+            const PopupMenuItem(
+              value: 'character_profile',
+              child: Row(
+                children: [
+                  Icon(Icons.person_outline_rounded, size: 20),
+                  SizedBox(width: 12),
+                  Text('角色设定'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'memory_recall',
+              child: Row(
+                children: [
+                  Icon(Icons.auto_stories_outlined, size: 20),
+                  SizedBox(width: 12),
+                  Text('记忆回溯'),
+                ],
+              ),
+            ),
           ],
           onSelected: (value) {
-            if (value == 'settings') {
+            if (value == 'virtual_phone') {
+              _openVirtualPhone(context);
+            } else if (value == 'moments') {
+              _openMoments(context);
+            } else if (value == 'turn_state') {
+              _showFullStatus(context);
+            } else if (value == 'settings') {
               _openChatSettings(context);
             } else if (value == 'side_story_new') {
               _startSideStory();
             } else if (value == 'side_story_list') {
               _openSideStoryList();
+            } else if (value == 'character_profile') {
+              _openCharacterProfile(context);
+            } else if (value == 'memory_recall') {
+              _openMemoryRecall(context);
             }
           },
         ),
       ],
+    );
+  }
+  /// 紧凑聊天标题：集中展示角色身份和一行状态，避免在消息区重复占位。
+  /// 搜索/定位场景也复用同一标题，避免 AppBar 在状态切换时跳变。
+  Widget _buildCompactChatTitle(
+
+    ColorScheme colorScheme,
+    bool isDark,
+    String currentName,
+    String? currentAvatar,
+  ) {
+    final isWeChat = _isWeChatStyle;
+    final primary = isDark
+        ? (isWeChat ? WeChatColors.darkTextPrimary : ImmersiveColors.textPrimary)
+        : (isWeChat ? WeChatColors.textPrimary : const Color(0xFF312B29));
+    final secondary = isDark
+        ? (isWeChat ? WeChatColors.darkTextSecondary : ImmersiveColors.textSecondary)
+        : (isWeChat ? WeChatColors.textSecondary : const Color(0xFF817775));
+    final accent = isWeChat
+        ? colorScheme.primary
+        : (isDark ? ImmersiveColors.accent : const Color(0xFF9B5F67));
+    final intimacy = (_currentSession ?? widget.session)
+        .intimacyLevel
+        .clamp(0, 999999)
+        .toInt();
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.48,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildAppBarAvatar(currentAvatar, isDark),
+          const SizedBox(width: 8),
+          Flexible(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _isAiTypingNotifier,
+              builder: (context, typing, _) {
+                final subtitle = typing
+                    ? '对方正在输入…'
+                    : '${_turnEmotion.isEmpty ? '等待互动' : _turnEmotion} · 亲密度 $intimacy';
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      currentName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: primary,
+                        fontSize: isWeChat ? 16 : 15,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: isWeChat ? 0 : 0.1,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: typing ? accent : secondary.withOpacity(0.7),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: typing ? accent : secondary,
+                              fontSize: 10,
+                              height: 1.1,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -837,6 +866,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
+  /// 打开角色设定编辑
+  void _openCharacterProfile(BuildContext context) {
+    final session = _currentSession ?? widget.session;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CharacterEditorScreen(
+          characterId: session.aiCharacterId,
+        ),
+      ),
+    );
+  }
+
+  /// 打开记忆回溯（按当前角色过滤）
+  void _openMemoryRecall(BuildContext context) {
+    final session = _currentSession ?? widget.session;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MemoryScreen(),
+      ),
+    );
+  }
+
   /// 放大查看 AI 当前完整内心状态
   void _showFullStatus(BuildContext context) {
     showModalBottomSheet(
@@ -1074,396 +1127,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  Widget _buildRelationshipHeader(ColorScheme colorScheme, bool isDark) {
-    if (_isSearching || _isJumpedToMessage) return const SizedBox.shrink();
-
-    final session = _currentSession ?? widget.session;
-    final level = session.intimacyLevel.clamp(0, 999999);
-    final favor = (level / 5).clamp(0, 99).round();
-    final borderColor = isDark
-        ? Colors.white.withOpacity(0.10)
-        : Colors.black.withOpacity(0.10);
-    final muted = isDark ? Colors.white.withOpacity(0.52) : Colors.black54;
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-      padding: EdgeInsets.symmetric(vertical: 9, horizontal: isDark ? 12 : 0),
-      // 18.3.0 沉浸式：深色下改为半透明圆角浮层，弱化框架感
-      decoration: _isWeChatStyle
-          ? BoxDecoration(
-              color: isDark
-                  ? WeChatColors.darkChatBottomBar
-                  : WeChatColors.listItem,
-              borderRadius: BorderRadius.circular(8),
-              border: !isDark
-                  ? Border.all(color: WeChatColors.divider)
-                  : null,
-            )
-          : isDark
-              ? BoxDecoration(
-                  color: ImmersiveColors.card,
-                  borderRadius: BorderRadius.circular(10),
-                )
-              : BoxDecoration(
-                  border: Border(
-                    top: BorderSide(color: borderColor),
-                    bottom: BorderSide(color: borderColor),
-                  ),
-                ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              (_displayName ?? widget.session.aiCharacterName).toUpperCase(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color:
-                    isDark ? const Color(0xFFF0EAE2) : const Color(0xFF312B29),
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.1,
-              ),
-            ),
-          ),
-          Text(
-            'FAVOR: $favor%',
-            style: const TextStyle(
-              color: Color(0xFFC88383),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.6,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Icon(Icons.location_on_outlined, color: muted, size: 14),
-          const SizedBox(width: 3),
-          Flexible(
-            child: Text(
-              _turnEmotion,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: muted, fontSize: 11),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 展开状态：完整亲密度信息
-  Widget _buildIntimacyExpanded(
-    ColorScheme colorScheme,
-    int level,
-    double progress,
-    String subtitle,
-    int todayGain,
-  ) {
-    return Row(
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: colorScheme.primary.withOpacity(0.12),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            Icons.favorite_rounded,
-            color: colorScheme.primary,
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _relationshipLabel(level),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '亲密度 $level',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(
-                  value: progress,
-                  minHeight: 4,
-                  backgroundColor: colorScheme.primary.withOpacity(0.10),
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(colorScheme.primary),
-                ),
-              ),
-              const SizedBox(height: 5),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  if (todayGain != 0)
-                    Text(
-                      '今日 ${todayGain > 0 ? '+' : ''}$todayGain',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 4),
-        Icon(
-          Icons.keyboard_arrow_up_rounded,
-          size: 18,
-          color: colorScheme.onSurfaceVariant.withOpacity(0.5),
-        ),
-      ],
-    );
-  }
-
-  /// 折叠状态：单行紧凑显示
-  Widget _buildIntimacyCollapsed(ColorScheme colorScheme, int level) {
-    return Row(
-      children: [
-        Icon(
-          Icons.favorite_rounded,
-          color: colorScheme.primary,
-          size: 16,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '${_relationshipLabel(level)} · 亲密度 $level',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: colorScheme.onSurface.withOpacity(0.7),
-          ),
-        ),
-        const Spacer(),
-        Icon(
-          Icons.keyboard_arrow_down_rounded,
-          size: 18,
-          color: colorScheme.onSurfaceVariant.withOpacity(0.5),
-        ),
-      ],
-    );
-  }
-
-  bool _isToday(DateTime value) {
-    final now = DateTime.now();
-    return value.year == now.year &&
-        value.month == now.month &&
-        value.day == now.day;
-  }
-
-  String _relationshipLabel(int level) {
-    if (level >= 500) return '灵魂伴侣';
-    if (level >= 300) return '亲密无间';
-    if (level >= 180) return '彼此信任';
-    if (level >= 80) return '逐渐熟悉';
-    if (level >= 20) return '初有默契';
-    return '刚刚认识';
-  }
-
-  String _eventSourceLabel(String source) {
-    switch (source) {
-      case 'image':
-        return '图片互动';
-      case 'voice':
-        return '语音互动';
-      case 'message':
-        return '消息互动';
-      default:
-        return '最近互动';
-    }
-  }
-
-  /// 角色状态摘要：将情绪、思绪和快捷入口拆成清晰的信息层级。
-  Widget _buildStatusBar(ColorScheme colorScheme, bool isDark) {
-    if (_isSearching || _isJumpedToMessage) return const SizedBox.shrink();
-
-    final surface = isDark ? ImmersiveColors.cardHigh : Colors.white.withOpacity(0.72);
-    final border = isDark
-        ? Colors.white.withOpacity(0.10)
-        : Colors.black.withOpacity(0.07);
-    final primary = isDark ? ImmersiveColors.textPrimary : colorScheme.onSurface;
-    final secondary = isDark ? ImmersiveColors.textSecondary : colorScheme.onSurfaceVariant;
-    final intensity = (_turnIntensity * 100).round();
-
-    Widget actionChip({
-      required IconData icon,
-      required String label,
-      required Color color,
-      required VoidCallback onTap,
-    }) {
-      return InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withOpacity(isDark ? 0.16 : 0.10),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withOpacity(0.22)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 5),
-              Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.12 : 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withOpacity(0.14),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.insights_rounded,
-                    size: 16, color: colorScheme.primary),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'TA 的此刻',
-                  style: TextStyle(
-                    color: primary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ),
-              if (_turnEmotion.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: Text(
-                    intensity > 0 ? '$_turnEmotion · $intensity%' : _turnEmotion,
-                    style: TextStyle(
-                      color: colorScheme.primary,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              const SizedBox(width: 4),
-              IconButton(
-                onPressed: () => _showFullStatus(context),
-                icon: Icon(Icons.open_in_full_rounded, size: 15, color: secondary),
-                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                padding: EdgeInsets.zero,
-                tooltip: '查看完整状态',
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          Text(
-            _turnThought.isEmpty ? '还没有新的内心片段' : _turnThought,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: secondary,
-              fontSize: 12,
-              height: 1.35,
-            ),
-          ),
-          const SizedBox(height: 9),
-          Row(
-            children: [
-              actionChip(
-                icon: Icons.smartphone_rounded,
-                label: 'TA 的手机',
-                color: colorScheme.primary,
-                onTap: () => _openVirtualPhone(context),
-              ),
-              const SizedBox(width: 7),
-              actionChip(
-                icon: Icons.auto_awesome_rounded,
-                label: '动态',
-                color: isDark ? const Color(0xFFFFB454) : Colors.orange.shade700,
-                onTap: () => _openMoments(context),
-              ),
-              const Spacer(),
-              Text(
-                '最近互动',
-                style: TextStyle(color: secondary.withOpacity(0.72), fontSize: 10),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showFullTurnState() {
     showModalBottomSheet<void>(
       context: context,
@@ -1500,8 +1163,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final content = Column(
       children: [
         if (_isSideStory) _buildSideStoryBanner(colorScheme, isDark),
-        _buildRelationshipHeader(colorScheme, isDark),
-        _buildStatusBar(colorScheme, isDark),
         Expanded(
           child: Stack(
             children: [
@@ -1584,7 +1245,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       _currentSession = (_currentSession ?? widget.session)
                           .copyWith(intimacyLevel: state.newLevel);
                     });
-                    _loadIntimacyEvents();
                   }
                   if (state is ChatTurnStateUpdated &&
                       state.chatId == widget.session.id) {
@@ -2176,7 +1836,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Future<void> _initialize() async {
     try {
       await _loadSessionFromDatabase();
-      await _loadIntimacyEvents();
     } catch (e) {
       debugPrint('初始化失败: $e');
     }
@@ -2335,20 +1994,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           _currentSession = updatedSession;
         });
       }
-      await _loadIntimacyEvents();
     } catch (_) {}
-  }
-
-  Future<void> _loadIntimacyEvents() async {
-    try {
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final events =
-          await storage.getIntimacyEvents(widget.session.id, limit: 20);
-      if (!mounted) return;
-      setState(() => _intimacyEvents = events);
-    } catch (e) {
-      debugPrint('loadIntimacyEvents failed: $e');
-    }
   }
 
   Future<void> _loadSessionFromDatabase() async {
@@ -4021,7 +3667,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         controller: _scrollController,
         physics: const BouncingScrollPhysics(
             parent: AlwaysScrollableScrollPhysics()),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         reverse: true,
         itemCount: totalItems,
         itemBuilder: (context, index) {
@@ -4219,7 +3865,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return _buildNormalInput(context, colorScheme);
   }
 
-  /// 18.3.0 沉浸式底部快捷功能栏（对标 Shine：语音/角色卡/贴纸/更多）。
+  /// 保留为兼容旧调用点；当前布局不再挂载常驻快捷栏。
   Widget _buildQuickActionsBar(
       BuildContext context, ColorScheme colorScheme) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -4293,7 +3939,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildQuickActionsBar(context, colorScheme),
         if (_hasPendingReply)
           GestureDetector(
             onTap: _triggerPendingReply,
@@ -4589,40 +4234,47 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                             children: [
                               // 文本输入
                               Expanded(
-                                child: TextField(
-                                  controller: _messageController,
-                                  focusNode: _messageFocusNode,
-                                  decoration: InputDecoration(
-                                    hintText: _pendingImagePaths.isEmpty
-                                        ? '发消息...'
-                                        : '添加说明，或直接发送图片...',
-                                    hintStyle: TextStyle(
-                                      color: isDark
-                                          ? Colors.white.withOpacity(0.35)
-                                          : Colors.black.withOpacity(0.35),
-                                      fontSize: 15,
-                                    ),
-                                    filled: false,
-                                    border: InputBorder.none,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 10,
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxHeight: 120,
+                                  ),
+                                  child: SingleChildScrollView(
+                                    physics: const ClampingScrollPhysics(),
+                                    child: TextField(
+                                      controller: _messageController,
+                                      focusNode: _messageFocusNode,
+                                      decoration: InputDecoration(
+                                        hintText: _pendingImagePaths.isEmpty
+                                            ? '发消息...'
+                                            : '添加说明，或直接发送图片...',
+                                        hintStyle: TextStyle(
+                                          color: isDark
+                                              ? Colors.white.withOpacity(0.35)
+                                              : Colors.black.withOpacity(0.35),
+                                          fontSize: 15,
+                                        ),
+                                        filled: false,
+                                        border: InputBorder.none,
+                                        contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 10,
+                                        ),
+                                      ),
+                                      style: TextStyle(
+                                        color: colorScheme.onSurface,
+                                        fontSize: 15,
+                                      ),
+                                      textInputAction: TextInputAction.send,
+                                      onSubmitted: (_) => _sendMessage(),
+                                      onTapOutside: (_) {
+                                        _messageFocusNode.unfocus();
+                                      },
+                                      maxLines: null,
+                                      onChanged: (v) {
+                                        _syncCanSend();
+                                      },
                                     ),
                                   ),
-                                  style: TextStyle(
-                                    color: colorScheme.onSurface,
-                                    fontSize: 15,
-                                  ),
-                                  textInputAction: TextInputAction.send,
-                                  onSubmitted: (_) => _sendMessage(),
-                                  onTapOutside: (_) {
-                                    // 点空白处自然收起，不在发送路径上抢焦点
-                                    _messageFocusNode.unfocus();
-                                  },
-                                  maxLines: null,
-                                  onChanged: (v) {
-                                    _syncCanSend();
-                                  },
                                 ),
                               ),
                             ],
@@ -4783,13 +4435,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   PreferredSizeWidget _buildJumpedAppBar(ColorScheme colorScheme) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final currentName = _displayName ??
+        _currentSession?.aiCharacterName ??
+        widget.session.aiCharacterName;
+    final currentAvatar =
+        _currentSession?.aiCharacterAvatar ?? widget.session.aiCharacterAvatar;
     return AppBar(
       leading: IconButton(
         icon: const Icon(Icons.arrow_back),
         onPressed: _returnToSearchResults,
       ),
-      title: _buildChatTitle(colorScheme),
-      centerTitle: true,
+      title: _buildCompactChatTitle(
+        colorScheme,
+        isDark,
+        currentName,
+        currentAvatar,
+      ),
+      titleSpacing: 0,
+      centerTitle: false,
       elevation: 0,
       actions: [
         IconButton(
@@ -4868,7 +4532,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         controller: _scrollController,
         physics: const BouncingScrollPhysics(
             parent: AlwaysScrollableScrollPhysics()),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         reverse: true,
         itemCount: totalItems,
         itemBuilder: (context, index) {

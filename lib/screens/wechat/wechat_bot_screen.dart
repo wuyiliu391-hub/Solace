@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../config/wechat_theme.dart';
+import '../../config/app_colors.dart';
 import '../../models/ai_character.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/wechat/ilink_client.dart';
@@ -24,6 +24,8 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
   bool _loading = true;
   bool _connected = false;
   bool _enabled = false;
+  bool _syncToChatList = false;
+  bool _useMemory = true;
   String _baseUrl = WeChatBotStore.defaultBaseUrl;
 
   List<AICharacter> _characters = [];
@@ -62,6 +64,8 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
     final boundId = await WeChatBotStore.loadBoundCharacterId();
     final whitelist = await WeChatBotStore.loadWhitelist();
     final pending = await WeChatBotStore.loadPending();
+    final syncToChatList = await WeChatBotStore.loadSyncToChatList();
+    final useMemory = await WeChatBotStore.loadUseMemory();
     if (!mounted) return;
     setState(() {
       _connected = token != null;
@@ -71,6 +75,8 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
       _boundCharacterId = boundId;
       _whitelist = whitelist;
       _pending = pending;
+      _syncToChatList = syncToChatList;
+      _useMemory = useMemory;
       _loading = false;
     });
   }
@@ -214,12 +220,19 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              '对方给你的微信发消息时，将由 AI 角色代替你回复。填写对方的微信 ID（wxid）或备注标识。',
-              style: TextStyle(
-                fontSize: 12,
-                color: WxColors.textGray,
-              ),
+            Builder(
+              builder: (context) {
+                final grayColor = Theme.of(context).brightness == Brightness.dark
+                    ? WeChatColors.darkTextSecondary
+                    : WeChatColors.textSecondary;
+                return Text(
+                  '对方给你的微信发消息时，将由 AI 角色代替你回复。填写对方的微信 ID（wxid）或备注标识。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: grayColor,
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 12),
             TextField(
@@ -322,36 +335,41 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Theme(
-      data: WxTheme.light(),
-      child: Builder(
-        builder: (context) {
-          return Scaffold(
-            backgroundColor: WxColors.listBg,
-            appBar: AppBar(
-              backgroundColor: WxColors.navBg,
-              elevation: 0,
-              scrolledUnderElevation: 0,
-              centerTitle: true,
-              title: const Text('微信机器人', style: WxText.navTitle),
-              leading: Navigator.canPop(context)
-                  ? IconButton(
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                          size: 20, color: WxColors.textBlack),
-                      onPressed: () => Navigator.maybePop(context),
-                    )
-                  : null,
-            ),
-            body: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(
-                      color: WxColors.brand,
-                    ),
-                  )
-                : _buildBody(),
-          );
-        },
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+    final bgColor = isDark ? WeChatColors.darkListItem : WeChatColors.listItem;
+    final navColor = isDark ? WeChatColors.darkPageBackground : WeChatColors.pageBackground;
+    final titleColor = isDark ? WeChatColors.darkTextPrimary : WeChatColors.textPrimary;
+    final brandColor = WeChatColors.brandGreen;
+
+    return Scaffold(
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        backgroundColor: navColor,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: true,
+        title: Text(
+          '微信机器人',
+          style: TextStyle(
+            fontSize: 17,
+            color: titleColor,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: Icon(Icons.arrow_back_ios_new_rounded,
+                    size: 20, color: titleColor),
+                onPressed: () => Navigator.maybePop(context),
+              )
+            : null,
       ),
+      body: _loading
+          ? Center(
+              child: CircularProgressIndicator(color: brandColor),
+            )
+          : _buildBody(),
     );
   }
 
@@ -376,49 +394,53 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
     return WxSettingGroup(
       title: '微信接入',
       rows: [
-        Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: WxColors.brand.withOpacity(0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.chat_bubble_rounded,
-                  size: 18, color: WxColors.brand),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'iLink 官方协议',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: WxColors.textPrimary,
-                    ),
+        Builder(
+          builder: (context) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            const brandColor = WeChatColors.brandGreen;
+            final textColor = isDark ? WeChatColors.darkTextPrimary : WeChatColors.textPrimary;
+            final grayColor = isDark ? WeChatColors.darkTextSecondary : WeChatColors.textSecondary;
+            return Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: brandColor.withOpacity(0.12),
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _connected ? '已连接' : '未连接',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _connected
-                          ? WxColors.brand
-                          : WxColors.textGray,
-                    ),
+                  child: Icon(Icons.chat_bubble_rounded,
+                      size: 18, color: brandColor),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'iLink 官方协议',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: textColor,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _connected ? '已连接' : '未连接',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _connected ? brandColor : grayColor,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-            if (_connected)
-              Switch(
-                value: _enabled,
-                activeColor: WxColors.brand,
-                onChanged: (v) async {
+                ),
+                if (_connected)
+                  Switch(
+                    value: _enabled,
+                    activeColor: brandColor,
+                    onChanged: (v) async {
                   await WeChatBotStore.saveEnabled(v);
                   if (v) {
                     await _service.startPolling();
@@ -428,16 +450,25 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
                   setState(() => _enabled = v);
                 },
               ),
-          ],
-        ),
+            ],
+          );
+        },
+      ),
         const SizedBox(height: 10),
-        const Text(
-          '限制说明：机器人只能回复白名单联系人发来的消息，不能主动发起对话，也不能进群。',
-          style: TextStyle(
-            fontSize: 11.5,
-            height: 1.4,
-            color: WxColors.textGray,
-          ),
+        Builder(
+          builder: (context) {
+            final grayColor = Theme.of(context).brightness == Brightness.dark
+                ? WeChatColors.darkTextSecondary
+                : WeChatColors.textSecondary;
+            return Text(
+              '限制说明：机器人只能回复白名单联系人发来的消息，不能主动发起对话，也不能进群。',
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.4,
+                color: grayColor,
+              ),
+            );
+          },
         ),
         const SizedBox(height: 12),
         if (!_connected) ...[
@@ -454,16 +485,23 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Center(
-              child: Text(
-                _qrStatus == IlinkQrStatus.scanned
-                    ? '已扫码，请在手机上确认'
-                    : '用微信扫描二维码接入',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: WxColors.textGray,
-                ),
-              ),
+            Builder(
+              builder: (context) {
+                final grayColor = Theme.of(context).brightness == Brightness.dark
+                    ? WeChatColors.darkTextSecondary
+                    : WeChatColors.textSecondary;
+                return Center(
+                  child: Text(
+                    _qrStatus == IlinkQrStatus.scanned
+                        ? '已扫码，请在手机上确认'
+                        : '用微信扫描二维码接入',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: grayColor,
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 8),
           ],
@@ -471,22 +509,29 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
             const Center(
               child: Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
-                child: CircularProgressIndicator(color: WxColors.brand),
+                child: CircularProgressIndicator(color: WeChatColors.brandGreen),
               ),
             ),
           if (_qrError != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                _qrError!,
-                style: const TextStyle(fontSize: 12, color: WxColors.badge),
+              child: Builder(
+                builder: (context) {
+                  final badgeColor = Theme.of(context).brightness == Brightness.dark
+                      ? WeChatColors.badgeRed
+                      : WeChatColors.badgeRed;
+                  return Text(
+                    _qrError!,
+                    style: TextStyle(fontSize: 12, color: badgeColor),
+                  );
+                },
               ),
             ),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
               style: FilledButton.styleFrom(
-                backgroundColor: WxColors.brand,
+                backgroundColor: WeChatColors.brandGreen,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(6),
@@ -502,8 +547,8 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
             width: double.infinity,
             child: OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
-                foregroundColor: WxColors.badge,
-                side: const BorderSide(color: WxColors.badge),
+                foregroundColor: WeChatColors.badgeRed,
+                side: const BorderSide(color: WeChatColors.badgeRed),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(6),
                 ),
@@ -520,155 +565,215 @@ class _WeChatBotScreenState extends State<WeChatBotScreen> {
   // ── 回复角色 ──
 
   Widget _buildCharacterSection() {
-    return WxSettingGroup(
-      title: '回复角色',
-      rows: [
-        const Text(
-          '白名单消息将以下方角色的人设、记忆与口吻回复。',
-          style: TextStyle(fontSize: 12, color: WxColors.textGray),
-        ),
-        const SizedBox(height: 10),
-        if (_characters.isEmpty)
-          const Text(
-            '暂无角色，请先创建一个 AI 角色。',
-            style: TextStyle(fontSize: 12, color: WxColors.textGray),
-          )
-        else
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _characters.map((c) {
-              final selected = c.id == _boundCharacterId;
-              return ChoiceChip(
-                label: Text(c.name),
-                selected: selected,
-                showCheckmark: false,
-                backgroundColor: WxColors.navBg,
-                selectedColor: WxColors.brand.withOpacity(0.15),
-                labelStyle: TextStyle(
-                  fontSize: 12,
-                  color: selected ? WxColors.brand : WxColors.textGray,
-                ),
-                onSelected: (_) async {
-                  await WeChatBotStore.saveBoundCharacterId(c.id);
-                  setState(() => _boundCharacterId = c.id);
-                },
-              );
-            }).toList(),
-          ),
-      ],
+    return Builder(
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final grayColor = isDark ? WeChatColors.darkTextSecondary : WeChatColors.textSecondary;
+        final brandColor = WeChatColors.brandGreen;
+        final navColor = isDark ? WeChatColors.darkPageBackground : WeChatColors.pageBackground;
+        return WxSettingGroup(
+          title: '回复角色',
+          rows: [
+            Text(
+              '白名单消息将以下方角色的人设、记忆与口吻回复。',
+              style: TextStyle(fontSize: 12, color: grayColor),
+            ),
+            const SizedBox(height: 10),
+            if (_characters.isEmpty)
+              Text(
+                '暂无角色，请先创建一个 AI 角色。',
+                style: TextStyle(fontSize: 12, color: grayColor),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _characters.map((c) {
+                  final selected = c.id == _boundCharacterId;
+                  return ChoiceChip(
+                    label: Text(c.name),
+                    selected: selected,
+                    showCheckmark: false,
+                    backgroundColor: navColor,
+                    selectedColor: brandColor.withOpacity(0.15),
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      color: selected ? brandColor : grayColor,
+                    ),
+                    onSelected: (_) async {
+                      await WeChatBotStore.saveBoundCharacterId(c.id);
+                      setState(() => _boundCharacterId = c.id);
+                    },
+                  );
+                }).toList(),
+              ),
+          ],
+        );
+      },
     );
   }
 
   // ── 白名单 ──
 
   Widget _buildWhitelistSection() {
-    return WxSettingGroup(
-      title: '白名单联系人',
-      trailing: TextButton.icon(
-        onPressed: _showAddWhitelistDialog,
-        icon: const Icon(Icons.add_rounded, size: 16, color: WxColors.brand),
-        label: const Text('添加', style: TextStyle(color: WxColors.brand)),
-      ),
-      rows: [
-        const Text(
-          '仅名单内联系人的消息会被 AI 回复，其他人照常由你本人回复。',
-          style: TextStyle(fontSize: 12, color: WxColors.textGray),
-        ),
-        const SizedBox(height: 6),
-        if (_whitelist.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              '白名单为空，机器人不会回复任何人。',
-              style: TextStyle(fontSize: 12, color: WxColors.textGray),
+    return Builder(
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final grayColor = isDark ? WeChatColors.darkTextSecondary : WeChatColors.textSecondary;
+        final brandColor = WeChatColors.brandGreen;
+        return WxSettingGroup(
+          title: '白名单联系人',
+          trailing: TextButton.icon(
+            onPressed: _showAddWhitelistDialog,
+            icon: Icon(Icons.add_rounded, size: 16, color: brandColor),
+            label: Text('添加', style: TextStyle(color: brandColor)),
+          ),
+          rows: [
+            Text(
+              '仅名单内联系人的消息会被 AI 回复，其他人照常由你本人回复。',
+              style: TextStyle(fontSize: 12, color: grayColor),
             ),
-          )
-        else
-          ..._whitelist.map((e) => _buildWhitelistTile(e)),
-      ],
+            const SizedBox(height: 6),
+            if (_whitelist.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  '白名单为空，机器人不会回复任何人。',
+                  style: TextStyle(fontSize: 12, color: grayColor),
+                ),
+              )
+            else
+              ..._whitelist.map((e) => _buildWhitelistTile(e)),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildWhitelistTile(WxContactEntry e) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-      leading: CircleAvatar(
-        radius: 16,
-        backgroundColor: WxColors.navBg,
-        child: Text(
-          e.displayName.isNotEmpty ? e.displayName[0] : '?',
-          style: const TextStyle(fontSize: 13, color: WxColors.brand),
-        ),
-      ),
-      title: Text(e.displayName, style: const TextStyle(fontSize: 13)),
-      subtitle:
-          Text(e.wxId, style: const TextStyle(fontSize: 11, color: WxColors.textGray)),
-      trailing: IconButton(
-        icon: const Icon(Icons.close_rounded, size: 16, color: WxColors.textGray),
-        onPressed: () async {
-          final list = [..._whitelist]..removeWhere((x) => x.wxId == e.wxId);
-          await WeChatBotStore.saveWhitelist(list);
-          await _loadAll();
-        },
-      ),
+    return Builder(
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final grayColor = isDark ? WeChatColors.darkTextSecondary : WeChatColors.textSecondary;
+        final brandColor = WeChatColors.brandGreen;
+        final navColor = isDark ? WeChatColors.darkPageBackground : WeChatColors.pageBackground;
+        return ListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          leading: CircleAvatar(
+            radius: 16,
+            backgroundColor: navColor,
+            child: Text(
+              e.displayName.isNotEmpty ? e.displayName[0] : '?',
+              style: TextStyle(fontSize: 13, color: brandColor),
+            ),
+          ),
+          title: Text(e.displayName, style: const TextStyle(fontSize: 13)),
+          subtitle: Text(e.wxId, style: TextStyle(fontSize: 11, color: grayColor)),
+          trailing: IconButton(
+            icon: Icon(Icons.close_rounded, size: 16, color: grayColor),
+            onPressed: () async {
+              final list = [..._whitelist]..removeWhere((x) => x.wxId == e.wxId);
+              await WeChatBotStore.saveWhitelist(list);
+              await _loadAll();
+            },
+          ),
+        );
+      },
     );
   }
 
   // ── 待审批 ──
 
   Widget _buildPendingSection() {
-    return WxSettingGroup(
-      title: '待审批来信',
-      rows: [
-        const Text(
-          '以下白名单外联系人发来了消息。批准后 TA 的消息将由 AI 代回。',
-          style: TextStyle(fontSize: 12, color: WxColors.textGray),
-        ),
-        const SizedBox(height: 6),
-        ..._pending.map((e) => ListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: Text(e.fromName, style: const TextStyle(fontSize: 13)),
-              subtitle: Text(
-                e.lastText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: WxColors.textGray),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextButton(
-                    onPressed: () => _approvePending(e),
-                    child: const Text('批准',
-                        style: TextStyle(fontSize: 12, color: WxColors.brand)),
+    return Builder(
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final grayColor = isDark ? WeChatColors.darkTextSecondary : WeChatColors.textSecondary;
+        final brandColor = WeChatColors.brandGreen;
+        return WxSettingGroup(
+          title: '待审批来信',
+          rows: [
+            Text(
+              '以下白名单外联系人发来了消息。批准后 TA 的消息将由 AI 代回。',
+              style: TextStyle(fontSize: 12, color: grayColor),
+            ),
+            const SizedBox(height: 6),
+            ..._pending.map((e) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text(e.fromName, style: const TextStyle(fontSize: 13)),
+                  subtitle: Text(
+                    e.lastText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: grayColor),
                   ),
-                  TextButton(
-                    onPressed: () => _dismissPending(e),
-                    child: const Text('忽略',
-                        style: TextStyle(fontSize: 12, color: WxColors.textGray)),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        onPressed: () => _approvePending(e),
+                        child: Text('批准',
+                            style: TextStyle(fontSize: 12, color: brandColor)),
+                      ),
+                      TextButton(
+                        onPressed: () => _dismissPending(e),
+                        child: Text('忽略',
+                            style: TextStyle(fontSize: 12, color: grayColor)),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            )),
-      ],
+                )),
+          ],
+        );
+      },
     );
   }
 
   // ── 高级 ──
 
   Widget _buildAdvancedSection() {
-    return WxSettingGroup(
-      title: '高级',
-      rows: [
-        WxSettingRow(
-          title: 'iLink 服务地址',
-          value: _baseUrl,
-          onTap: _showEditBaseUrlDialog,
-        ),
-      ],
+    return Builder(
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final grayColor = isDark ? WeChatColors.darkTextSecondary : WeChatColors.textSecondary;
+        return WxSettingGroup(
+          title: '高级',
+          rows: [
+            WxSettingRow(
+              title: 'iLink 服务地址',
+              value: _baseUrl,
+              onTap: _showEditBaseUrlDialog,
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              title: const Text('同步到聊天列表', style: TextStyle(fontSize: 14)),
+              subtitle: Text(
+                '开启后微信聊天记录会出现在 Solace 聊天列表中',
+                style: TextStyle(fontSize: 12, color: grayColor),
+              ),
+              value: _syncToChatList,
+              onChanged: (v) async {
+                await WeChatBotStore.saveSyncToChatList(v);
+                setState(() => _syncToChatList = v);
+              },
+            ),
+            SwitchListTile(
+              title: const Text('连接记忆库', style: TextStyle(fontSize: 14)),
+              subtitle: Text(
+                '开启后 AI 会读取 Solace 记忆库来回复微信消息',
+                style: TextStyle(fontSize: 12, color: grayColor),
+              ),
+              value: _useMemory,
+              onChanged: (v) async {
+                await WeChatBotStore.saveUseMemory(v);
+                setState(() => _useMemory = v);
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 }

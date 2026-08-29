@@ -70,6 +70,19 @@ class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
         debugPrint('版本变更提示失败: $e');
       }
 
+      // 版本功能公告弹窗（强制确认，不可跳过）
+      try {
+        final vPrefs = await SharedPreferences.getInstance();
+        final acked = vPrefs.getBool(PrefKeys.versionFeatureAck8304) ?? false;
+        if (!acked && mounted) {
+          await VersionFeatureDialog.showIfNeeded(
+              context, PrefKeys.versionFeatureAck8304);
+          await vPrefs.setBool(PrefKeys.versionFeatureAck8304, true);
+        }
+      } catch (e) {
+        debugPrint('版本公告弹窗失败: $e');
+      }
+
       // 无论如何都进入主页
       if (mounted) setState(() => _checking = false);
 

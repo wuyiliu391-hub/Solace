@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../config/wechat_theme.dart';
+import '../../config/app_colors.dart';
 
 /// 微信设置行 — 1:1 还原
 ///
@@ -34,8 +34,14 @@ class WxSettingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = background ?? (isDark ? WeChatColors.darkListItem : WeChatColors.listItem);
+    final textColor = isDark ? WeChatColors.darkTextPrimary : WeChatColors.textPrimary;
+    final grayColor = isDark ? WeChatColors.darkTextSecondary : WeChatColors.textSecondary;
+    final dividerColor = isDark ? WeChatColors.darkDivider : WeChatColors.divider;
+
     return Material(
-      color: background ?? WxColors.listBg,
+      color: bgColor,
       child: InkWell(
         onTap: onTap,
         child: Column(
@@ -48,17 +54,17 @@ class WxSettingRow extends StatelessWidget {
                 child: Row(
                   children: [
                     if (icon != null) ...[
-                      Icon(icon, size: 22, color: iconColor ?? WxColors.textPrimary),
+                      Icon(icon, size: 22, color: iconColor ?? textColor),
                       const SizedBox(width: 13),
                     ],
                     Text(title,
-                        style: const TextStyle(
-                            fontSize: 15, color: WxColors.textBlack)),
+                        style: TextStyle(
+                            fontSize: 15, color: textColor)),
                     const Spacer(),
                     if (value != null) ...[
                       Text(value!,
-                          style: const TextStyle(
-                              fontSize: 14, color: WxColors.textGray)),
+                          style: TextStyle(
+                              fontSize: 14, color: grayColor)),
                       const SizedBox(width: 8),
                     ],
                     if (trailingWidget != null) ...[
@@ -66,8 +72,8 @@ class WxSettingRow extends StatelessWidget {
                       const SizedBox(width: 8),
                     ],
                     if (showArrow)
-                      const Icon(Icons.chevron_right,
-                          size: 18, color: WxColors.textHint),
+                      Icon(Icons.chevron_right,
+                          size: 18, color: grayColor),
                   ],
                 ),
               ),
@@ -76,7 +82,7 @@ class WxSettingRow extends StatelessWidget {
             Padding(
               padding: EdgeInsets.only(left: dividerFromIcon ? 46 : 13),
               child: Container(
-                  height: WxDimens.divider, color: WxColors.divider),
+                  height: WeChatDimens.dividerHeight, color: dividerColor),
             ),
           ],
         ),
@@ -102,6 +108,9 @@ class WxSettingGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final grayColor = isDark ? WeChatColors.darkTextSecondary : WeChatColors.textSecondary;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -114,10 +123,10 @@ class WxSettingGroup extends StatelessWidget {
                 if (title != null)
                   Text(
                     title!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: WxColors.textGray,
+                      color: grayColor,
                     ),
                   ),
                 const Spacer(),

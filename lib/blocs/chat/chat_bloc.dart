@@ -4899,18 +4899,35 @@ ${avoidText.isNotEmpty ? '\n【禁止重复的旧版本】\n$avoidText' : ''}
 
         finalContent = '';
         finalReasoning = '';
-        await for (final chunk in _bridgeSendMessageStream(
-          character: character,
-          userId: session.userId,
-          userMessage: '${lastUserMsg.content}$regenerateInstruction',
-          chatHistory: updatedMessages,
-          memories: memories,
-          intimacyLevel: session.intimacyLevel,
-          sentiment: SentimentAnalyzer.analyze(lastUserMsg.content),
-          isSideStory: isSideStory,
-        )) {
-          finalReasoning = chunk.reasoning;
-          finalContent = chunk.content;
+        try {
+          await for (final chunk in _bridgeSendMessageStream(
+            character: character,
+            userId: session.userId,
+            userMessage: '${lastUserMsg.content}$regenerateInstruction',
+            chatHistory: updatedMessages,
+            memories: memories,
+            intimacyLevel: session.intimacyLevel,
+            sentiment: SentimentAnalyzer.analyze(lastUserMsg.content),
+            isSideStory: isSideStory,
+          ).timeout(
+            const Duration(seconds: 90),
+            onTimeout: (sink) {
+              sink.add(const AIStreamChunk(content: '', reasoning: ''));
+              sink.close();
+            },
+          )) {
+            finalReasoning = chunk.reasoning;
+            finalContent = chunk.content;
+          }
+        } catch (e) {
+          LogService.instance.w('Bloc',
+              '_onRegenerateAIReply: stream error on attempt $attempt: $e',
+              chatId: event.chatId);
+          if (attempt == 2) {
+            finalContent = '';
+            finalReasoning = '';
+          }
+          continue;
         }
 
         final candidate = MessageSanitizer.sanitizeFinal(finalContent);

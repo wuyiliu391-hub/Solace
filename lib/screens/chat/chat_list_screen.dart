@@ -81,8 +81,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          // ChatInitial 状态显示加载中，避免闪现空状态
+          // ChatInitial 状态自动触发加载，避免一直转圈
           if (chatState is ChatInitial) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (context.mounted) {
+                final authBloc = context.read<AuthBloc>();
+                if (authBloc.state is AuthAuthenticated) {
+                  context.read<ChatBloc>().add(ChatLoadSessions(
+                      (authBloc.state as AuthAuthenticated).user.id));
+                }
+              }
+            });
             return const Center(child: CircularProgressIndicator());
           }
 

@@ -253,4 +253,28 @@ class WeChatBotStore {
       return <T>[];
     }
   }
+
+  // ────────────── 同步开关 ──────────────
+
+  /// 微信聊天记录是否同步到 Solace 主聊天列表（默认 false，隔离）。
+  static Future<bool> loadSyncToChatList() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('wx_sync_to_chat_list') ?? false;
+  }
+
+  static Future<void> saveSyncToChatList(bool sync) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('wx_sync_to_chat_list', sync);
+  }
+
+  /// 微信聊天是否连接 Solace 记忆库（默认 true，保持智能回复）。
+  static Future<bool> loadUseMemory() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('wx_use_memory') ?? true;
+  }
+
+  static Future<void> saveUseMemory(bool use) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('wx_use_memory', use);
+  }
 }

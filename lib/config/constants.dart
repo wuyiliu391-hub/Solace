@@ -167,6 +167,7 @@ class PrefKeys {
   static const String versionFeatureAck275 = 'version_feature_ack_v275';
   static const String versionFeatureAck277 = 'version_feature_ack_v277';
   static const String versionFeatureAck278 = 'version_feature_ack_v278';
+  static const String versionFeatureAck8304 = 'version_feature_ack_v8304';
   static const String btYandereMasterEnabled = 'bt_yandere_master_enabled';
   static const String btPermissionContactRemark =
       'bt_permission_contact_remark';
@@ -388,8 +389,8 @@ class MethodChannels {
 class AppVersion {
   AppVersion._();
 
-  static const String version = '19.0.0';
-  static const int build = 6303;
+  static const String version = '19.0.1';
+  static const int build = 8304;
 }
 
 class NotificationChannels {

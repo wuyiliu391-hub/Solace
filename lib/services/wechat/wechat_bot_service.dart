@@ -284,6 +284,14 @@ class WeChatBotService {
       await storage.saveChatSession(session);
     }
 
+    // 同步开关：默认关闭时微信会话不出现在主聊天列表
+    final syncToChatList = await WeChatBotStore.loadSyncToChatList();
+    if (!syncToChatList && !session.isHidden) {
+      await storage.saveChatSession(session.copyWith(isHidden: true));
+    } else if (syncToChatList && session.isHidden) {
+      await storage.saveChatSession(session.copyWith(isHidden: false));
+    }
+
     // 入站消息落库
     final inbound = ChatMessage(
       id: _uuid.v4(),
@@ -303,8 +311,11 @@ class WeChatBotService {
 
     // 完整角色管线生成回复（上下文精简：思考模型长上下文推理慢，易触发上游超时）
     final history = await storage.getChatMessages(sessionId, limit: 20);
-    final memories = await storage.getMemories(
-        characterId: character.id, userId: userId, limit: 10);
+    final useMemory = await WeChatBotStore.loadUseMemory();
+    final memories = useMemory
+        ? await storage.getMemories(
+            characterId: character.id, userId: userId, limit: 10)
+        : <Memory>[];
     final rawReply = await _generateReply(
       character: character,
       userId: userId,
@@ -312,6 +323,12 @@ class WeChatBotService {
       chatHistory: history,
       memories: memories,
       intimacyLevel: session.intimacyLevel,
+    ).timeout(
+      const Duration(seconds: 90),
+      onTimeout: () {
+        debugPrint('[WeChatBot] AI 回复超时(90s)，跳过');
+        return '';
+      },
     );
     await _sendTyping(client, msg.fromUserId, typing: false);
 
@@ -387,19 +404,26 @@ class WeChatBotService {
   }
 
   /// 输入状态：先 getConfig 拿 typing_ticket（缓存），再 sendTyping。
+  /// 整个流程加 5s 超时，避免网络抖动时 typing 请求卡住主流程。
   Future<void> _sendTyping(
     IlinkClient client,
     String ilinkUserId, {
     required bool typing,
   }) async {
-    var ticket = _typingTickets[ilinkUserId];
-    if (ticket == null) {
-      ticket = await client.getConfig(ilinkUserId);
-      if (ticket == null || ticket.isEmpty) return;
-      _typingTickets[ilinkUserId] = ticket;
+    try {
+      var ticket = _typingTickets[ilinkUserId];
+      if (ticket == null) {
+        ticket = await client.getConfig(ilinkUserId)
+            .timeout(const Duration(seconds: 5), onTimeout: () => null);
+        if (ticket == null || ticket.isEmpty) return;
+        _typingTickets[ilinkUserId] = ticket;
+      }
+      await client.sendTyping(
+          ilinkUserId: ilinkUserId, typingTicket: ticket, typing: typing)
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('[WeChatBot] sendTyping 失败（忽略）: $e');
     }
-    await client.sendTyping(
-        ilinkUserId: ilinkUserId, typingTicket: ticket, typing: typing);
   }
 
   // ────────────── 回复生成（完整角色管线） ──────────────

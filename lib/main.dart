@@ -57,6 +57,7 @@ import 'services/workmanager_helper.dart'
     if (dart.library.html) 'services/workmanager_helper_web.dart';
 import 'widgets/age_declaration_screen.dart';
 import 'widgets/update_dialog.dart';
+import 'widgets/version_feature_dialog.dart';
 import 'config/constants.dart';
 import 'config/app_colors.dart';
 import 'services/log_service.dart';

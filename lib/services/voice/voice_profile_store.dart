@@ -142,6 +142,9 @@ class VoiceProfileStore {
   }
 
   /// 保存/切换角色预置音色（会删除参考音频，避免冲突）。
+  ///
+  /// 同步清除 MiMoTtsService 的内存缓存（base64 + sha1），
+  /// 否则切换音色后旧缓存仍被命中，表现为「切换无效」。
   Future<void> savePreset(String characterId, String voiceId) async {
     final dir = await _dir();
     await File(p.join(dir.path, 'preset_$characterId.txt'))
@@ -150,13 +153,19 @@ class VoiceProfileStore {
       final f = File(p.join(dir.path, '$characterId.$ext'));
       if (await f.exists()) await f.delete();
     }
+    // 通知 TTS 服务清除该角色的样本缓存（voiceclone base64 + hash）
+    onPresetChanged?.call(characterId);
   }
+
+  /// 预置音色变更回调（由 MiMoTtsService 注册，用于清理内存缓存）。
+  void Function(String characterId)? onPresetChanged;
 
   /// 清除角色预置音色（回退参考音频/默认音色）。
   Future<void> deletePreset(String characterId) async {
     final dir = await _dir();
     final f = File(p.join(dir.path, 'preset_$characterId.txt'));
     if (await f.exists()) await f.delete();
+    onPresetChanged?.call(characterId);
   }
 
   /// 默认示例音色（打包资产，首次复制到磁盘；已存在但损坏时自愈重拷）。
