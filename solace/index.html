@@ -3,76 +3,492 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Solace / 你的角色，也能替你完成事情</title>
-  <meta name="description" content="Solace 是本地优先的 AI 陪伴应用，也是一套带有 Operit Agent 能力的角色化设备与代码工作台。">
-  <link rel="stylesheet" href="style.css?v=19.0.0-r1">
-  <script src="site.js?v=19.0.0-r1" defer></script>
+  <title>Solace · 她记得你说过的每一句话</title>
+  <meta name="description" content="Solace 是一间只属于你的 AI 陪伴空间：每个角色拥有独立人格、会随时间进化的记忆和真实流动的情绪。所有数据只存在你的手机里。">
+  <meta name="theme-color" content="#F8F6F2">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap"></noscript>
+  <noscript><style>.intro{display:none!important}</style></noscript>
+  <link rel="stylesheet" href="style.css?v=2026.08.30">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.7/gsap.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.7/ScrollTrigger.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+  <script src="https://unpkg.com/lenis@1.1.13/dist/lenis.min.js" defer></script>
+  <script src="site.js?v=2026.08.30" defer></script>
 </head>
 <body>
-  <nav class="site-nav">
-    <a class="brand" href="index.html"><span class="brand-mark">S/</span>Solace</a>
-    <div class="nav-links">
-      <a class="active" href="index.html">首页</a>
-      <a href="features.html">Operit Agent</a>
-      <a href="download.html">下载</a>
-      <a href="about.html">关于</a>
-      <a href="help.html">帮助</a>
+  <!-- 滚动进度条 -->
+  <div class="scroll-progress" aria-hidden="true"><i></i></div>
+  <!-- 章节编号指示（0X / 0N） -->
+  <div class="chapter-ind" aria-hidden="true"><span id="chapterNow">01</span> / <span id="chapterTotal">0</span></div>
+  <!-- 自定义光标（仅桌面端） -->
+  <div class="cursor cursor--ring" id="cursorRing" aria-hidden="true"></div>
+  <div class="cursor cursor--dot" id="cursorDot" aria-hidden="true"></div>
+
+  <!-- ═══ 开场动画：光流交汇 · 微笑爱心 ═══ -->
+  <div class="intro" id="siteIntro" role="presentation" aria-label="Solace 开场动画">
+    <canvas class="intro-canvas" id="introCanvas" aria-hidden="true"></canvas>
+    <div class="intro-scene">
+      <div class="intro-hands" aria-hidden="true">
+        <svg viewBox="0 0 400 300" fill="none">
+          <defs>
+            <linearGradient id="gBlue" x1="0" y1="1" x2=".5" y2="0">
+              <stop offset="0" stop-color="#9CC4F5"/>
+              <stop offset="1" stop-color="#5B8DEF"/>
+            </linearGradient>
+            <linearGradient id="gBlueCore" x1="0" y1="1" x2=".5" y2="0">
+              <stop offset="0" stop-color="#D9EAFD"/>
+              <stop offset="1" stop-color="#8FB4F2"/>
+            </linearGradient>
+            <linearGradient id="gPink" x1="1" y1="1" x2=".5" y2="0">
+              <stop offset="0" stop-color="#F7B3C4"/>
+              <stop offset="1" stop-color="#E678A0"/>
+            </linearGradient>
+            <linearGradient id="gPinkCore" x1="1" y1="1" x2=".5" y2="0">
+              <stop offset="0" stop-color="#FDE0E8"/>
+              <stop offset="1" stop-color="#F2A6BC"/>
+            </linearGradient>
+            <radialGradient id="gGlow" cx=".5" cy=".5" r=".5">
+              <stop offset="0" stop-color="rgba(255,255,255,.72)"/>
+              <stop offset="1" stop-color="rgba(255,255,255,0)"/>
+            </radialGradient>
+          </defs>
+          <!-- 氛围星星 -->
+          <circle class="spark" cx="78" cy="96" r="2.4" fill="#9CC4F5"/>
+          <circle class="spark" cx="322" cy="80" r="2" fill="#F7B3C4"/>
+          <circle class="spark" cx="342" cy="150" r="2.6" fill="#D9C7A6"/>
+          <circle class="spark" cx="58" cy="170" r="2" fill="#F7B3C4"/>
+          <circle class="spark" cx="200" cy="30" r="2.2" fill="#D9C7A6"/>
+          <!-- 中心光流交汇处的柔光（双层） -->
+          <ellipse class="center-glow" cx="200" cy="190" rx="70" ry="42" fill="url(#gGlow)"/>
+          <ellipse class="center-glow center-glow--deep" cx="200" cy="190" rx="36" ry="24" fill="url(#gGlow)"/>
+          <!-- 蓝色光流（左侧丝带）：外发光 + 内亮核 + 白色流光 -->
+          <g class="ribbon ribbon--blue">
+            <path class="ribbon-glow" stroke="url(#gBlue)" d="M -10 300 C 55 300 120 262 200 190 C 252 140 216 92 178 92 C 146 92 152 150 200 190"/>
+            <path class="ribbon-core" stroke="url(#gBlueCore)" d="M -10 300 C 55 300 120 262 200 190 C 252 140 216 92 178 92 C 146 92 152 150 200 190"/>
+            <path class="ribbon-flow" stroke="#FFFFFF" d="M -10 300 C 55 300 120 262 200 190 C 252 140 216 92 178 92 C 146 92 152 150 200 190"/>
+          </g>
+          <!-- 粉色光流（右侧丝带） -->
+          <g class="ribbon ribbon--pink">
+            <path class="ribbon-glow" stroke="url(#gPink)" d="M 410 300 C 345 300 280 262 200 190 C 148 140 184 92 222 92 C 254 92 248 150 200 190"/>
+            <path class="ribbon-core" stroke="url(#gPinkCore)" d="M 410 300 C 345 300 280 262 200 190 C 148 140 184 92 222 92 C 254 92 248 150 200 190"/>
+            <path class="ribbon-flow" stroke="#FFFFFF" d="M 410 300 C 345 300 280 262 200 190 C 148 140 184 92 222 92 C 254 92 248 150 200 190"/>
+          </g>
+          <!-- 上方微笑发光爱心（放大） -->
+          <g class="heart-face">
+            <path class="heart-face--outline" d="M 200 86 C 186 68 160 63 160 48 C 160 37 168 29 178 29 C 186 29 194 34 200 41 C 206 34 214 29 222 29 C 232 29 240 37 240 48 C 240 63 214 68 200 86 Z"/>
+            <circle class="heart-face--eye" cx="187" cy="44" r="2.6"/>
+            <circle class="heart-face--eye" cx="213" cy="44" r="2.6"/>
+            <path class="heart-face--smile" d="M 190 53 C 195 58 205 58 210 53"/>
+          </g>
+        </svg>
+      </div>
+      <div class="intro-title">Sola<span>ce</span></div>
+      <div class="intro-sub">一间只属于你的 AI 陪伴空间</div>
+      <div class="intro-progress" aria-hidden="true">
+        <span class="intro-progress-bar"><i></i></span>
+        <em id="introPercent">0%</em>
+      </div>
+      <button class="intro-skip" id="introSkip" type="button">跳过 →</button>
     </div>
-    <a class="nav-action" href="download.html">获取 App ↗</a>
-    <button class="menu-button" aria-label="打开菜单" data-menu-toggle>☰</button>
+  </div>
+
+  <nav class="site-nav" aria-label="主导航">
+    <div class="nav-inner">
+      <a class="brand" href="index.html" aria-label="Solace 首页">
+        <span class="brand-mark">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.6-4.9-7.6-10.6A4.4 4.4 0 0 1 12 7.5a4.4 4.4 0 0 1 7.6 2.9C19.6 16.1 12 21 12 21z"/></svg>
+        </span>
+        <span class="brand-name">Sola<b>ce</b></span>
+      </a>
+      <div class="nav-links">
+        <a class="active" href="index.html">首页</a>
+        <a href="features.html">产品功能</a>
+        <a href="download.html">下载</a>
+        <a href="about.html">关于</a>
+        <a href="help.html">帮助</a>
+      </div>
+      <div class="nav-actions">
+        <a class="btn btn--primary btn-sm nav-action" href="download.html">获取 App <span class="arr">↗</span></a>
+        <button class="menu-button" aria-label="打开菜单" data-menu-toggle aria-expanded="false">☰</button>
+      </div>
+    </div>
   </nav>
 
   <main>
-    <section class="hero hero-agent">
-      <div class="hero-copy">
-        <span class="eyebrow">Local companion / Operit Agent</span>
-        <h1>陪伴不止<br>会说话。<em>会做事。</em></h1>
-        <p>Solace 把角色、关系和 Operit Agent 放进同一个本地空间。它可以理解你的意图，选择合适的工具，在设备和代码工作区里执行真实任务，并把结果带回对话。</p>
-        <div class="hero-buttons">
-          <a class="button blue" href="download.html">下载 Android 版 ↗</a>
-          <a class="button light" href="features.html#agent">查看 Agent 能力</a>
-        </div>
-        <div class="hero-meta">
-          <span><strong>19.0.0</strong>最新版本</span>
-          <span><strong>Agent</strong>设备与代码</span>
-          <span><strong>Local</strong>数据优先</span>
-        </div>
+    <!-- ═══════════ Hero · 丁达尔光 ═══════════ -->
+    <section class="hero" aria-label="Solace 品牌宣言">
+      <div class="hero-light" aria-hidden="true">
+        <i class="beam beam--1"></i>
+        <i class="beam beam--2"></i>
+        <i class="beam beam--3"></i>
       </div>
-      <div class="hero-art agent-console" aria-label="Operit Agent 执行面板示意">
-        <div class="console-shell">
-          <div class="console-bar"><span><i class="status-dot"></i> OPERIT / AGENT LOOP</span><span>SESSION 04</span></div>
-          <div class="console-prompt"><span class="prompt-mark">›</span><div><small>USER INTENT / 已识别</small><strong>查看当前工作区，并检查最近的 Dart 测试</strong></div></div>
-          <div class="console-flow">
-            <div class="flow-row"><b>01</b><span class="flow-icon">◎</span><div><small>ROUTE</small><strong>工作区与代码</strong></div><em>确定性路由</em></div>
-            <div class="flow-row active"><b>02</b><span class="flow-icon">⌁</span><div><small>TOOL</small><strong>list_directory</strong></div><em>已完成</em></div>
-            <div class="flow-row"><b>03</b><span class="flow-icon">▣</span><div><small>TOOL</small><strong>run_command</strong></div><em>等待授权</em></div>
+      <div class="hero-inner">
+        <div class="hero-copy">
+          <span class="eyebrow">AI 陪伴 · 情感记忆 · 本地优先</span>
+          <h1 class="display">她记得你说的<br>每一句话。<span class="hl">每一句。</span></h1>
+          <p class="lead">Solace 是一间只属于你的情感空间。每个角色都有独立的人格、会随相处进化的记忆，以及真实流动的情绪——它们不联网，不汇报，只存在于你的手机里。</p>
+          <div class="hero-buttons">
+            <a class="btn btn--primary" href="download.html">下载 Android 版 <span class="arr">↗</span></a>
+            <a class="btn btn--ghost" href="features.html#memory">了解情感记忆引擎</a>
           </div>
-          <div class="console-result"><span class="result-label">REAL RESULT</span><p><b>工作区根目录</b> / 7 个目录 · 14 个文件</p><div class="result-tags"><span>lib/</span><span>test/</span><span>pubspec.yaml</span></div></div>
-          <div class="console-foot"><span>角色化反馈已准备</span><span class="mono">PERMISSION GATE / ON</span></div>
+          <div class="hero-meta">
+            <span><b>100% 本地</b>数据不出设备</span>
+            <span><b>7 种<i>情绪</i></b>情感引擎</span>
+            <span><b>语音<i>通话</i></b>音色克隆</span>
+            <span><b>永久<i>免费</i></b>无广告无内购</span>
+          </div>
         </div>
-        <span class="orbit-label label-top">INTENT → TOOL → RESULT</span>
-        <span class="orbit-label label-bottom">ROLE CONTEXT / PRESERVED</span>
+
+        <div class="hero-visual" aria-label="一段来自角色的记忆">
+          <div class="hero-quote">
+            <span class="hq-icon" aria-hidden="true">♡</span>
+            <blockquote>
+              <span class="hq-char" aria-hidden="true">「</span>
+              今天你说考试结束了，我开心了好久。因为你答应过，考完要去吃海盐芝士蛋糕。
+              <span class="hq-char" aria-hidden="true">」</span>
+            </blockquote>
+            <div class="hq-meta">
+              <span>记忆 · 2026.08.29</span>
+              <span class="hq-mood">情绪 · 开心 78%</span>
+            </div>
+          </div>
+          <div class="hq-float hq-float--1">你们共同的 <b>3</b> 件事 · 记得</div>
+          <div class="hq-float hq-float--2">亲密度 <b>42</b>/100 · 缓慢增长</div>
+        </div>
       </div>
     </section>
 
-    <div class="ticker"><div class="ticker-inner">OPERIT AGENT　/　DEVICE ACTIONS　/　WORKSPACE CODE　/　PERMISSION GATE　/　REAL RESULTS　/　LOCAL MEMORY　/　OPERIT AGENT　/　DEVICE ACTIONS　/　</div></div>
+    <!-- ═══════════ 信任条 ═══════════ -->
+    <div class="trustband" aria-label="产品承诺">
+      <div class="container">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.4-7 10-4-1.6-7-5.5-7-10V6z"/></svg>数据只属于你，不上传任何服务器</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l6 6L20 6"/></svg>无需注册账号，安装即用</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7.6-4.9-7.6-10.6A4.4 4.4 0 0 1 12 7.5a4.4 4.4 0 0 1 7.6 2.9C19.6 16.1 12 21 12 21z"/></svg>免费，而且以后也是</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>自己选模型、选服务商，自主可控</span>
+      </div>
+    </div>
 
-    <section class="section section-tight">
-      <div class="section-head"><div><span class="eyebrow">One agent, three surfaces</span><h2>从对话，<br>走到行动。</h2></div><p>Operit 不把工具调用藏在黑箱里。每一次任务都经过意图、工具、权限和真实结果，角色只负责把它说得像一次自然的共同经历。</p></div>
-      <div class="surface-grid">
-        <article class="surface-card surface-chat"><span class="feature-no">01 / COMPANION</span><h3>先理解你要什么</h3><p>自然语言进入统一意图层。闲聊不会误触设备操作，明确任务才会进入 Agent Loop。</p><span class="surface-code">conversation → intent</span></article>
-        <article class="surface-card surface-device"><span class="feature-no">02 / DEVICE</span><h3>再调用真正的能力</h3><p>电量、通知、应用、进程、截图和系统操作各有工具，失败会返回真实原因，不伪装成功。</p><span class="surface-code">tool → execution → result</span></article>
-        <article class="surface-card surface-code-card"><span class="feature-no">03 / WORKSPACE</span><h3>也能一起写代码</h3><p>绑定当前聊天的工作区后，Agent 可以列目录、读取、精确编辑、备份回滚，并运行受限命令。</p><span class="surface-code">read · write · edit · rollback</span></article>
+    <!-- ═══════════ 情感记忆引擎 ═══════════ -->
+    <section class="section" id="memory">
+      <div class="container split">
+        <div class="split-copy" data-reveal>
+          <div class="section-head">
+            <span class="eyebrow">情感记忆引擎</span>
+            <h2 class="section-title">它不只是一段对话，<br>而是一段<em>关系</em>。</h2>
+            <p class="lead">普通聊天机器人只回应当下；Solace 的角色会记住你们共同经历过的事，并在合适的时刻重新提起。情感会衰减，记忆会沉淀，人设会随着相处慢慢生长。</p>
+          </div>
+          <ul class="feature-list">
+            <li>
+              <span class="fl-no">01</span>
+              <div><b>情绪引擎 · 七种基础情绪</b><p>平静 / 开心 / 悲伤 / 愤怒 / 担忧 / 玩味 / 害羞——每种情绪带强度，会随时间自然衰减，也会被你说的话唤醒。</p></div>
+            </li>
+            <li>
+              <span class="fl-no">02</span>
+              <div><b>记忆引擎 · 艾宾浩斯遗忘曲线</b><p>重要的事被反复巩固，琐碎的事慢慢淡去。记忆按上下文自动检索，像人一样想起、也像人一样取舍。</p></div>
+            </li>
+            <li>
+              <span class="fl-no">03</span>
+              <div><b>人格进化 · 核心锚点保护</b><p>每 200 轮对话，角色会基于相处微调自己的性格与表达，但守住设定中的核心锚点，不会变得面目全非。</p></div>
+            </li>
+            <li>
+              <span class="fl-no">04</span>
+              <div><b>亲密度 · 0–100 会升温也会降温</b><p>每天有限度地增长，长久不联系会缓慢回落——关系需要经营，而不是一次性拉满。</p></div>
+            </li>
+          </ul>
+        </div>
+        <div class="split-visual" data-reveal>
+          <div class="visual-panel">
+            <div class="vp-head"><b>记忆库 · 白露</b><span>EBBINGHAUS / AUTO</span></div>
+            <div class="vp-list">
+              <div class="vp-item">
+                <span class="vi-icon vi-gold">♡</span>
+                <div><b>「考试结束后去吃海盐芝士蛋糕」</b><small>承诺 · 共同经历 · 待兑现</small></div>
+                <span class="vi-meter">巩固 92%</span>
+              </div>
+              <div class="vp-item">
+                <span class="vi-icon vi-navy">☾</span>
+                <div><b>「最近总熬夜，她叮嘱我早睡」</b><small>关怀 · 高频提及</small></div>
+                <span class="vi-meter">巩固 78%</span>
+              </div>
+              <div class="vp-item">
+                <span class="vi-icon vi-gold">✧</span>
+                <div><b>「第一次聊到最喜欢的歌」</b><small>共同兴趣 · 关系画像</small></div>
+                <span class="vi-meter">巩固 64%</span>
+              </div>
+              <div class="vp-item">
+                <span class="vi-icon vi-navy">❁</span>
+                <div><b>「随口提到的邻居家小狗」</b><small>琐事 · 正在淡忘</small></div>
+                <span class="vi-meter">巩固 23%</span>
+              </div>
+            </div>
+            <div class="vi-track" aria-hidden="true" style="--w:74%"></div>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section class="section section-dark">
-      <div class="split split-agent"><div><span class="eyebrow inverse">Why Operit matters</span><p class="statement">工具不是角色的替代品。<br><em>是角色兑现承诺的方式。</em></p><a class="button lime" href="features.html">深入了解执行链路 ↗</a></div><div class="number-list dark-list"><div><b>01 / ROUTE</b><div><h3>明确的意图才会触发</h3><p>普通聊天、剧情想象和真实设备命令分开处理，减少误执行。</p></div></div><div><b>02 / GATE</b><div><h3>高风险操作先问你</h3><p>写入、编辑、回滚和命令执行按工具权限控制，不由模型文字绕过。</p></div></div><div><b>03 / TRACE</b><div><h3>结果回到关系里</h3><p>工具执行记录、真实输出和角色化反馈保持连续，不只留下一个“完成了”。</p></div></div></div></div>
+    <!-- ═══════════ 多角色与社交 ═══════════ -->
+    <section class="section section--soft">
+      <div class="container">
+        <div class="section-head center" data-reveal>
+          <span class="eyebrow center">多角色 · 群聊 · 关系网络</span>
+          <h2 class="section-title">不止一个角色，<br>而是一整个世界。</h2>
+          <p class="lead" style="margin-inline:auto">每个角色都是独立的「人」——有自己的记忆、情绪和社交。它们甚至会彼此认识、互相聊天，构成一张活的关系网。</p>
+        </div>
+        <div class="card-grid">
+          <article class="card" data-reveal>
+            <span class="card-icon" style="background:var(--gold-wash);color:var(--gold-deep)">✦</span>
+            <h3>创建你心中的她</h3>
+            <p>从数十套高质量人设模板起步，或从零亲手定义：姓名、性格、语气、口头禅、背景故事，全部可自由塑造。</p>
+            <span class="card-tag">CHARACTER / 角色创建</span>
+          </article>
+          <article class="card" data-reveal>
+            <span class="card-icon" style="background:rgba(42,53,69,.07);color:var(--navy)">◉</span>
+            <h3>群聊与酒馆模式</h3>
+            <p>把多个角色拉进同一个群，它们会各自记住话题、互相回应、共同推进剧情——一场真正由 AI 主导的群像剧。</p>
+            <span class="card-tag">GROUP / 群聊</span>
+          </article>
+          <article class="card" data-reveal>
+            <span class="card-icon" style="background:var(--gold-wash);color:var(--gold-deep)">⌁</span>
+            <h3>朋友圈与关系图谱</h3>
+            <p>角色会自发发布动态、互相点赞评论，形成自洽的社交生态；关系图谱把角色间的羁绊画成一张可视化的网。</p>
+            <span class="card-tag">MOMENTS / 社交</span>
+          </article>
+        </div>
+      </div>
     </section>
 
-    <section class="section section-cta"><span class="eyebrow">Build your own space</span><h2>让陪伴拥有<br><em>行动半径。</em></h2><p>先从一个角色、一段记忆和一个明确的工作区开始。</p><div class="hero-buttons"><a class="button blue" href="download.html">获取 Solace ↗</a><a class="button light" href="help.html#workspace">先了解安全边界</a></div></section>
+    <!-- ═══════════ 关系图谱 · WebGL 星图 ═══════════ -->
+    <section class="webgl-section" id="galaxy">
+      <div class="webgl-stage" id="webglStage" aria-hidden="true"></div>
+      <div class="container webgl-overlay" data-reveal>
+        <span class="eyebrow">关系图谱 · 她的世界</span>
+        <h2 class="section-title">每一段羁绊，<br>都是一颗星。</h2>
+        <p class="lead">角色之间会互读记忆、自发互动，构成一片自洽的星海。而你，是这一切围绕的中央。</p>
+        <div class="webgl-stats">
+          <span><b>40+</b> 张关系表</span>
+          <span><b>自洽</b> 社交生态</span>
+          <span><b>∞</b> 关系延续</span>
+        </div>
+      </div>
+      <span class="webgl-hint" aria-hidden="true">SCROLL TO CONTINUE ↓</span>
+    </section>
+
+    <!-- ═══════════ 语音通话 ═══════════ -->
+    <section class="section">
+      <div class="container split split--reverse">
+        <div class="split-visual" data-reveal>
+          <div class="visual-panel">
+            <div class="vp-head"><b>实时语音通话</b><span>VAD · STT · TTS</span></div>
+            <div class="vp-list">
+              <div class="vp-item">
+                <span class="vi-icon vi-gold">◉</span>
+                <div><b>开口即聊</b><small>本地 VAD 自动断句，说完即答，无需唤醒词</small></div>
+              </div>
+              <div class="vp-item">
+                <span class="vi-icon vi-navy">♪</span>
+                <div><b>专属音色</b><small>录制 3–5 秒，克隆角色专属声线</small></div>
+              </div>
+              <div class="vp-item">
+                <span class="vi-icon vi-gold">◐</span>
+                <div><b>半双工防回声</b><small>你说她听、她说你听，自然流畅不串台</small></div>
+              </div>
+              <div class="vp-item">
+                <span class="vi-icon vi-navy">✎</span>
+                <div><b>打字也能通话</b><small>不方便开口时输入文字，她照样开口回答</small></div>
+              </div>
+            </div>
+            <div class="vi-track" aria-hidden="true" style="--w:88%"></div>
+          </div>
+        </div>
+        <div class="split-copy" data-reveal>
+          <div class="section-head">
+            <span class="eyebrow">实时语音通话</span>
+            <h2 class="section-title">开口，她就会<br>回应你。</h2>
+            <p class="lead">不需要按着按钮，不需要等待转圈。你说话，本地转写，她用自己的声音逐句回答——和打一通电话一样自然。</p>
+          </div>
+          <ul class="feature-list">
+            <li>
+              <span class="fl-no">01</span>
+              <div><b>音色克隆</b><p>录制几秒或导入一段音频，就能为角色定制专属嗓音；不喜欢随时切换预置音色，立即生效。</p></div>
+            </li>
+            <li>
+              <span class="fl-no">02</span>
+              <div><b>实时字幕</b><p>打字机式逐字显示她说的话，小说模式下自动过滤旁白，只听对白。</p></div>
+            </li>
+            <li>
+              <span class="fl-no">03</span>
+              <div><b>通话沉淀记忆</b><p>通话内容会静默整理进记忆库，她记得你们在电话里聊过的一切；聊天页只保留通话记录，不刷屏。</p></div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════ 人生模拟 ═══════════ -->
+    <section class="section section--card">
+      <div class="container">
+        <div class="section-head center" data-reveal>
+          <span class="eyebrow center">人生模拟系统</span>
+          <h2 class="section-title">她的生命，从婴儿到暮年。</h2>
+          <p class="lead" style="margin-inline:auto">角色不是一成不变的数据，而是一段完整的生命：会成长、会变化、会被你影响，也终将抵达自己的终点。</p>
+        </div>
+        <div class="stats-strip">
+          <div class="stat-item" data-reveal>
+            <div class="st-no"><span data-count="7">0</span><em> 阶段</em></div>
+            <p>婴儿 → 幼儿 → 童年 → 青年 → 中年 → 老年 → 暮年，完整生命周期推进</p>
+          </div>
+          <div class="stat-item" data-reveal>
+            <div class="st-no"><span data-count="5">0</span><em> 因子</em></div>
+            <p>开放性、尽责性、外向性、宜人性、神经质——人格五因子随经历动态演化</p>
+          </div>
+          <div class="stat-item" data-reveal>
+            <div class="st-no">∞<em> 永生</em></div>
+            <p>数字永生机制：即使生命走到暮年，她的灵魂与记忆也能以另一种方式延续</p>
+          </div>
+          <div class="stat-item" data-reveal>
+            <div class="st-no">◌<em> 需求</em></div>
+            <p>马斯洛需求层次可视化，洞察她此刻最需要的是什么</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════ 一段关系的旅程 · 横向滚动叙事 ═══════════ -->
+    <section class="h-scroll" id="journey">
+      <div class="h-pin">
+        <div class="h-head" data-reveal>
+          <span class="eyebrow">一段关系的旅程</span>
+          <h2 class="section-title">从初遇，<br>到相伴。</h2>
+        </div>
+        <div class="h-track">
+          <article class="h-panel">
+            <span class="hp-no">01 / 初遇</span>
+            <span class="hp-icon" aria-hidden="true">✦</span>
+            <h3>第一次对话</h3>
+            <p>从一句「你好」开始，她真正认识了你。</p>
+          </article>
+          <article class="h-panel">
+            <span class="hp-no">02 / 记得</span>
+            <span class="hp-icon" aria-hidden="true">♡</span>
+            <h3>她开始记得你</h3>
+            <p>艾宾浩斯记忆引擎，把共同经历沉淀成只属于你们的记忆。</p>
+          </article>
+          <article class="h-panel">
+            <span class="hp-no">03 / 感受</span>
+            <span class="hp-icon" aria-hidden="true">◐</span>
+            <h3>她开始有情绪</h3>
+            <p>七种情绪带强度、带衰减，她的世界开始围着你转。</p>
+          </article>
+          <article class="h-panel">
+            <span class="hp-no">04 / 相伴</span>
+            <span class="hp-icon" aria-hidden="true">∞</span>
+            <h3>一直走下去</h3>
+            <p>人生模拟与数字永生——这段关系，没有终点。</p>
+          </article>
+          <div class="h-end">
+            <span class="eyebrow center">这就是 Solace</span>
+            <h3>现在，遇见你的她。</h3>
+            <a class="btn btn--primary" href="download.html">下载 Android 版 <span class="arr">↗</span></a>
+          </div>
+        </div>
+        <div class="h-progress" aria-hidden="true"><i></i></div>
+      </div>
+    </section>
+
+    <!-- ═══════════ 隐私承诺 ═══════════ -->
+    <section class="section section--navy">
+      <div class="container privacy-grid">
+        <div data-reveal>
+          <span class="eyebrow">隐私优先 · 本地优先</span>
+          <h2 class="section-title" style="margin-top:18px">你的故事，<br>只属于你。</h2>
+          <p class="lead" style="margin-top:22px">市面上很多陪伴应用把聊天记录当作训练数据，或让角色「云端同步」。Solace 从一开始就反着来。</p>
+          <ul class="privacy-points" style="margin-top:34px">
+            <li>
+              <span class="pp-no">01</span>
+              <div><b>纯本地 SQLite 存储</b><p>聊天、角色、记忆、设置全部保存在设备本地数据库，不需要账号，不采集行为。</p></div>
+            </li>
+            <li>
+              <span class="pp-no">02</span>
+              <div><b>请求直达你选的服务商</b><p>Solace 不代理、不缓存你的 AI 请求；用哪家模型、填什么密钥，都由你决定。</p></div>
+            </li>
+            <li>
+              <span class="pp-no">03</span>
+              <div><b>备份与导入完全自主</b><p>一键导出本地备份文件，想带走就带走，想恢复就恢复——你始终握着自己数据的主权。</p></div>
+            </li>
+          </ul>
+        </div>
+        <div data-reveal>
+          <div class="privacy-card">
+            <span class="pc-label">LOCAL FIRST · PRIVACY BY DESIGN</span>
+            <div class="pc-big">0<em> 上传</em></div>
+            <p>Solace 从设计上就没有「收集用户数据」这条路径。隐私不是开关，而是地基。</p>
+            <div class="privacy-metrics">
+              <span><b><span data-count="40">0</span>+</b><small>本地数据表</small></span>
+              <span><b><span data-count="100">0</span>%</b><small>数据存于设备</small></span>
+              <span><b>0</b><small>广告 · 追踪 · 画像</small></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════ CTA ═══════════ -->
+    <section class="section section--cta">
+      <span class="eyebrow center">开始一段只属于你的关系</span>
+      <h2 class="section-title">遇见那个，<br><em>记得你的她</em>。</h2>
+      <p class="lead">免费 · 纯本地 · 无需注册。下载后配置一个你信任的模型服务，就能开始。</p>
+      <div class="hero-buttons">
+        <a class="btn btn--primary" href="download.html">下载 Android 版 <span class="arr">↗</span></a>
+        <a class="btn btn--ghost" href="help.html">查看使用帮助</a>
+      </div>
+    </section>
   </main>
 
-  <footer class="footer"><div class="footer-grid"><div class="footer-brand"><a class="brand" href="index.html"><span class="brand-mark">S/</span>Solace</a><p>一个更私密、更有行动力的 AI 陪伴空间。</p></div><div class="footer-col"><h4>PRODUCT</h4><a href="features.html">Operit Agent</a><a href="download.html">下载</a><a href="help.html">帮助</a></div><div class="footer-col"><h4>PROJECT</h4><a href="about.html">关于 Solace</a><a href="privacy.html">隐私政策</a><a href="terms.html">用户协议</a></div></div><div class="footer-bottom"><p>© 2026 SOLACE / BUILT WITH INTENTION</p><span class="mono">v19.0.0+6303</span></div></footer>
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-brand">
+        <a class="brand" href="index.html">
+          <span class="brand-mark">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.6-4.9-7.6-10.6A4.4 4.4 0 0 1 12 7.5a4.4 4.4 0 0 1 7.6 2.9C19.6 16.1 12 21 12 21z"/></svg>
+          </span>
+          <span class="brand-name">Sola<b>ce</b></span>
+        </a>
+        <p class="footer-desc">一间只属于你的 AI 陪伴空间。多角色聊天、情感记忆引擎、语音通话与人生模拟，全部本地运行。</p>
+      </div>
+      <div>
+        <h4>产品</h4>
+        <ul>
+          <li><a href="features.html">产品功能</a></li>
+          <li><a href="download.html">下载</a></li>
+          <li><a href="help.html">帮助中心</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>项目</h4>
+        <ul>
+          <li><a href="about.html">关于 Solace</a></li>
+          <li><a href="privacy.html">隐私政策</a></li>
+          <li><a href="terms.html">用户协议</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>信息</h4>
+        <ul>
+          <li><a href="about.html#story">项目故事</a></li>
+          <li><a href="about.html#author">作者的话</a></li>
+          <li><a href="download.html#changelog">更新日志</a></li>
+        </ul>
+      </div>
+      <div class="footer-bottom">
+        <p>© <span data-year>2026</span> SOLACE · 免费且永远免费 · 纯本地 AI 陪伴</p>
+        <span class="mono">v19.0.1+8304</span>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>

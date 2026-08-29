@@ -1,20 +1,203 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>帮助 / Operit Agent / Solace</title>
-  <meta name="description" content="Solace 和 Operit Agent 的配置、工作区安全与常见问题。">
-  <link rel="stylesheet" href="style.css?v=19.0.0-r1"><script src="site.js?v=19.0.0-r1" defer></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>帮助中心 · Solace</title>
+  <meta name="description" content="Solace 使用帮助：快速上手、AI 模型配置、数据备份与常见问题。">
+  <meta name="theme-color" content="#F8F6F2">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap"></noscript>
+  <link rel="stylesheet" href="style.css?v=2026.08.30">
+  <script src="site.js?v=2026.08.30" defer></script>
 </head>
 <body>
-  <nav class="site-nav"><a class="brand" href="index.html"><span class="brand-mark">S/</span>Solace</a><div class="nav-links"><a href="index.html">首页</a><a href="features.html">Operit Agent</a><a href="download.html">下载</a><a href="about.html">关于</a><a class="active" href="help.html">帮助</a></div><a class="nav-action" href="download.html">获取 App ↗</a><button class="menu-button" aria-label="打开菜单" data-menu-toggle>☰</button></nav>
-  <header class="page-head"><span class="eyebrow">Help / boundaries first</span><h1>先知道<br><em>它会做什么。</em></h1><p>配置方法、执行边界和常见问题。</p></header>
-  <main class="page-body">
-    <section><div class="section-head"><div><span class="eyebrow">Quick start</span><h2>三分钟<br>进入状态。</h2></div></div><div class="steps"><div class="step"><b>01</b><h3>配置模型</h3><p>填写 OpenAI 兼容服务的地址、密钥和模型。Solace 不代理你的请求。</p></div><div class="step"><b>02</b><h3>创建角色</h3><p>定义一个角色，先用普通对话确认关系和语气，再让它开始使用工具。</p></div><div class="step"><b>03</b><h3>开启 Agent</h3><p>从明确任务开始，例如“查看当前工作区内容”或“查询设备电量”。</p></div></div></section>
-    <section id="workspace" class="help-workspace"><div class="section-head"><div><span class="eyebrow">Workspace safety</span><h2>代码工作区<br><em>怎么不会乱改？</em></h2></div><p>当前版本把“看文件”和“改文件”分成不同风险级别。你可以先让 Agent 只读观察，再决定是否授权修改。</p></div><div class="safety-grid"><article class="safety-card safe-card"><b>READ ONLY</b><h3>可以先查看</h3><p>目录列表和文件读取只接受工作区内相对路径，拒绝明显的路径穿越和符号链接。</p><code>list_directory · read_file</code></article><article class="safety-card ask-card"><b>REQUIRES APPROVAL</b><h3>修改前要确认</h3><p>写入、精确编辑和回滚属于高影响操作。已有文件会先生成 `.solace-backup-*` 快照。</p><code>write_file · edit_file · rollback_file</code></article><article class="safety-card command-card"><b>HIGH IMPACT</b><h3>命令单独看待</h3><p>命令执行需要独立权限，Android 还要求 Shizuku 就绪，并拦截已知高风险命令。</p><code>run_command</code></article></div><div class="warning-strip"><strong>恢复默认目录 ≠ 删除目录</strong><span>它只解除当前聊天的绑定，不会删除、清空或移动原目录里的代码。</span></div></section>
-    <section><div class="section-head"><div><span class="eyebrow">FAQ / Operit</span><h2>常见问题，<br>直接回答。</h2></div></div><div class="faq"><details open><summary>Operit Agent 和普通聊天有什么区别？</summary><p>普通聊天只生成回复；Operit 会识别明确任务、选择工具、按权限执行，并把真实结果交还给角色。工具协议和执行结果不会混入角色化的自然语言参数。</p></details><details><summary>我只想让它看代码，可以不允许写入吗？</summary><p>可以。目录列表和文件读取是只读工具；写入、编辑、回滚和命令执行使用独立权限。你可以在权限弹窗中拒绝本次操作。</p></details><details><summary>恢复默认目录会不会删除我的项目？</summary><p>不会。当前“恢复默认目录（解除绑定）”只删除当前聊天保存的工作区绑定键，原目录和文件保持不变。</p></details><details><summary>为什么工作区任务没有执行？</summary><p>先确认当前聊天已经绑定目录；再确认工具权限没有被设置为始终拒绝。Android 上执行命令还需要 Shizuku，文件读写与 Shell 命令是两条不同的能力链路。</p></details><details><summary>数据会上传到 Solace 吗？</summary><p>角色、聊天、记忆和设置默认留在设备本地。AI 请求由你的设备直接发送给你配置的服务商；工作区文件也只在你授权的本地路径上处理。</p></details></div></section>
-    <section><div class="section-head"><div><span class="eyebrow">Troubleshooting</span><h2>遇到问题时，<br><em>先看真实结果。</em></h2></div></div><div class="number-list"><div><b>NO WORKSPACE</b><div><h3>未绑定工作区</h3><p>回到当前聊天设置，选择一个真实存在的目录。解除绑定不会删除目录。</p></div></div><div><b>PERMISSION</b><div><h3>用户未批准工具</h3><p>这是安全拒绝，不是执行失败。重新发起任务即可再次确认。</p></div></div><div><b>COMMAND</b><div><h3>命令执行失败</h3><p>查看返回的 exit code 和 stderr。Agent 不会把失败包装成成功。</p></div></div></div></section>
+  <nav class="site-nav" aria-label="主导航">
+    <div class="nav-inner">
+      <a class="brand" href="index.html" aria-label="Solace 首页">
+        <span class="brand-mark">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.6-4.9-7.6-10.6A4.4 4.4 0 0 1 12 7.5a4.4 4.4 0 0 1 7.6 2.9C19.6 16.1 12 21 12 21z"/></svg>
+        </span>
+        <span class="brand-name">Sola<b>ce</b></span>
+      </a>
+      <div class="nav-links">
+        <a href="index.html">首页</a>
+        <a href="features.html">产品功能</a>
+        <a href="download.html">下载</a>
+        <a href="about.html">关于</a>
+        <a class="active" href="help.html">帮助</a>
+      </div>
+      <div class="nav-actions">
+        <a class="btn btn--primary btn-sm nav-action" href="download.html">获取 App <span class="arr">↗</span></a>
+        <button class="menu-button" aria-label="打开菜单" data-menu-toggle aria-expanded="false">☰</button>
+      </div>
+    </div>
+  </nav>
+
+  <header class="page-head">
+    <div class="container">
+      <span class="eyebrow">帮助中心 · Help</span>
+      <h1 class="display">上手很简单，<br>答案都在这里。</h1>
+      <p class="lead">从第一次安装到深度使用，帮你把每一步走顺。</p>
+    </div>
+  </header>
+
+  <main class="page-main">
+    <!-- 快速上手 -->
+    <section class="block" data-reveal>
+      <div class="block-head">
+        <span class="eyebrow">快速上手</span>
+        <h2>打开 Solace，第一件事做什么。</h2>
+        <p class="lead">从零开始，只需要这三步。</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <span class="st-no">01</span>
+          <h3>配置模型服务</h3>
+          <p>打开应用 → 设置 → AI 配置，填写 OpenAI 兼容接口的地址、密钥与模型名称。Solace 不代理你的请求，数据只在你和服务商之间往来。</p>
+        </div>
+        <div class="step">
+          <span class="st-no">02</span>
+          <h3>创建第一个角色</h3>
+          <p>从内置角色开始，或动手创造一个。先通过普通对话确认关系基调，再慢慢探索她的记忆、情绪和更多能力。</p>
+        </div>
+        <div class="step">
+          <span class="st-no">03</span>
+          <h3>探索高级功能</h3>
+          <p>熟悉聊天后，可以试试语音通话、人生模拟、朋友圈和群聊。这些功能都是可选的，按你喜欢的节奏来就好。</p>
+        </div>
+      </div>
+    </section>
+
+    <hr class="section-rule">
+
+    <!-- AI 配置 -->
+    <section class="block" data-reveal>
+      <div class="block-head">
+        <span class="eyebrow">AI 模型配置</span>
+        <h2>选一个你信任的模型。</h2>
+        <p class="lead">Solace 支持所有 OpenAI 兼容接口的模型服务商，并提供内置模型一键切换。</p>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>支持的模型类型</summary>
+          <p>任何兼容 OpenAI API 格式的模型均可使用：GPT 系列、Claude（通过兼容接口）、DeepSeek、GLM 系列、Qwen 系列等。只需填写正确的 API Base URL 和 API Key。</p>
+        </details>
+        <details>
+          <summary>内置模型（一键切换）</summary>
+          <p>Solace 内置了 NVIDIA Step-3.7-Flash 和 SiliconFlow GLM-Z1-9B 等模型入口。在设置页选择即可，无需手动填写地址，但需要配置对应的 API Key。</p>
+        </details>
+        <details>
+          <summary>API Key 安全吗？</summary>
+          <p>API Key 保存在设备本地 SQLite 数据库中，Solace 不会将密钥上传到任何服务器。你的 AI 请求直接发送给你配置的服务商，不经过 Solace 代理。</p>
+        </details>
+        <details>
+          <summary>为什么模型不回复 / 回复很慢？</summary>
+          <p>先确认 API Base URL 和 Key 填写正确。如果服务商在大陆访问受限，可能需要配置网络代理。流式模式下，慢回复通常与服务商响应速度有关，Solace 内部已设置 90 秒超时保护。</p>
+        </details>
+      </div>
+    </section>
+
+    <hr class="section-rule">
+
+    <!-- 常见问题 -->
+    <section class="block" data-reveal>
+      <div class="block-head">
+        <span class="eyebrow">常见问题 · FAQ</span>
+        <h2>你可能会问的。</h2>
+        <p class="lead">收集了用户反馈中最常见的问题，答案直接放在这里。</p>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>Solace 会收集我的数据吗？</summary>
+          <p>不会。所有聊天、角色、记忆和设置保存在设备本地 SQLite 数据库中。Solace 没有云端服务器接收你的数据。AI 请求由你的设备直接发送给你配置的模型服务商。</p>
+        </details>
+        <details>
+          <summary>需要注册账号才能使用吗？</summary>
+          <p>不需要。Solace 没有账号系统，安装后直接使用。所有数据在本地，卸载或清除数据会丢失，建议在重要操作前导出备份。</p>
+        </details>
+        <details>
+          <summary>如何备份和恢复数据？</summary>
+          <p>在设置页面可以一键导出备份文件（.db 格式），将文件保存到安全位置。恢复时选择「导入备份」，选择对应文件即可。备份文件包含所有角色、聊天记录和记忆。</p>
+        </details>
+        <details>
+          <summary>角色会忘记之前的事吗？</summary>
+          <p>会，但这是设计而非缺陷。Solace 采用艾宾浩斯遗忘曲线：重要的事会被反复巩固，琐碎的细节会自然淡出。你可以通过重新提及来刷新记忆，就像对真人一样。</p>
+        </details>
+        <details>
+          <summary>语音通话是怎么工作的？</summary>
+          <p>点击角色卡片上的通话按钮：你说的话通过本地 VAD 自动断句 → 本地 STT 转写成文字 → AI 生成回复 → 用角色的克隆音色逐句朗读。全程半双工防回声，不会你说一句它打断一句。</p>
+        </details>
+        <details>
+          <summary>Operit Agent 是什么？必须用吗？</summary>
+          <p>Operit Agent 是 Solace 的可选进阶功能，让角色在明确授权下执行设备操作和代码工作区任务。如果你不需要，完全不用开启，不影响普通聊天和陪伴体验。</p>
+        </details>
+        <details>
+          <summary>Solace 有 iOS 或桌面版吗？</summary>
+          <p>目前 Solace 专注于 Android 平台。未来是否扩展取决于用户需求与开发资源。关注本站可获取最新发布信息。</p>
+        </details>
+        <details>
+          <summary>如何反馈问题或建议？</summary>
+          <p>建议通过应用内反馈渠道、GitHub Issues 或应用商店评论区提交。你的每一条反馈都会影响 Solace 接下来的方向。</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="section section--cta">
+      <span class="eyebrow center">还没下载？</span>
+      <h2 class="section-title">现在就来，<br>遇见她。</h2>
+      <p class="lead">免费 · 纯本地 · 无需注册 · 无广告。</p>
+      <div class="hero-buttons">
+        <a class="btn btn--primary" href="download.html">下载 Android 版 <span class="arr">↗</span></a>
+        <a class="btn btn--ghost" href="features.html">先看功能</a>
+      </div>
+    </section>
   </main>
-  <footer class="footer"><div class="footer-grid"><div class="footer-brand"><a class="brand" href="index.html"><span class="brand-mark">S/</span>Solace</a><p>一个更私密、更有行动力的 AI 陪伴空间。</p></div><div class="footer-col"><h4>PRODUCT</h4><a href="features.html">Operit Agent</a><a href="download.html">下载</a></div><div class="footer-col"><h4>PROJECT</h4><a href="about.html">关于 Solace</a><a href="privacy.html">隐私政策</a><a href="terms.html">用户协议</a></div></div><div class="footer-bottom"><p>© 2026 SOLACE / BUILT WITH INTENTION</p><span class="mono">v19.0.0+6303</span></div></footer>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-brand">
+        <a class="brand" href="index.html">
+          <span class="brand-mark">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.6-4.9-7.6-10.6A4.4 4.4 0 0 1 12 7.5a4.4 4.4 0 0 1 7.6 2.9C19.6 16.1 12 21 12 21z"/></svg>
+          </span>
+          <span class="brand-name">Sola<b>ce</b></span>
+        </a>
+        <p class="footer-desc">一间只属于你的 AI 陪伴空间。多角色聊天、情感记忆引擎、语音通话与人生模拟，全部本地运行。</p>
+      </div>
+      <div>
+        <h4>产品</h4>
+        <ul>
+          <li><a href="features.html">产品功能</a></li>
+          <li><a href="download.html">下载</a></li>
+          <li><a href="help.html">帮助中心</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>项目</h4>
+        <ul>
+          <li><a href="about.html">关于 Solace</a></li>
+          <li><a href="privacy.html">隐私政策</a></li>
+          <li><a href="terms.html">用户协议</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>信息</h4>
+        <ul>
+          <li><a href="about.html#story">项目故事</a></li>
+          <li><a href="about.html#author">作者的话</a></li>
+          <li><a href="download.html#changelog">更新日志</a></li>
+        </ul>
+      </div>
+      <div class="footer-bottom">
+        <p>© <span data-year>2026</span> SOLACE · 免费且永远免费 · 纯本地 AI 陪伴</p>
+        <span class="mono">v19.0.1+8304</span>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>

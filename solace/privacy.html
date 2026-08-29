@@ -1,21 +1,84 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>隐私政策 / Solace</title>
-  <meta name="description" content="Solace 与 Operit Agent 的隐私政策。">
-  <link rel="stylesheet" href="style.css?v=19.0.0-r1"><script src="site.js?v=19.0.0-r1" defer></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>隐私政策 · Solace</title>
+  <meta name="description" content="Solace 隐私政策——本地优先、数据不上传、隐私设计概述。">
+  <meta name="theme-color" content="#F8F6F2">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap"></noscript>
+  <link rel="stylesheet" href="style.css?v=2026.08.30">
+  <script src="site.js?v=2026.08.30" defer></script>
 </head>
 <body>
-  <nav class="site-nav"><a class="brand" href="index.html"><span class="brand-mark">S/</span>Solace</a><div class="nav-links"><a href="index.html">首页</a><a href="features.html">Operit Agent</a><a href="download.html">下载</a><a href="about.html">关于</a><a href="help.html">帮助</a></div><a class="nav-action" href="download.html">获取 App ↗</a><button class="menu-button" aria-label="打开菜单" data-menu-toggle>☰</button></nav>
-  <main class="legal"><a class="back" href="index.html">← 返回首页</a><span class="eyebrow">Privacy / 2026.08</span><h1>隐私<em>政策</em></h1><p class="updated">最后更新：2026 年 8 月 20 日</p>
-    <section><h2>本地优先承诺</h2><p>Solace 是一款本地优先的 AI 陪伴应用。聊天内容、角色配置、记忆、设置和 API 密钥默认保存在你的设备上。Operit Agent 只在你明确使用相关能力时访问设备工具或绑定的工作区。</p></section>
-    <section><h2>我们不收集什么</h2><ul><li>聊天内容、角色设定和记忆内容</li><li>API 密钥、认证信息和设备标识符</li><li>位置、联系人、照片或其他个人文件</li><li>广告标识、行为画像和第三方分析数据</li></ul></section>
-    <section><h2>第三方 AI 服务</h2><p>当你发送消息时，应用会根据你的配置直接调用对应 AI 服务商。该服务商可能按照其自己的隐私政策处理请求。Solace 不代理、不保存这些请求。</p></section>
-    <section><h2>Operit 与工作区</h2><p>设备操作、Shell 命令和工作区文件访问属于不同能力链路。工作区工具只应处理你明确绑定的目录；写入、编辑、回滚和命令执行由应用权限策略控制。恢复默认目录只解除绑定，不删除原目录。</p></section>
-    <section><h2>数据安全与备份</h2><p>请使用系统锁屏并妥善保存本地备份文件。卸载应用或清除应用数据可能删除本地内容，建议在重要操作前导出备份。</p></section>
-    <section><h2>联系我们</h2><p>如果你对隐私有疑问，请通过应用内反馈渠道联系开发者。</p></section>
+  <nav class="site-nav" aria-label="主导航">
+    <div class="nav-inner">
+      <a class="brand" href="index.html" aria-label="Solace 首页">
+        <span class="brand-mark">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.6-4.9-7.6-10.6A4.4 4.4 0 0 1 12 7.5a4.4 4.4 0 0 1 7.6 2.9C19.6 16.1 12 21 12 21z"/></svg>
+        </span>
+        <span class="brand-name">Sola<b>ce</b></span>
+      </a>
+      <div class="nav-links">
+        <a href="index.html">首页</a>
+        <a href="features.html">产品功能</a>
+        <a href="download.html">下载</a>
+        <a href="about.html">关于</a>
+        <a href="help.html">帮助</a>
+      </div>
+      <div class="nav-actions">
+        <a class="btn btn--primary btn-sm nav-action" href="download.html">获取 App <span class="arr">↗</span></a>
+        <button class="menu-button" aria-label="打开菜单" data-menu-toggle aria-expanded="false">☰</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="legal">
+    <a class="back" href="index.html">← 返回首页</a>
+    <span class="eyebrow">Privacy · 2026.08</span>
+    <h1 class="display" style="font-size:clamp(38px,6vw,52px)">隐私<em style="color:var(--gold-deep);font-style:normal">政策</em></h1>
+    <p class="updated">最后更新：2026 年 8 月 20 日</p>
+
+    <section>
+      <h2>本地优先承诺</h2>
+      <p>Solace 是一款本地优先的 AI 陪伴应用。聊天内容、角色配置、记忆、设置和 API 密钥默认保存在你的设备上。Operit Agent 只在你明确使用相关能力时访问设备工具或绑定的工作区。</p>
+    </section>
+    <section>
+      <h2>我们不收集什么</h2>
+      <ul>
+        <li>聊天内容、角色设定和记忆内容</li>
+        <li>API 密钥、认证信息和设备标识符</li>
+        <li>位置、联系人、照片或其他个人文件</li>
+        <li>广告标识、行为画像和第三方分析数据</li>
+      </ul>
+    </section>
+    <section>
+      <h2>第三方 AI 服务</h2>
+      <p>当你发送消息时，应用会根据你的配置直接调用对应 AI 服务商。该服务商可能按照其自己的隐私政策处理请求。Solace 不代理、不保存这些请求。</p>
+    </section>
+    <section>
+      <h2>Operit 与工作区</h2>
+      <p>设备操作、Shell 命令和工作区文件访问属于不同能力链路。工作区工具只应处理你明确绑定的目录；写入、编辑、回滚和命令执行由应用权限策略控制。恢复默认目录只解除绑定，不删除原目录。</p>
+    </section>
+    <section>
+      <h2>数据安全与备份</h2>
+      <p>请使用系统锁屏并妥善保存本地备份文件。卸载应用或清除应用数据可能删除本地内容，建议在重要操作前导出备份。</p>
+    </section>
+    <section>
+      <h2>联系我们</h2>
+      <p>如果你对隐私有疑问，请通过应用内反馈渠道联系开发者。</p>
+    </section>
   </main>
-  <footer class="footer"><div class="footer-bottom"><p>© 2026 SOLACE / BUILT WITH INTENTION</p><a href="terms.html">用户协议</a></div></footer>
+
+  <footer class="footer">
+    <div class="container" style="grid-template-columns:1fr 1fr;padding-bottom:14px">
+      <div><p style="margin:0;font-size:13px">© <span data-year>2026</span> SOLACE · 免费且永远免费</p></div>
+      <div style="text-align:right"><a href="terms.html" style="color:var(--gold-soft);font-size:13px">用户协议</a></div>
+    </div>
+  </footer>
 </body>
 </html>
