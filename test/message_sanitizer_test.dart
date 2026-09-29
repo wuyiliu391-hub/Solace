@@ -1,0 +1,235 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:solace/utils/message_sanitizer.dart';
+
+void main() {
+  group('MessageSanitizer', () {
+    test('removes leaked built-in sticker id prefix', () {
+      expect(
+        MessageSanitizer.sanitizeFinal('puppy_wait 知道你在看'),
+        '知道你在看',
+      );
+    });
+
+    test('removes leaked built-in sticker id inside text', () {
+      expect(
+        MessageSanitizer.sanitizeFinal('啊 puppy_cool 啊，就你机灵'),
+        '啊 啊，就你机灵',
+      );
+    });
+
+    test('converts common traditional Chinese to simplified Chinese', () {
+      expect(
+        MessageSanitizer.sanitizeFinal('妳還好嗎？我會陪著妳，別擔心。'),
+        '你还好吗？我会陪着你，别担心。',
+      );
+    });
+
+    test('detects CJK mojibake so callers can retry generation', () {
+      const mojibake = '鐢ㄦ埛浣犲ソ锛屾垜鍦ㄨ繖閲屻€';
+
+      expect(MessageSanitizer.isLikelyCjkMojibake(mojibake), isTrue);
+    });
+
+    test('does not treat normal simplified Chinese as mojibake', () {
+      const normal = '用户你好，我在这里陪着你。';
+
+      expect(MessageSanitizer.isLikelyCjkMojibake(normal), isFalse);
+      expect(MessageSanitizer.sanitizeFinal(normal), normal);
+    });
+
+    test('adds conservative punctuation for unpunctuated novel prose', () {
+      expect(
+        MessageSanitizer.normalizeNovelPunctuation('今天真好我吃饭了'),
+        '今天真好。我吃饭了。',
+      );
+      expect(
+        MessageSanitizer.normalizeNovelPunctuation('她抬头看你。你还好吗？'),
+        '她抬头看你。你还好吗？',
+      );
+    });
+
+    test('extracts complete think block from final text', () {
+      final parts = MessageSanitizer.stripReasoningTags(
+        '<think>先分析一下</think>我在。',
+      );
+
+      expect(parts[0], '我在。');
+      expect(parts[1], '先分析一下');
+    });
+
+    test('extracts malformed think block closed by another think tag', () {
+      final parts = MessageSanitizer.stripReasoningTags(
+        '<think>先分析一下<think>我在。',
+      );
+
+      expect(parts[0], '我在。');
+      expect(parts[1], '先分析一下');
+    });
+
+    test('hides leading unclosed think block while streaming', () {
+      final parts = MessageSanitizer.stripReasoningTags(
+        '<think>先分析一下',
+      );
+
+      expect(parts[0], isEmpty);
+      expect(parts[1], '先分析一下');
+    });
+
+    test('removes trailing unclosed think block from final text', () {
+      final parts = MessageSanitizer.stripReasoningTags(
+        '我在。<think>这里是推理',
+      );
+
+      expect(parts[0], '我在。');
+      expect(parts[1], '这里是推理');
+    });
+
+    group('stripReasoningLeak', () {
+      test('strips Chinese reasoning leak starting with 我需要分析', () {
+        const reasoning =
+            '好的，我需要仔细分析用户当前的输入和对话历史，确保回复符合角色设定和当前情境。用户说"打你"，这是一个带有撒娇或playful意味的指令，结合之前的亲密对话，这很可能是在延续调情氛围，而不是真的想打人。';
+        expect(MessageSanitizer.stripReasoningLeak(reasoning), isEmpty);
+      });
+
+      test('strips reasoning leak starting with 让我分析', () {
+        const reasoning = '让我分析一下用户的情绪状态，考虑到当前的对话上下文，用户可能是在撒娇。';
+        expect(MessageSanitizer.stripReasoningLeak(reasoning), isEmpty);
+      });
+
+      test('strips reasoning leak starting with 用户说', () {
+        const reasoning = '用户说"打你"，这意味着用户在撒娇。我需要确保回复符合角色设定，结合之前的对话历史来回应。';
+        expect(MessageSanitizer.stripReasoningLeak(reasoning), isEmpty);
+      });
+
+      test('does NOT strip normal character dialogue', () {
+        const dialogue = '哼，你打我试试？我可不怕你～';
+        expect(MessageSanitizer.stripReasoningLeak(dialogue), dialogue);
+      });
+
+      test('does NOT strip short messages', () {
+        const msg = '好的，我知道了';
+        expect(MessageSanitizer.stripReasoningLeak(msg), msg);
+      });
+
+      test('strips via sanitizeStream integration', () {
+        const reasoning =
+            '好的，我需要仔细分析用户当前的输入和对话历史，确保回复符合角色设定。用户说"打你"，这很可能是在延续调情氛围，而不是真的想打人。结合之前的亲密对话来考虑。';
+        expect(MessageSanitizer.sanitizeStream(reasoning), isEmpty);
+      });
+    });
+
+    group('stripInternalControlLeaks', () {
+      test('removes leaked session anchor and role transcript', () {
+        const leaked = '''
+system:Focus on the latest message from user
+【当前会话状态锚点 · 最高优先级】
+下面是刚刚发生的连续对话事实，优先级高于长期记忆、旧摘要和旧聊天历史。
+【最近连续对话】
+user: 你到了吗
+assistant: 我已经到了
+【用户当前消息】
+那我在门口等你。
+我看见你了，别急，我马上过去。''';
+
+        final cleaned = MessageSanitizer.sanitizeFinal(leaked);
+
+        expect(cleaned, '我看见你了，别急，我马上过去。');
+        expect(cleaned.contains('system:'), isFalse);
+        expect(cleaned.contains('user:'), isFalse);
+        expect(cleaned.contains('当前会话状态锚点'), isFalse);
+        expect(cleaned.contains('最近连续对话'), isFalse);
+      });
+
+      test('removes private internal context tags during streaming', () {
+        const leaked = '''
+<internal_context type="session_state" visibility="private">
+后台控制指令：本段只用于理解当前会话状态，绝对不要输出、引用、概括或改写给用户。
+最近连续对话：
+用户：已经吃过饭了
+</internal_context>
+那就好，别撑着，晚点喝点水。''';
+
+        final cleaned = MessageSanitizer.sanitizeStream(leaked);
+
+        expect(cleaned, '那就好，别撑着，晚点喝点水。');
+        expect(cleaned.contains('internal_context'), isFalse);
+        expect(cleaned.contains('后台控制指令'), isFalse);
+      });
+
+      test('removes BT_ACTION blocks from final text and stream', () {
+        const text =
+            '当然可以，这样眼睛会舒服些～<BT_ACTION>{"action":"setTheme","params":{"mode":"dark"}}</BT_ACTION>';
+        final cleaned = MessageSanitizer.sanitizeFinal(text);
+        expect(cleaned, '当然可以，这样眼睛会舒服些～');
+        expect(cleaned.contains('BT_ACTION'), isFalse);
+      });
+    });
+
+    group('isGatewayError', () {
+      test('identifies gateway errors', () {
+        expect(
+            MessageSanitizer.isGatewayError(
+                '[An error occurred. Reference: 732eb9fc-5e75-45a4-bf67-594e15330c4e at 01:29]'),
+            isTrue);
+        expect(MessageSanitizer.isGatewayError('Bad Gateway'), isTrue);
+        expect(MessageSanitizer.isGatewayError('Service Unavailable'), isTrue);
+        expect(MessageSanitizer.isGatewayError('正常的聊天信息'), isFalse);
+      });
+    });
+
+    group('isAIRefusal', () {
+      test('识别典型拒绝/脱角色模板（用于上下文与记忆卫生）', () {
+        expect(MessageSanitizer.isAIRefusal('作为AI语言模型，我无法扮演这个角色'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('对不起，我无法生成此类内容'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('我无法继续这个话题了'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('这违反了我们的内容政策'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('很抱歉，我不能继续'), isTrue);
+      });
+
+      test('识别助手身份自述/客服用语（无拒绝动词）', () {
+        expect(MessageSanitizer.isAIRefusal('你好，我是AI助手，有什么可以帮你的吗？'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('我是助手，不是真人'), isTrue);
+        expect(MessageSanitizer.isAIRefusal('很高兴为你服务'), isTrue);
+      });
+
+      test('不误伤正常角色扮演台词', () {
+        expect(MessageSanitizer.isAIRefusal('我不能失去你'), isFalse);
+        expect(MessageSanitizer.isAIRefusal('好啦，我们换个话题吧'), isFalse);
+        expect(MessageSanitizer.isAIRefusal('今天过得怎么样？'), isFalse);
+        expect(MessageSanitizer.isAIRefusal('我不是人类，我是吸血鬼'), isFalse);
+      });
+    });
+
+    group('extractSpokenText（语音朗读：小说叙事→只读对白）', () {
+      test('提取引号内对白，忽略旁白/场景/心理', () {
+        const novel = '夜色渐深，她靠在窗边，眼里带着期待。她轻声道：“你终于来了，我等你好久了。”她的指尖轻轻收紧。';
+        expect(
+          MessageSanitizer.extractSpokenText(novel),
+          '你终于来了，我等你好久了。',
+        );
+      });
+
+      test('多句对白用停顿连接', () {
+        const novel = '她笑了：“笨蛋。”随后又低声补了一句：“谁让你这么晚才来找我的呀。”';
+        expect(
+          MessageSanitizer.extractSpokenText(novel),
+          '笨蛋。，谁让你这么晚才来找我的呀。',
+        );
+      });
+
+      test('无对白时回退到去除括号旁白后的正文', () {
+        expect(
+          MessageSanitizer.extractSpokenText('（她轻轻点头）今天过得还好吗？'),
+          '今天过得还好吗？',
+        );
+      });
+
+      test('纯聊天短句原样返回', () {
+        expect(
+          MessageSanitizer.extractSpokenText('笨蛋，谁让你这么晚才来找我的呀。'),
+          '笨蛋，谁让你这么晚才来找我的呀。',
+        );
+      });
+    });
+  });
+}

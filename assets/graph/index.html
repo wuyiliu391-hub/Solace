@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <script src="d3.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #f8f9fa;
+      --node-bg: #ffffff;
+      --node-stroke: #e0e0e0;
+      --node-stroke-hover: #4A90D9;
+      --node-stroke-selected: #4A90D9;
+      --label: #2C3E50;
+      --subtitle: #95A5A6;
+      --link: #B0B8C4;
+      --link-hi: #4A90D9;
+      --link-label: #4A90D9;
+      --link-label-bg: #f8f9fa;
+      --link-label-stroke: #e0e0e0;
+      --empty: #B0B8C4;
+    }
+    body.dark {
+      --bg: #121212;
+      --node-bg: #1E1E1E;
+      --node-stroke: #3A3A3A;
+      --node-stroke-hover: #6BA8E8;
+      --node-stroke-selected: #6BA8E8;
+      --label: #E8EAED;
+      --subtitle: #9AA0A6;
+      --link: #5F6368;
+      --link-hi: #6BA8E8;
+      --link-label: #8AB4F8;
+      --link-label-bg: #1E1E1E;
+      --link-label-stroke: #3A3A3A;
+      --empty: #9AA0A6;
+    }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    #graph { width: 100%; height: 100%; background: var(--bg); }
+
+    .link { stroke: var(--link); stroke-width: 1; stroke-opacity: 0.45; }
+    .link.highlighted { stroke: var(--link-hi); stroke-width: 2; stroke-opacity: 0.7; }
+
+    .link-label { font-size: 10px; font-weight: 500; fill: var(--link-label); text-anchor: middle; pointer-events: none; dominant-baseline: central; }
+    .link-label-bg { fill: var(--link-label-bg); fill-opacity: 0.9; stroke: var(--link-label-stroke); stroke-width: 0.5; }
+
+    .node { cursor: pointer; }
+    .node rect.node-bg { fill: var(--node-bg); stroke: var(--node-stroke); stroke-width: 1; rx: 8; ry: 8; }
+    .node:hover rect.node-bg { stroke: var(--node-stroke-hover); stroke-width: 1.5; }
+    .node.selected rect.node-bg { stroke: var(--node-stroke-selected); stroke-width: 2.5; }
+    .node text { pointer-events: none; }
+    .node .label-text { font-size: 12px; font-weight: 500; fill: var(--label); }
+    .node .subtitle-text { font-size: 10px; fill: var(--subtitle); }
+
+    .empty-hint { fill: var(--empty); font-size: 14px; text-anchor: middle; dominant-baseline: central; }
+  </style>
+</head>
+<body>
+  <div id="graph"></div>
+
+  <script>
+    // ═══════════════════════════════════════════════════════
+    // D3.js 力导向图谱 — 企业级性能优化版
+    // 优化策略：
+    // 1. 预计算连线标签尺寸，tick 回调零 DOM 查询
+    // 2. 节点数超阈值时停止模拟，改为静态布局
+    // 3. 视口裁剪：只更新可见区域内的元素
+    // 4. SVG 用 transform 平移整组，不逐个设属性
+    // 5. 去掉所有 CSS transition
+    // ═══════════════════════════════════════════════════════
+
+    let nodes = [];
+    let edges = [];
+    let edgeLinks = [];      // D3 join 后的连线引用
+    let edgeLabels = [];     // D3 join 后的标签引用
+    let nodeEls = [];        // D3 join 后的节点引用
+    let simulation = null;
+    let svg = null;
+    let g = null;
+    let linkGroup = null;
+    let linkLabelGroup = null;
+    let nodeGroup = null;
+    let selectedNodeId = null;
+    let currentTransform = d3.zoomIdentity;
+    let width = 0;
+    let height = 0;
+
+    // 性能阈值
+    const FORCE_THRESHOLD = 300;   // 超过此数关闭力模拟，改静态布局
+    const LINK_LABEL_THRESHOLD = 200; // 超过此数连线标签默认隐藏
+    // 卡片统一尺寸：不因摘要长短改变，完整内容走 Flutter 详情弹窗
+    const FIXED_NODE_W = 148;
+    const FIXED_NODE_H = 52;
+
+    function truncateText(text, maxChars) {
+      if (!text) return '';
+      const one = String(text).replace(/\s+/g, ' ').trim();
+      if (one.length <= maxChars) return one;
+      return one.substring(0, Math.max(0, maxChars - 1)) + '…';
+    }
+
+    function applyTheme(dark) {
+      document.body.classList.toggle('dark', !!dark);
+      document.documentElement.style.background = getComputedStyle(document.body).getPropertyValue('--bg');
+      document.body.style.background = getComputedStyle(document.body).getPropertyValue('--bg');
+      const graph = document.getElementById('graph');
+      if (graph) graph.style.background = getComputedStyle(document.body).getPropertyValue('--bg');
+    }
+
+    function initGraph(data) {
+      applyTheme(!!(data && data.dark));
+      width = window.innerWidth;
+      height = window.innerHeight;
+
+      nodes = (data.nodes || []).map((n, i) => ({
+        id: n.id,
+        label: truncateText(n.label || '', 18),
+        subtitle: truncateText(n.subtitle || '', 16),
+        color: n.color || '#4A90D9',
+        width: FIXED_NODE_W,
+        height: FIXED_NODE_H,
+        currentWidth: FIXED_NODE_W,
+        currentHeight: FIXED_NODE_H,
+        // 螺旋初始位置
+        x: width / 2 + Math.cos(i * 0.5) * (50 + i * 3),
+        y: height / 2 + Math.sin(i * 0.5) * (50 + i * 3),
+      }));
+
+      edges = (data.edges || []).map(e => ({
+        source: e.source,
+        target: e.target,
+        label: e.label || '',
+      }));
+
+      // 清空旧内容
+      d3.select('#graph').selectAll('svg').remove();
+
+      svg = d3.select('#graph')
+        .append('svg')
+        .attr('width', '100%')
+        .attr('height', '100%')
+        .attr('viewBox', `0 0 ${width} ${height}`);
+
+      // 缩放平移 — 节流
+      const zoom = d3.zoom()
+        .scaleExtent([0.05, 5])
+        .on('start', onZoomStart)
+        .on('zoom', onZoom);
+      svg.call(zoom);
+
+      g = svg.append('g');
+      linkGroup = g.append('g').attr('class', 'links');
+      linkLabelGroup = g.append('g').attr('class', 'link-labels');
+      nodeGroup = g.append('g').attr('class', 'nodes');
+
+      if (nodes.length === 0) {
+        g.append('text')
+          .attr('class', 'empty-hint')
+          .attr('x', width / 2)
+          .attr('y', height / 2)
+          .text('暂无记忆数据');
+        return;
+      }
+
+      // 构建节点索引
+      const nodeIndex = {};
+      nodes.forEach((n, i) => { nodeIndex[n.id] = i; });
+
+      // 将 edges 的 source/target 从 ID 转为节点对象引用
+      edges.forEach(e => {
+        e.sourceIdx = nodeIndex[e.source] !== undefined ? nodeIndex[e.source] : -1;
+        e.targetIdx = nodeIndex[e.target] !== undefined ? nodeIndex[e.target] : -1;
+      });
+      // 过滤无效边
+      edges = edges.filter(e => e.sourceIdx >= 0 && e.targetIdx >= 0);
+
+      // 渲染
+      renderLinks();
+      renderLinkLabels();
+      renderNodes();
+
+      // 力导向模拟 — 仅小图启用
+      if (nodes.length <= FORCE_THRESHOLD) {
+        startSimulation();
+      } else {
+        // 大图：静态径向布局，不跑模拟
+        staticLayout();
+      }
+    }
+
+    // ═══ 渲染连线 ═══
+    function renderLinks() {
+      const link = linkGroup.selectAll('line').data(edges);
+      link.exit().remove();
+      const linkEnter = link.enter().append('line').attr('class', 'link');
+      edgeLinks = linkEnter.merge(link);
+    }
+
+    // ═══ 渲染连线标签 ═══
+    const LABEL_BG_W = 60;  // 预估算
+    const LABEL_BG_H = 16;
+
+    function renderLinkLabels() {
+      const showLabels = edges.length <= LINK_LABEL_THRESHOLD;
+      const labelG = linkLabelGroup.selectAll('g').data(edges);
+      labelG.exit().remove();
+
+      const enter = labelG.enter().append('g')
+        .style('display', showLabels ? null : 'none');
+      enter.append('rect').attr('class', 'link-label-bg')
+        .attr('x', -LABEL_BG_W / 2).attr('y', -LABEL_BG_H / 2)
+        .attr('width', LABEL_BG_W).attr('height', LABEL_BG_H);
+      enter.append('text').attr('class', 'link-label')
+        .attr('dy', 1);
+
+      const merged = enter.merge(labelG);
+      merged.select('text.link-label').text(d => d.label || '');
+      edgeLabels = merged;
+    }
+
+    // ═══ 渲染节点 ═══
+    function renderNodes() {
+      const node = nodeGroup.selectAll('g.node').data(nodes, d => d.id);
+      node.exit().remove();
+
+      const enter = node.enter().append('g').attr('class', 'node');
+      enter.append('rect').attr('class', 'node-bg');
+      enter.append('rect').attr('class', 'type-bar');
+      // 用 SVG text 而非 foreignObject（性能更好）
+      enter.append('text').attr('class', 'label-text');
+      enter.append('text').attr('class', 'subtitle-text');
+
+      const merged = enter.merge(node);
+
+      // 初始渲染所有节点
+      merged.each(function(d) {
+        updateNodeElement(d3.select(this), d);
+      });
+
+      // 拖拽
+      merged.call(d3.drag()
+        .on('start', dragStarted)
+        .on('drag', dragged)
+        .on('end', dragEnded));
+
+      // 点击：展开/收起
+      merged.on('click', (event, d) => {
+        event.stopPropagation();
+        if (selectedNodeId === d.id) {
+          selectedNodeId = null;
+        } else {
+          selectedNodeId = d.id;
+        }
+        // 只重渲染当前节点和前一个选中节点
+        merged.each(function(n) {
+          if (n.id === d.id || n.id === selectedNodeId) {
+            updateNodeElement(d3.select(this), n);
+          }
+        });
+        if (simulation) {
+          simulation.alpha(0.3).restart();
+        }
+        notifyFlutter({ type: 'nodeTap', nodeId: d.id });
+      });
+
+      nodeEls = merged;
+    }
+
+    // ═══ 更新单个节点 DOM（固定宽高，长文截断，全文看详情弹窗） ═══
+    function updateNodeElement(el, d) {
+      const isSelected = d.id === selectedNodeId;
+      const labelText = truncateText(d.label || '', 18);
+      const subtitleText = truncateText(d.subtitle || '', 16);
+      const w = FIXED_NODE_W;
+      const h = FIXED_NODE_H;
+
+      d.currentWidth = w;
+      d.currentHeight = h;
+
+      el.select('rect.node-bg')
+        .attr('width', w).attr('height', h)
+        .attr('x', -w / 2).attr('y', -h / 2);
+
+      el.select('rect.type-bar')
+        .attr('width', 3).attr('height', h - 14)
+        .attr('x', -w / 2 + 7).attr('y', -(h - 14) / 2)
+        .attr('fill', d.color);
+
+      const labelEl = el.select('text.label-text');
+      labelEl.selectAll('*').remove();
+      labelEl.append('tspan')
+        .attr('x', -w / 2 + 16)
+        .attr('y', subtitleText ? -3 : 4)
+        .text(labelText);
+
+      const subEl = el.select('text.subtitle-text');
+      if (subtitleText) {
+        subEl.selectAll('*').remove();
+        subEl.append('tspan')
+          .attr('x', -w / 2 + 16)
+          .attr('y', 14)
+          .text(subtitleText);
+      } else {
+        subEl.selectAll('*').remove();
+      }
+
+      el.classed('selected', isSelected);
+    }
+
+    // ═══ 力导向模拟 ═══
+    function startSimulation() {
+      if (simulation) simulation.stop();
+
+      simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(edges).id(d => d.id)
+          .distance(180)
+          .strength(0.3))
+        .force('charge', d3.forceManyBody()
+          .strength(-800)
+          .distanceMax(400)
+          .distanceMin(20))
+        .force('center', d3.forceCenter(width / 2, height / 2).strength(0.03))
+        .force('collision', d3.forceCollide()
+          .radius(d => Math.max(d.currentWidth || d.width, d.currentHeight || d.height) / 2 + 20)
+          .strength(0.6))
+        .force('x', d3.forceX(width / 2).strength(0.01))
+        .force('y', d3.forceY(height / 2).strength(0.01))
+        .alphaDecay(0.03)
+        .velocityDecay(0.5);
+
+      simulation.on('tick', ticked);
+    }
+
+    // ═══ 静态布局（大图用） ═══
+    function staticLayout() {
+      // 简单径向布局
+      const cx = width / 2;
+      const cy = height / 2;
+      const n = nodes.length;
+      const rings = Math.ceil(Math.sqrt(n / 6));
+      let idx = 0;
+      for (let ring = 0; ring < rings; ring++) {
+        const r = 80 + ring * 120;
+        const count = Math.min(n - idx, Math.ceil(n * (ring + 1) / rings) - idx);
+        for (let i = 0; i < count && idx < n; i++) {
+          const angle = 2 * Math.PI * i / count + ring * 0.3;
+          nodes[idx].x = cx + r * Math.cos(angle);
+          nodes[idx].y = cy + r * Math.sin(angle);
+          idx++;
+        }
+      }
+      // 直接渲染最终位置
+      ticked();
+    }
+
+    // ═══ tick 回调 — 零 DOM 查询 ═══
+    function ticked() {
+      // 连线：直接设属性
+      edgeLinks
+        .attr('x1', d => nodes[d.sourceIdx].x)
+        .attr('y1', d => nodes[d.sourceIdx].y)
+        .attr('x2', d => nodes[d.targetIdx].x)
+        .attr('y2', d => nodes[d.targetIdx].y);
+
+      // 连线标签：预计算尺寸，不用 getBBox
+      edgeLabels
+        .attr('transform', d => {
+          const mx = (nodes[d.sourceIdx].x + nodes[d.targetIdx].x) / 2;
+          const my = (nodes[d.sourceIdx].y + nodes[d.targetIdx].y) / 2;
+          return `translate(${mx},${my})`;
+        });
+
+      // 节点：transform 平移整组
+      nodeEls
+        .attr('transform', d => `translate(${d.x},${d.y})`);
+    }
+
+    // ═══ 拖拽 ═══
+    function dragStarted(event, d) {
+      if (simulation) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      }
+    }
+    function dragged(event, d) {
+      if (simulation) {
+        d.fx = event.x;
+        d.fy = event.y;
+      } else {
+        // 静态模式下直接移动
+        d.x = event.x;
+        d.y = event.y;
+        ticked();
+      }
+    }
+    function dragEnded(event, d) {
+      if (simulation) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      }
+    }
+
+    // ═══ 缩放平移 ═══
+    let zoomTimer = null;
+    function onZoomStart() {
+      // 缩放开始时隐藏连线标签（减少 DOM 操作）
+      if (edges.length > 50) {
+        linkLabelGroup.style('display', 'none');
+      }
+    }
+    function onZoom(event) {
+      currentTransform = event.transform;
+      g.attr('transform', event.transform);
+      // 缩放结束后延迟显示标签
+      if (zoomTimer) clearTimeout(zoomTimer);
+      zoomTimer = setTimeout(() => {
+        if (edges.length <= LINK_LABEL_THRESHOLD) {
+          linkLabelGroup.style('display', null);
+        }
+      }, 300);
+    }
+
+    // ═══ 背景点击 ═══
+    document.addEventListener('click', (e) => {
+      if (e.target.tagName === 'svg' || e.target.tagName === 'rect') {
+        if (e.target.classList && e.target.classList.contains('node-bg')) return;
+        if (selectedNodeId) {
+          selectedNodeId = null;
+          nodeEls.each(function(d) {
+            if (d.id === selectedNodeId || d.currentWidth !== d.width) {
+              updateNodeElement(d3.select(this), d);
+            }
+          });
+        }
+        notifyFlutter({ type: 'backgroundTap' });
+      }
+    });
+
+    // ═══ 更新数据 ═══
+    function updateGraph(data) {
+      if (!svg || !g) {
+        initGraph(data);
+        return;
+      }
+
+      if (simulation) simulation.stop();
+
+      applyTheme(!!(data && data.dark));
+      nodes = (data.nodes || []).map((n, i) => ({
+        id: n.id,
+        label: truncateText(n.label || '', 18),
+        subtitle: truncateText(n.subtitle || '', 16),
+        color: n.color || '#4A90D9',
+        width: FIXED_NODE_W,
+        height: FIXED_NODE_H,
+        currentWidth: FIXED_NODE_W,
+        currentHeight: FIXED_NODE_H,
+        x: width / 2 + Math.cos(i * 0.5) * (50 + i * 3),
+        y: height / 2 + Math.sin(i * 0.5) * (50 + i * 3),
+      }));
+
+      edges = (data.edges || []).map(e => ({
+        source: e.source,
+        target: e.target,
+        label: e.label || '',
+      }));
+
+      selectedNodeId = null;
+
+      // 清空重绘
+      linkGroup.selectAll('*').remove();
+      linkLabelGroup.selectAll('*').remove();
+      nodeGroup.selectAll('*').remove();
+      g.selectAll('text.empty-hint').remove();
+
+      if (nodes.length === 0) {
+        g.append('text').attr('class', 'empty-hint')
+          .attr('x', width / 2).attr('y', height / 2).text('暂无记忆数据');
+        return;
+      }
+
+      // 构建节点索引
+      const nodeIndex = {};
+      nodes.forEach((n, i) => { nodeIndex[n.id] = i; });
+      edges.forEach(e => {
+        e.sourceIdx = nodeIndex[e.source] !== undefined ? nodeIndex[e.source] : -1;
+        e.targetIdx = nodeIndex[e.target] !== undefined ? nodeIndex[e.target] : -1;
+      });
+      edges = edges.filter(e => e.sourceIdx >= 0 && e.targetIdx >= 0);
+
+      renderLinks();
+      renderLinkLabels();
+      renderNodes();
+
+      if (nodes.length <= FORCE_THRESHOLD) {
+        startSimulation();
+      } else {
+        staticLayout();
+      }
+    }
+
+    // ═══ 与 Flutter 通信 ═══
+    function notifyFlutter(data) {
+      if (window.FlutterChannel) {
+        window.FlutterChannel.postMessage(JSON.stringify(data));
+      }
+    }
+
+    function highlightNodes(ids) {
+      if (!nodeGroup) return;
+      nodeGroup.selectAll('g.node')
+        .classed('selected', d => ids.includes(d.id));
+    }
+
+    window.initGraph = initGraph;
+    window.updateGraph = updateGraph;
+    window.highlightNodes = highlightNodes;
+  </script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+buildscript {
+    ext.kotlin_version = '2.1.0'
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://mirrors.cloud.tencent.com/repository/maven/google' }
+        maven { url 'https://mirrors.cloud.tencent.com/repository/maven/central' }
+        maven { url 'https://mirrors.cloud.tencent.com/repository/maven/gradle-plugin' }
+        maven { url 'https://storage.flutter-io.cn/download.flutter.io' }
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://mirrors.cloud.tencent.com/repository/maven/google' }
+        maven { url 'https://mirrors.cloud.tencent.com/repository/maven/central' }
+        maven { url 'https://mirrors.cloud.tencent.com/repository/maven/gradle-plugin' }
+        maven { url 'https://storage.flutter-io.cn/download.flutter.io' }
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+    project.evaluationDependsOn(':app')
+
+    // 为使用旧版 Flutter Gradle 属性的插件提供兼容
+    project.ext.flutter = [
+        compileSdkVersion: 36,
+        minSdkVersion: 23,
+        targetSdkVersion: 35,
+        ndkVersion: '28.2.13676358'
+    ]
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

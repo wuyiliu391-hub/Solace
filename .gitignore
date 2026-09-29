@@ -1,0 +1,106 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+pubspec.lock
+**/debug/**
+**/Release/**
+**/android/app/google-services.json
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Pods/
+**/ios/.symlinks/
+**/linux/flutter/ephemeral/
+**/linux/flutter/generated_plugins.cmake
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/macos/Pods/
+**/windows/flutter/ephemeral/
+**/windows/flutter/generated_plugin_registrant.cc
+**/windows/flutter/generated_plugin_registrant.h
+
+# IDE / workspace / agent tools
+.workbuddy/
+.vscode/
+.idea/
+.agnes/
+.claude/
+.mimocode/
+.joycode/
+.agents/
+.zcode/
+.wrangler/
+.freebuff/
+*.iml
+*.swp
+*.swo
+
+# Android local / build cache (must not commit)
+android/.gradle/
+android/local.properties
+android/app/build/
+**/.gradle/
+
+# Local DBs & logs (large / machine-specific)
+*.db
+*.db-journal
+solace.db
+solace_backup.db
+solace_raw.db
+*.log
+adb_err.txt
+analyze_out.txt
+build_log.txt
+build_log_release.txt
+diff_detail.txt
+C:UsersAdministratorDesktoplog.txt
+
+# Reference / third-party checkouts (not part of Solace app)
+Operit/
+music-api/
+
+# Local scripts / one-off tools
+__pycache__/
+scripts/watch_dsh.ps1
+_fix_bloc.py
+check_db.py
+generate_ai_frame.py
+generate_avatar_frames.py
+generate_avatar_frames_v2.py
+process_doubao_frames.py
+process_doubao_frames_v2.py
+process_doubao_frames_v4.py
+process_ezremove_frames.py
+tools/
+!lib/services/tools/
+!lib/services/tools/packages/
+!lib/services/tools/packages/workspace_tool_pkg.dart
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+.env.local
+
+# Android signing secrets (NEVER commit)
+android/key.properties
+android/*.jks
+android/*.keystore
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+solace/app-release.apk.gz
+solace/app-release.apk.sha1
+
+# 部署产物（deploy.sh 生成，勿提交）
+solace/app-release.apk*
+
+# 临时/研究产物（清理补充）
+tmp_*
+.research/
+solace.db
+solace_backup.db
+solace_raw.db
+

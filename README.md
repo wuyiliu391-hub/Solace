@@ -1,0 +1,417 @@
+# Solace
+
+<p align="center">
+  <img src="assets/app_icon.svg" width="120" alt="Solace Logo">
+</p>
+
+<p align="center">
+  <strong>AI 陪伴应用 · 多角色聊天 · 情感记忆引擎 · 隐私优先</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter" alt="Flutter">
+  <img src="https://img.shields.io/badge/Dart-%3E%3D3.0.0-blue?logo=dart" alt="Dart">
+  <img src="https://img.shields.io/badge/Platform-Android-lightgrey" alt="Platform">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/Version-19.0.0-orange" alt="Version">
+</p>
+
+---
+
+## 目录
+
+- [简介](#简介)
+- [功能特性](#功能特性)
+- [技术架构](#技术架构)
+- [快速开始](#快速开始)
+- [项目结构](#项目结构)
+- [配置说明](#配置说明)
+- [构建与部署](#构建与部署)
+- [数据库设计](#数据库设计)
+- [贡献指南](#贡献指南)
+- [作者心里话](#作者心里话)
+- [许可证](#许可证)
+
+---
+
+## 简介
+
+**Solace** 是一款基于 Flutter 的 AI 陪伴应用，支持多角色聊天、情感记忆引擎、人生模拟系统等功能。项目采用**隐私优先**的设计理念，所有用户数据纯本地存储，不依赖任何云端服务。
+
+### 核心理念
+
+- **隐私优先**：所有数据存储在本地 SQLite，不上传任何用户数据
+- **多角色体验**：每个 AI 角色拥有独立的人格、记忆、情感系统
+- **情感智能**：基于心理学模型的情感引擎，追踪角色动态情绪变化
+- **记忆进化**：艾宾浩斯遗忘曲线驱动的记忆系统，角色会随时间成长
+
+---
+
+## 功能特性
+
+### 🗣️ 多角色聊天
+
+- 支持创建多个 AI 角色，每个角色拥有独立人设
+- 流式/非流式双模式 AI 回复
+- 多模型切换（OpenAI 兼容接口）
+
+### 📞 实时语音通话
+
+- 开口即聊：本地 VAD 自动断句 → 本地转写 → AI 语音克隆回复（MiMo TTS），全程半双工防回声
+- 音色克隆：录制 3~5 秒或导入音频文件，克隆角色专属音色
+- 打字输入：不方便说话时可手动打字，AI 照样开口回答
+- 实时字幕：打字机逐字显示对话内容，小说模式自动过滤旁白
+- 通话记忆：对话内容静默注入记忆库，聊天页只保留通话记录
+
+### 🧠 情感记忆引擎
+
+- **情感引擎**：7 种基础情绪（平静/开心/悲伤/愤怒/担忧/玩味/害羞），含强度衰减
+- **记忆引擎**：基于艾宾浩斯遗忘曲线，自动提取/衰减/整合记忆
+- **人格进化**：每 200 轮对话触发人格微调，核心锚点保护
+- **亲密度系统**：0-100 级，每日上限，高级别减速，48 小时衰减
+
+### 🏛️ 人生模拟系统
+
+- 完整生命周期：婴儿 → 幼儿 → 童年 → 青年 → 中年 → 老年 → 暮年
+- 人格五因子动态演化（开放性/尽责性/外向性/宜人性/神经质）
+- 马斯洛需求层次可视化
+- 人生事件时间线记录
+- 数字永生机制
+
+### 💬 社交系统
+
+- AI 角色间自主社交（互读聊天记录、记忆库）
+- 关系图谱可视化
+- 朋友圈动态（AI 自动生成、互相点赞评论）
+- 群聊支持（酒馆模式）
+
+### 🎨 其他功能
+
+- 心情日记、塔罗牌、幸运转盘
+- 虚拟地图（AI 位置模拟）
+- 商店系统（虚拟商品、订单追踪）
+- 纯 AI 聊天模式（通用问答）
+- 本地文件导入/导出备份
+
+---
+
+## 技术架构
+
+### 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 框架 | Flutter 3.x / Dart >=3.0.0 |
+| 状态管理 | BLoC (flutter_bloc) |
+| 数据存储 | SQLite (sqflite) / SharedPreferences |
+| AI 接口 | OpenAI 兼容 API |
+| 图片 | image_picker + image_cropper |
+
+### 架构模式
+
+```
+┌─────────────────────────────────────────────┐
+│                   UI 层                      │
+│  Screens → BlocBuilder → State              │
+├─────────────────────────────────────────────┤
+│                 BLoC 层                      │
+│  Event → Bloc → State (Emitter 模式)        │
+├─────────────────────────────────────────────┤
+│                Service 层                    │
+│  AIService / MemoryEngine / EmotionEngine   │
+│  BackgroundScheduler / WorldEngine          │
+├─────────────────────────────────────────────┤
+│              Repository 层                   │
+│  LocalStorageRepository (唯一数据访问点)     │
+├─────────────────────────────────────────────┤
+│                数据层                        │
+│  SQLite (solace.db) / SharedPreferences     │
+└─────────────────────────────────────────────┘
+```
+
+### 核心服务
+
+| 服务 | 职责 |
+|------|------|
+| `AIService` | 构建 prompt（含记忆/情感/亲密/场景上下文），调用 AI API |
+| `MemoryEngine` | 从对话提取记忆，构建关系画像，按上下文检索相关记忆 |
+| `EmotionEngine` | 追踪角色动态情感，含强度衰减和情绪记忆 |
+| `WorldEngine` | 全生命周期数字生命世界引擎 |
+| `BackgroundScheduler` | AI 主动消息（基于性格、亲密等级、沉默时长） |
+| `PersonaEvolutionService` | 人设进化服务（每 200 轮触发） |
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- Flutter >= 3.0.0
+- Dart >= 3.0.0
+- Android Studio / VS Code
+- Android SDK (API Level >= 23)
+
+### 安装
+
+```bash
+# 克隆仓库
+git clone https://github.com/your-username/solace.git
+cd solace
+
+# 安装依赖
+flutter pub get
+
+# 运行调试版本
+flutter run
+```
+
+### 配置 AI 服务
+
+Solace 使用 OpenAI 兼容的 API 接口。首次运行后，在 **设置 → AI 配置** 中填写：
+
+1. **API Base URL**：你的 AI 服务端点
+2. **API Key**：你的 API 密钥
+3. **Model Name**：模型名称（如 `gpt-4o`）
+
+支持的内置模型：
+- NVIDIA Step-3.7-Flash（需配置 NVIDIA API Key）
+- SiliconFlow GLM-Z1-9B（需配置 SiliconFlow API Key）
+
+---
+
+## 项目结构
+
+```
+solace/
+├── lib/                              # Dart 源码
+│   ├── main.dart                     # 入口文件，初始化链
+│   ├── blocs/                        # BLoC 状态管理
+│   │   ├── auth/                     # 认证 BLoC
+│   │   ├── chat/                     # 聊天 BLoC
+│   │   ├── group_chat/               # 群聊 BLoC
+│   │   ├── memory/                   # 记忆 BLoC
+│   │   ├── moments/                  # 动态 BLoC
+│   │   ├── pure_ai/                  # 纯 AI 聊天 BLoC
+│   │   ├── shop/                     # 商店 BLoC
+│   │   └── theme/                    # 主题 BLoC
+│   ├── config/                       # 配置文件
+│   │   ├── constants.dart            # 常量、版本号
+│   │   ├── business_rules.dart       # 业务规则
+│   │   └── app_config.dart           # 环境配置
+│   ├── data/                         # 静态数据（角色模板等）
+│   ├── models/                       # 数据模型（60+ 文件）
+│   ├── repositories/                 # 数据仓库层
+│   ├── screens/                      # UI 页面
+│   │   ├── auth/                     # 认证页面
+│   │   ├── chat/                     # 聊天页面
+│   │   ├── character/                # 角色管理
+│   │   ├── discover/                 # 发现页面
+│   │   ├── group_chat/               # 群聊页面
+│   │   ├── map/                      # 虚拟地图
+│   │   ├── memory/                   # 记忆页面
+│   │   ├── moments/                  # 动态页面
+│   │   ├── profile/                  # 个人中心
+│   │   ├── settings/                 # 设置页面
+│   │   ├── shop/                     # 商店页面
+│   │   └── world/                    # 人生系统
+│   ├── services/                     # 业务服务（100+ 文件）
+│   ├── utils/                        # 工具函数
+│   └── widgets/                      # 可复用组件
+├── android/                          # Android 平台代码（唯一支持平台）
+├── assets/                           # 静态资源
+├── test/                             # 测试代码
+├── scripts/                          # 构建 / 部署 / 版本脚本
+├── solace/                           # Cloudflare Pages 部署文件
+│   ├── _worker.js                    # Worker（版本检查、公告）
+│   └── version.json                  # 版本信息
+├── AGENTS.md                         # 项目认知地图（给开发者/代理）
+└── pubspec.yaml                      # Flutter 配置
+```
+
+---
+
+## 配置说明
+
+### 版本号同步
+
+发布新版本时，以下 5 个文件的版本号必须保持一致：
+
+| 文件 | 位置 |
+|------|------|
+| `pubspec.yaml` | `version: x.x.x+xxx` |
+| `lib/config/constants.dart` | `AppVersion.version` / `AppVersion.build` |
+| `lib/screens/settings/about_screen.dart` | 引用 `AppVersion` |
+| `solace/version.json` | `version` / `build` |
+| `solace/_worker.js` | `VERSION_DATA.latestVersion` / `buildNumber` |
+
+### 数据库迁移
+
+数据库版本迁移代码位于 `lib/repositories/local_storage_repository.dart` 的 `_onUpgrade` 方法中。每次修改数据库结构时：
+
+1. 在 `_onUpgrade` 中添加迁移函数
+2. 在 `expectedColumns` 中声明新列
+3. 在 `createMissingTable` 中添加新表（如果是新表）
+
+---
+
+## 构建与部署
+
+### 构建 Release APK
+
+```bash
+flutter build apk --release --target-platform android-arm64 --no-shrink
+```
+
+### 部署到 Cloudflare Pages
+
+```bash
+# 设置 Token
+export CLOUDFLARE_API_TOKEN="your-token"
+
+# 一键部署
+bash deploy.sh
+```
+
+部署脚本自动完成：复制 APK → gzip 压缩 → 上传到 Cloudflare Pages。
+
+### ADB 安装
+
+```bash
+# 覆盖安装（保留数据）
+adb install -r build/app/outputs/flutter-apk/app-release.apk
+```
+
+---
+
+## 数据库设计
+
+当前数据库版本：**v70**，包含 40+ 张表：
+
+| 表名 | 用途 |
+|------|------|
+| `users` | 用户信息 |
+| `ai_characters` | AI 角色配置 |
+| `ai_configs` | AI 模型配置 |
+| `chat_sessions` | 聊天会话 |
+| `chat_messages` | 聊天消息 |
+| `memories` | 记忆数据（含艾宾浩斯权重） |
+| `moments` | 朋友圈动态 |
+| `group_chat_sessions` | 群聊会话 |
+| `ai_wallets` | AI 钱包 |
+| `shop_orders` | 商店订单 |
+| `sticker_packs` | 贴纸包 |
+| `ai_letters` | 信件系统 |
+
+---
+
+## 贡献指南
+
+欢迎贡献代码、报告问题或提出建议。
+
+### 提交规范
+
+- 使用简体中文编写提交信息
+- 格式：`类型: 简短描述`
+- 类型：`feat` / `fix` / `refactor` / `docs` / `style` / `test` / `chore`
+
+### 代码规范
+
+- 单引号 (`prefer_single_quotes`)
+- 尽量使用 `const` 构造函数
+- 不可变集合使用 `const`
+- UI 文本、注释均为简体中文
+
+### 开发流程
+
+1. Fork 本仓库
+2. 创建功能分支：`git checkout -b feature/your-feature`
+3. 提交更改：`git commit -m 'feat: 添加某功能'`
+4. 推送分支：`git push origin feature/your-feature`
+5. 创建 Pull Request
+
+---
+
+## 调试方法论
+
+以下是项目中总结出的实战调试经验，面对复杂无头绪的 Bug 时按此流程操作：
+
+### 第一步：先拿堆栈，别猜
+
+**没有 stacktrace 就是在盲人摸象。** 遇到报错第一件事不是看代码，而是让程序把完整调用栈打出来。
+
+```dart
+// main.dart 全局错误兜底 —— 永远不要删这段
+FlutterError.onError = (FlutterErrorDetails details) {
+  debugPrint('[FlutterError] ${details.exception}');
+  debugPrint('${details.stack}');  // ← 这行最关键
+};
+```
+
+Flutter 的 `ErrorWidget.builder` 默认只显示异常信息，不显示调用栈。必须在 `FlutterError.onError` 里打印 `details.stack` 才能看到完整的报错路径。
+
+**反面教训**：v17.1.0 的气泡报错（`type 'int' is not a subtype of type 'String?'`），一开始没打 stacktrace，花了半小时改 `ChatMessage.fromMap`，方向完全错了。加了 print 后 5 分钟定位到 `SharedPreferences.getString` 在 `getNovelDialogueColor()` 里出的问题。
+
+### 第二步：缩小范围，二分排查
+
+拿到报错信息后，确认**错误发生在哪个层级**：
+
+| 层级 | 典型位置 | 排查方法 |
+|------|---------|---------|
+| 数据加载层 | `fromMap` / `fromJson` / 数据库查询 | 在 `fromMap` 里加 try-catch |
+| 状态管理层 | BLoC / Repository | 在 BLoC 事件处理入口加 print |
+| UI 渲染层 | Widget `build()` 方法 | 在目标 Widget 的 `build()` 里加 try-catch |
+
+**实操技巧**：在可疑 Widget 的 `build()` 里加 try-catch，如果 catch 没触发，说明错误不在这个 Widget 里，往调用链上游追。
+
+### 第三步：看日志，不看代码
+
+代码有几万行，靠人眼看是看不完的。用工具一条命令定位：
+
+```bash
+# 清空旧日志，让用户操作复现
+adb logcat -c
+
+# 等几秒后抓取 Flutter 相关日志
+adb logcat -d -s "I flutter" | grep -i "error\|exception"
+```
+
+**日志会直接告诉你**：哪个文件、哪一行、什么方法出了问题。比肉眼翻代码快 10 倍。
+
+### 常见陷阱
+
+1. **SharedPreferences 类型不一致**：`getString()` 在部分 Android 设备上对 int 类型的值会抛异常。始终用 `get()` 读取原始值再做类型判断。
+2. **异步竞态条件**：BLoC 中先加载数据、长时间异步操作后再保存，中间用户操作会覆盖。保存前必须重新读取最新状态。
+3. **`HitTestBehavior.opaque`**：会捕获整个 Widget 区域的点击，干扰外层手势。改用 `deferToChild`。
+4. **`Column` + `mainAxisSize: MainAxisSize.min` 里直接展开列表**：列表项多时高度无界导致布局溢出。用 `Flexible` + `ListView.builder` 限制。
+
+---
+
+## 作者心里话
+
+我是一个 17 岁的高中生。
+
+一个月时间，从零开始，写出了 Solace。
+
+做这个项目的初衷很简单：市面上的 AI 陪伴软件，要么收费离谱，要么功能阉割，要么数据不安全。我不想再看到有人为了一个聊天功能被割韭菜。
+
+Solace 从第一天起就是免费的，以后也是。
+
+所有数据存在你自己的手机里，不上传任何服务器。你的聊天记录、你的角色、你的回忆，只属于你自己。
+
+我知道这个项目还有很多不完美的地方。代码可能不够优雅，架构可能不够完美，Bug 也可能不少。但它是一个 17 岁少年能拿出的全部诚意。
+
+如果你觉得 Solace 还不错，给个 Star 就够了。
+
+如果你觉得哪里不好，提 Issue，我改。
+
+---
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE) 开源。
+
+---
+
+<p align="center">
+  <sub>Made with ❤️ by a 17-year-old developer</sub>
+</p>

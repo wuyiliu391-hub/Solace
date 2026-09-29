@@ -1,0 +1,123 @@
+part of 'shop_bloc.dart';
+
+abstract class ShopEvent extends Equatable {
+  const ShopEvent();
+
+  @override
+  List<Object?> get props => [];
+}
+
+class ShopLoadItems extends ShopEvent {
+  const ShopLoadItems();
+}
+
+class ShopLoadItemsByCategory extends ShopEvent {
+  final String category;
+
+  const ShopLoadItemsByCategory(this.category);
+
+  @override
+  List<Object?> get props => [category];
+}
+
+class ShopPlaceOrder extends ShopEvent {
+  final String chatSessionId;
+  final String buyerType; // 'user' or 'ai'
+  final String buyerId;
+  final String receiverType;
+  final String receiverId;
+  final ShopItem item;
+  final String? message;
+
+  const ShopPlaceOrder({
+    required this.chatSessionId,
+    required this.buyerType,
+    required this.buyerId,
+    required this.receiverType,
+    required this.receiverId,
+    required this.item,
+    this.message,
+  });
+
+  @override
+  List<Object?> get props => [
+        chatSessionId,
+        buyerType,
+        buyerId,
+        receiverType,
+        receiverId,
+        item,
+        message,
+      ];
+}
+
+class ShopUpdateOrderStatus extends ShopEvent {
+  final String orderId;
+  final String status;
+  final String? aiReaction;
+
+  const ShopUpdateOrderStatus({
+    required this.orderId,
+    required this.status,
+    this.aiReaction,
+  });
+
+  @override
+  List<Object?> get props => [orderId, status, aiReaction];
+}
+
+class ShopLoadOrders extends ShopEvent {
+  final String chatSessionId;
+
+  const ShopLoadOrders(this.chatSessionId);
+
+  @override
+  List<Object?> get props => [chatSessionId];
+}
+
+class ShopLoadActiveOrders extends ShopEvent {
+  const ShopLoadActiveOrders();
+}
+
+class ShopOrderDelivered extends ShopEvent {
+  final String orderId;
+  final String? aiReaction;
+
+  const ShopOrderDelivered({
+    required this.orderId,
+    this.aiReaction,
+  });
+
+  @override
+  List<Object?> get props => [orderId, aiReaction];
+}
+
+/// 内部/定时：把订单推进到下一物流阶段（pending→preparing→shipping→delivered）
+class ShopAdvanceOrder extends ShopEvent {
+  final String orderId;
+
+  const ShopAdvanceOrder(this.orderId);
+
+  @override
+  List<Object?> get props => [orderId];
+}
+
+/// 新增/更新用户自定义商品
+class ShopSaveCustomItem extends ShopEvent {
+  final ShopItem item;
+
+  const ShopSaveCustomItem(this.item);
+
+  @override
+  List<Object?> get props => [item];
+}
+
+/// 删除自定义商品
+class ShopDeleteCustomItem extends ShopEvent {
+  final String itemId;
+
+  const ShopDeleteCustomItem(this.itemId);
+
+  @override
+  List<Object?> get props => [itemId];
+}

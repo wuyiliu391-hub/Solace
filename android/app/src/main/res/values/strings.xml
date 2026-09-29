@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Solace 无障碍服务。让 AI 角色能够感知屏幕内容、辅助点击和滑动操作。不会收集或上传任何个人信息。</string>
+</resources>
