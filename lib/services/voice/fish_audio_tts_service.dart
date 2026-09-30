@@ -45,7 +45,7 @@ class FishAudioTtsConfig {
   /// 可选模型（仅免费 + 付费两档，其余见官方定价页）。
   static const List<({String label, String id})> models = [
     (label: 'S2.1 Pro（免费·限时至 2026-11-30）', id: 's2.1-pro-free'),
-    (label: 'S2.1 Pro（付费 $15/M 字节）', id: 's2.1-pro'),
+    (label: r'S2.1 Pro（付费 $15/M 字节）', id: 's2.1-pro'),
   ];
 
   final String apiKey;
