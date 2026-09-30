@@ -2492,6 +2492,47 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
   }
   static Future<void> createMissingTable(Database db, String table) async {
     switch (table) {
+      // ── 核心表 ──
+      // 此前这 9 张表在 reconcileSchema 里没有 case：走到 createMissingTable
+      // 只会静默返回（老 switch 连 default 都没有），一旦真的缺表（库损坏、
+      // 部分备份恢复）就永远补不上，后面所有读写直接 SQLITE_ERROR。
+      // SQL 与 _onCreate 保持一致。
+      case 'users':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS users ( id TEXT PRIMARY KEY, nickname TEXT NOT NULL, avatarUrl TEXT, createdAt TEXT NOT NULL, lastLoginAt TEXT, signature TEXT, gender TEXT, birthday TEXT, location TEXT, bio TEXT, chatAlias TEXT, status TEXT, backgroundImage TEXT, coins INTEGER NOT NULL DEFAULT 100, totalCoinsEarned INTEGER NOT NULL DEFAULT 100, totalCoinsSpent INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+        break;
+      case 'ai_characters':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS ai_characters ( id TEXT PRIMARY KEY, name TEXT NOT NULL, avatarUrl TEXT, personality TEXT NOT NULL, coreDesire TEXT NOT NULL, moralBoundary TEXT NOT NULL, backgroundStory TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, worldSetting TEXT, languageStyle TEXT, tabooTopics TEXT, userNickname TEXT, userAlias TEXT, userPersona TEXT, catchphrases TEXT, openingLine TEXT, dialogueExamples TEXT, interactionConfig TEXT, gender TEXT, isHidden INTEGER NOT NULL DEFAULT 0, isOnline INTEGER NOT NULL DEFAULT 1, currentStatus TEXT, lastOnlineAt TEXT, avatarGif TEXT, autoReplyStickers INTEGER NOT NULL DEFAULT 0, translatedSettings TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, immutableAnchor TEXT, deviationRadius REAL NOT NULL DEFAULT 0.4, evolutionEnabled INTEGER NOT NULL DEFAULT 1, qualitativeEvolutionEnabled INTEGER NOT NULL DEFAULT 0, currentAnchor TEXT, referenceImg TEXT, fixedSeed INTEGER NOT NULL DEFAULT -1, characterTag TEXT, styleLock TEXT NOT NULL DEFAULT "anime", age INTEGER, structuredTraits TEXT, storyState TEXT ) ''');
+        break;
+      case 'ai_configs':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS ai_configs ( id TEXT PRIMARY KEY, providerName TEXT NOT NULL, baseUrl TEXT NOT NULL, apiKey TEXT NOT NULL, extraApiKeys TEXT NOT NULL DEFAULT '', modelName TEXT NOT NULL, temperature REAL NOT NULL, maxTokens INTEGER NOT NULL, isActive INTEGER NOT NULL DEFAULT 1, isThinkingModel INTEGER NOT NULL DEFAULT 1, isMultimodal INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+        break;
+      case 'ai_wallets':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS ai_wallets ( characterId TEXT PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 50, totalEarned INTEGER NOT NULL DEFAULT 50, totalSpent INTEGER NOT NULL DEFAULT 0, dailySpent INTEGER NOT NULL DEFAULT 0, dailySpentDate TEXT, spendingPersonality INTEGER NOT NULL DEFAULT 5, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+        break;
+      case 'chat_sessions':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS chat_sessions ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, aiCharacterId TEXT NOT NULL, aiCharacterName TEXT NOT NULL, aiCharacterAvatar TEXT, lastMessage TEXT, lastMessageTime TEXT, unreadCount INTEGER NOT NULL DEFAULT 0, intimacyLevel INTEGER NOT NULL DEFAULT 0, dailyIntimacyCount INTEGER NOT NULL DEFAULT 0, lastIntimacyDate TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, isMuted INTEGER NOT NULL DEFAULT 0, isPinned INTEGER NOT NULL DEFAULT 0, backgroundImage TEXT, isHidden INTEGER NOT NULL DEFAULT 0, aiIsOnline INTEGER NOT NULL DEFAULT 1, aiCurrentStatus TEXT, lastOnlineAt TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, isBlocked INTEGER NOT NULL DEFAULT 0, blockedBy INTEGER NOT NULL DEFAULT 0, blockedAt TEXT, blockReason TEXT, sessionType TEXT DEFAULT "private", intimacyMode TEXT DEFAULT "quick", streakDays INTEGER NOT NULL DEFAULT 0, isInFriction INTEGER NOT NULL DEFAULT 0, frictionDaysLeft INTEGER NOT NULL DEFAULT 0, novelMode INTEGER NOT NULL DEFAULT -1 ) ''');
+        break;
+      case 'chat_messages':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS chat_messages ( id TEXT PRIMARY KEY, chatId TEXT NOT NULL, senderId TEXT NOT NULL, senderName TEXT, content TEXT NOT NULL, isUser INTEGER NOT NULL DEFAULT 0, isSystem INTEGER NOT NULL DEFAULT 0, isHidden INTEGER NOT NULL DEFAULT 0, isGhost INTEGER NOT NULL DEFAULT 0, type TEXT NOT NULL DEFAULT 'text', status TEXT NOT NULL DEFAULT 'sent', createdAt TEXT NOT NULL, readAt TEXT, reasoning TEXT, metadata TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, pokeSuffix TEXT, stickerId TEXT, stickerPath TEXT, isBookmark INTEGER NOT NULL DEFAULT 0 ) ''');
+        break;
+      case 'memories':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS memories ( id TEXT PRIMARY KEY, characterId TEXT NOT NULL, userId TEXT NOT NULL, type INTEGER NOT NULL, content TEXT NOT NULL, importance INTEGER NOT NULL DEFAULT 1, keywords TEXT, createdAt TEXT NOT NULL, lastAccessedAt TEXT, accessCount INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, weight REAL NOT NULL DEFAULT 1.0, pinned INTEGER NOT NULL DEFAULT 0, lastRecalledAt TEXT, summary TEXT ) ''');
+        break;
+      case 'moments':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS moments ( id TEXT PRIMARY KEY, userId TEXT NOT NULL, userName TEXT NOT NULL, userAvatar TEXT, content TEXT NOT NULL, images TEXT DEFAULT '', type INTEGER NOT NULL DEFAULT 0, likes TEXT DEFAULT '[]', comments TEXT DEFAULT '[]', createdAt TEXT NOT NULL, updatedAt TEXT, isFromAI INTEGER NOT NULL DEFAULT 0, visibility INTEGER NOT NULL DEFAULT 0, source INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0, replyToCommentId TEXT, replyToContent TEXT, aiLiked INTEGER NOT NULL DEFAULT 0, parentKey TEXT, retweetKey TEXT, quoteKey TEXT, retweetCount INTEGER NOT NULL DEFAULT 0, replyCount INTEGER NOT NULL DEFAULT 0, bookmarkCount INTEGER NOT NULL DEFAULT 0, viewCount INTEGER NOT NULL DEFAULT 0, tags TEXT DEFAULT '[]', userHandle TEXT, userGender TEXT, userVerified INTEGER NOT NULL DEFAULT 0, customLikeCount INTEGER NOT NULL DEFAULT 0 ) ''');
+        break;
+      case 'sticker_packs':
+        await db.execute(
+            ''' CREATE TABLE IF NOT EXISTS sticker_packs ( id TEXT PRIMARY KEY, name TEXT NOT NULL, coverImagePath TEXT, stickers TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, isDefault INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+        break;
       case 'virtual_phones':
       case 'vp_contacts':
       case 'vp_chats':
@@ -2766,6 +2807,11 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_gc_lore_group ON group_chat_lorebook_entries(groupId)');
         break;
+      default:
+        // 缺表却没有任何建表分支 = 永远补不上，且此前是**静默**失败，
+        // 排查时看不到任何线索。这里显式告警：新增表时记得同时加 case。
+        debugPrint(
+            '[schema] createMissingTable: 表 $table 缺建表分支，无法自愈补表');
     }
   }
   /// 群聊数据库自愈：兼容已升级但迁移未完整执行的旧库。
@@ -2776,9 +2822,9 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       }
       await createMissingTable(db, 'group_chat_sessions');
       await createMissingTable(db, 'group_chat_messages');
-    await createMissingTable(db, 'group_chat_branches');
-    // 显式创建 shop_items 表（不依赖 reconcileSchema 兜底，确保新用户首装即有）
-    await _ensureShopItemsSchema(db);
+      await createMissingTable(db, 'group_chat_branches');
+      // 显式创建 shop_items 表（不依赖 reconcileSchema 兜底，确保新用户首装即有）
+      await _ensureShopItemsSchema(db);
       await createMissingTable(db, 'group_chat_summaries');
       await createMissingTable(db, 'group_public_event_memories');
       await createMissingTable(db, 'group_chat_lorebook_entries');
