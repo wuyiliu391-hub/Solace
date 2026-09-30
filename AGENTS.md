@@ -30,13 +30,22 @@ Flutter 写的 **AI 陪伴应用**（Android 单平台）。多角色聊天 + �
   `file:///E:/flutter/...`），本地既不能跑也没有参考价值。
 - 需要真机验证时只能出 APK 走 `apk.yml`（workflow_dispatch），再 `adb install` —— 但本机无 `adb`。
 
-### CI 缓存策略（2026-09-30 重做）
+### CI 缓存策略（2026-09-30 重做并已验证）
 
 之前 **0 个缓存**：3 次 CI 全红，cache 的 post-step 全是 `conclusion=skipped`，
 所以每次都是冷启动（Flutter SDK + 200+ 个包重新下载，约 2.5 分钟）。
-**测试转绿是缓存能生效的前提。**
+**测试转绿是缓存能生效的前提** —— 缓存是在 job 的 post 阶段落盘的。
 
-现在两层缓存，**key 里一律不含 `github.ref`**，因此 main / 任意分支 / apk.yml 全部命中同一份：
+修复后首次绿跑实测：**517 tests passed**，两个缓存均已落盘：
+
+| 缓存 key | 体积 |
+|----------|------|
+| `flutter-linux-stable-3.47.5-x64-<sha>` | 1640 MB |
+| `sol-pub-linux-3.47.5-<hash(pubspec.yaml)>` | 256 MB |
+
+（仓库配额 10GB，现占约 1.9GB。）
+
+分层与 key 设计（**key 一律不含 `github.ref`**，所以 main / 任意分支 / apk.yml 命中同一份）：
 
 | 层 | 工具 | key |
 |----|------|-----|
@@ -55,6 +64,7 @@ Flutter 写的 **AI 陪伴应用**（Android 单平台）。多角色聊天 + �
 - `ci.yml` 有 `paths-ignore: ['**/*.md', 'docs/**']`，纯文档提交不跑 CI。
 - **`ci.yml` 是唯一跑 `flutter test` 的地方**；`apk.yml` 只在 `workflow_dispatch` / `v*` tag 触发，
   刻意不跑测试，避免同一 commit 花两次 CI 时间。
+- ci.yml 里有 `Report cache status` 步骤，打印 SDK / pub 的 `cache-hit`；空字符串 = 未命中。
 
 ### 改 Gradle 配置的坑
 
