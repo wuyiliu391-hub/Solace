@@ -21,6 +21,7 @@ import '../../services/memory_engine.dart';
 import '../../services/moment_context_service.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../utils/content_filter.dart';
+import '../../utils/identity_label.dart' as identity;
 import 'group_chat_speaker.dart';
 import 'group_chat_prompts.dart';
 import '../../services/group_chat_rolling_summary.dart';

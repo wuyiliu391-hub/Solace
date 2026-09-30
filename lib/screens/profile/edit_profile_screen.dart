@@ -17,6 +17,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _signatureController;
   late TextEditingController _bioController;
   late TextEditingController _statusController;
+  late TextEditingController _aliasController;
   String? _gender;
   String? _birthday;
 
@@ -30,6 +31,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _signatureController = TextEditingController(text: widget.user.signature ?? '');
     _bioController = TextEditingController(text: widget.user.bio ?? '');
     _statusController = TextEditingController(text: widget.user.status ?? '');
+    _aliasController = TextEditingController(text: widget.user.chatAlias ?? '');
     _gender = widget.user.gender;
     _birthday = widget.user.birthday;
   }
@@ -40,6 +42,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _signatureController.dispose();
     _bioController.dispose();
     _statusController.dispose();
+    _aliasController.dispose();
     super.dispose();
   }
 
@@ -78,6 +81,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       label: '昵称',
                       controller: _nicknameController,
                       maxLength: 20,
+                      colorScheme: colorScheme,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      label: '我的代称',
+                      controller: _aliasController,
+                      maxLength: 20,
+                      hint: 'AI 在单聊/群聊里称呼"我"用的人物名或称谓，如林晚晚、主人',
                       colorScheme: colorScheme,
                     ),
                     const SizedBox(height: 16),
@@ -348,6 +359,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       status: _statusController.text.trim(),
       gender: _gender,
       birthday: _birthday,
+      // 代称清空（全删）时走 clear 开关，否则传 null 会被静默忽略、清不掉
+      chatAlias: _aliasController.text.trim().isEmpty
+          ? null
+          : _aliasController.text.trim(),
+      clearChatAlias: _aliasController.text.trim().isEmpty,
     );
 
     final storage = RepositoryProvider.of<LocalStorageRepository>(context);

@@ -120,6 +120,8 @@ mixin AIServiceContextApi on AIServiceCleanSplitApi {
     String? internalSystemContext,
     bool isSideStory = false,
     bool forceConcise = false,
+    // 请求场景（单聊/群聊）：供"查看上次请求内容"快照标注来源
+    String requestScope = '单聊',
   }) async {
     final List<Map<String, dynamic>> messages = [];
 
@@ -151,6 +153,12 @@ mixin AIServiceContextApi on AIServiceCleanSplitApi {
     // 缓存角色性别，供 _cleanResponse 人称纠错
     _lastCharacterGender = character.gender;
     _lastCharacterName = character.name;
+    // 缓存用户性别：纠错时避开指代用户的代词（读失败则置空，保持旧行为）
+    try {
+      _lastUserGender = (await _storage.getCurrentUser())?.gender;
+    } catch (_) {
+      _lastUserGender = null;
+    }
 
     final systemPrompt = await _buildSystemPrompt(
       character: character,
@@ -188,6 +196,14 @@ mixin AIServiceContextApi on AIServiceCleanSplitApi {
       'role': 'system',
       'content': effectivePrompt,
     });
+
+    // 上次请求快照：用户"查看/核对实际发出的请求"的唯一依据。
+    // 只记 system（身份/性别/模式/追加指令都在里面）+ 历史条数，不记历史全文。
+    LastLlmRequestSnapshot.capture(
+      scope: requestScope,
+      systemPrompt: effectivePrompt,
+      historyCount: chatHistory.length,
+    );
 
     final privateContext = internalSystemContext?.trim();
     if (privateContext != null && privateContext.isNotEmpty) {

@@ -25,7 +25,8 @@ Future<void> _refreshGroupRollingSummary(
       );
       final start =
           reset ? 0 : (old?.messageCount ?? 0).clamp(0, ordered.length);
-      final newMessages = _toChatHistory(ordered.sublist(start), '');
+      final newMessages = _toChatHistory(ordered.sublist(start), '',
+          userAlias: (await _groupUserIdentity(_storage)).alias);
       final summary = await _aiService.generateGroupRollingSummary(
         existingSummary: reset ? null : old?.summary,
         newMessages: newMessages,
@@ -121,7 +122,8 @@ Future<void> _extractGroupMemoriesAfterReply({
         await _storage.getGroupChatSummary(groupId, session.chatId);
     final events = await _aiService.extractGroupPublicEvents(
       groupName: session.name,
-      messages: _toChatHistory(safeRecent, ''),
+      messages: _toChatHistory(safeRecent, '',
+          userAlias: (await _groupUserIdentity(_storage)).alias),
       existingSummary: summary?.summary,
     );
     for (final characterId in session.aiCharacterIds) {
@@ -187,17 +189,31 @@ Future<void> _runSocialMaintenanceQuietly(
   }
 }
 
-/// 群成员名称列表（AI 用真实名，用户显示"你"）
+/// 群成员名称列表（AI 用真实名，用户显示代称为主）
 Future<List<String>> _buildMemberNames(GroupChatSession session) async {
   final names = <String>[];
   for (final id in session.aiCharacterIds) {
     final ch = await _storage.getAICharacter(id);
     names.add(ch?.name ?? id);
   }
-  // 用户成员（非 AI 的 memberIds）
+  // 用户成员（非 AI 的 memberIds）：代称优先，并明确标注"就是用户本人"，
+  // 否则模型会把"林晚晚"之类的代称当成群里另一个 AI 成员。
+  String userLabel = '你';
+  try {
+    final me = await _storage.getCurrentUser();
+    final alias = me?.chatAlias?.trim() ?? '';
+    if (alias.isNotEmpty) {
+      userLabel = '$alias（就是用户本人，不是群成员）';
+    } else {
+      final nickname = me?.nickname.trim() ?? '';
+      if (nickname.isNotEmpty) {
+        userLabel = '$nickname（就是用户本人，你）';
+      }
+    }
+  } catch (_) {}
   for (final id in session.memberIds) {
     if (!session.aiCharacterIds.contains(id)) {
-      names.add(id == 'local_user' ? '你' : id);
+      names.add(id == 'local_user' ? userLabel : id);
     }
   }
   return names;
@@ -218,9 +234,39 @@ String _mergeStreamReasoning(AIStreamChunk chunk) {
   return [fromField, fromContent].where((r) => r.isNotEmpty).join('\n');
 }
 
+/// 群聊用户身份三件套（与单聊主路径同源文案，见 `utils/identity_label.dart`）。
+///
+/// 群聊此前从不声明用户身份与性别，模型只能靠猜——这是群聊里代称/性别错乱的根源。
+/// 返回：identity 段、addendum 段、代称（历史标注用）。读失败时全空，调用方跳过注入。
+Future<({String identityBlock, String addendumBlock, String alias})>
+    _groupUserIdentity(LocalStorageRepository storage) async {
+  try {
+    final me = await storage.getCurrentUser();
+    var alias = me?.chatAlias?.trim() ?? '';
+    var nickname = me?.nickname.trim() ?? '';
+    return (
+      identityBlock: identity.buildUserIdentityBlock(
+        alias: alias.isEmpty ? null : alias,
+        nickname: nickname.isEmpty ? null : nickname,
+        gender: me?.gender,
+      ),
+      addendumBlock:
+          identity.buildUserAddendumBlock(storage.getUserPromptAddendum()),
+      alias: alias,
+    );
+  } catch (_) {
+    return (identityBlock: '', addendumBlock: '', alias: '');
+  }
+}
+
 /// 群消息 → 单聊格式（供 AIService 消费；ST 群聊格式：名字: 内容）
 List<ChatMessage> _toChatHistory(
-    List<GroupChatMessage> history, String selfCharacterId) {
+  List<GroupChatMessage> history,
+  String selfCharacterId, {
+  // 用户代称：用户发言标注为"代称: 内容"，让模型把"我"绑定到代称人物。
+  // 为空时保持旧行为（senderName=='我' 的消息不带前缀）。
+  String userAlias = '',
+}) {
   final result = <ChatMessage>[];
   for (final m in history) {
     if (m.isSystem) continue;
@@ -228,12 +274,15 @@ List<ChatMessage> _toChatHistory(
     // 避免某个模型拒绝/报助手身份一次后，换模型也洗不掉。
     if (!m.isUser && MessageSanitizer.isAIRefusal(m.content)) continue;
     final isAi = !m.isUser;
-    // 自己是说话人时用 content；他人消息标注说话人
+    // 自己是说话人时用 content；他人消息标注说话人。
+    // 用户发言：有代称则标注"代称: 内容"（绑定"我"=代称人物），无代称保持旧行为。
     final content = isAi
         ? (m.senderId == 'ai_$selfCharacterId'
             ? m.content
             : '${m.senderName}: ${m.content}')
-        : (m.senderName == '我' ? m.content : '${m.senderName}: ${m.content}');
+        : (m.senderName == '我' && userAlias.isEmpty
+            ? m.content
+            : '${m.senderName == '我' ? userAlias : m.senderName}: ${m.content}');
     result.add(ChatMessage(
       id: m.id,
       chatId: m.chatId.isEmpty ? m.groupId : m.chatId,

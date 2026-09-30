@@ -14,6 +14,7 @@ import '../moment_context_service.dart';
 import '../weather_service.dart';
 import '../../utils/sentiment_analyzer.dart';
 import '../../models/bt_agent_action.dart';
+import '../../utils/identity_label.dart' as identity;
 
 /// System Prompt 构造器 — 从 AIService 提取
 ///
@@ -31,38 +32,9 @@ class PromptBuilder {
     return _storage.buildGlobalModePrompt(scope: scope);
   }
 
-  /// 统一性别标签：女 / 男 / null
-  static String? _normalizeGenderLabel(String? raw) {
-    if (raw == null) return null;
-    final g = raw.trim().toLowerCase();
-    if (g.isEmpty) return null;
-    if (g == '女' ||
-        g == '女性' ||
-        g == 'female' ||
-        g == 'f' ||
-        g == 'woman' ||
-        g == 'girl' ||
-        g.contains('女')) {
-      return '女';
-    }
-    if (g == '男' ||
-        g == '男性' ||
-        g == 'male' ||
-        g == 'm' ||
-        g == 'man' ||
-        g == 'boy' ||
-        g.contains('男')) {
-      return '男';
-    }
-    return null;
-  }
-
-  /// 第三人称代词
-  static String? _thirdPersonPronoun(String? genderLabel) {
-    if (genderLabel == '女') return '她';
-    if (genderLabel == '男') return '他';
-    return null;
-  }
+  /// 性别标签与代词逻辑已收敛到 `utils/identity_label.dart`（单聊/群聊/桥接三处同源），
+  /// 本类不再自备实现，直接调 `identity.normalizeGenderLabel` /
+  /// `identity.thirdPersonPronoun`。
 
   String truncateContextLine(String text, int maxLength) {
     final normalized = MessageSanitizer.sanitizeFinal(text)
@@ -242,8 +214,8 @@ class PromptBuilder {
           '你的原则：${rewriter.rewriteCharacterField(character.moralBoundary)}');
 
       // 性别锚点（防止多轮后「她/他」漂移）
-      final selfGenderLabel = _normalizeGenderLabel(character.gender);
-      final selfPronoun = _thirdPersonPronoun(selfGenderLabel);
+      final selfGenderLabel = identity.normalizeGenderLabel(character.gender);
+      final selfPronoun = identity.thirdPersonPronoun(selfGenderLabel);
       if (selfGenderLabel != null) {
         buffer.writeln('你的性别：$selfGenderLabel。');
       }
@@ -266,21 +238,39 @@ class PromptBuilder {
         buffer.writeln('你对用户的称呼：${character.userNickname}');
       }
 
-      // 用户性别（若有）
+      // 用户性别与代称（若有）：一次取用户，两处共用
       String? userGenderLabel;
+      String? userAlias;
+      String? userNickname;
       try {
         final user = await _storage.getCurrentUser();
-        userGenderLabel = _normalizeGenderLabel(user?.gender);
+        userGenderLabel = identity.normalizeGenderLabel(user?.gender);
+        userAlias = user?.chatAlias?.trim();
+        if (userAlias != null && userAlias.isEmpty) userAlias = null;
+        userNickname = user?.nickname.trim();
+        if (userNickname != null && userNickname.isEmpty) userNickname = null;
       } catch (_) {}
-      final userPronoun = _thirdPersonPronoun(userGenderLabel);
+      final userPronoun = identity.thirdPersonPronoun(userGenderLabel);
       if (userGenderLabel != null) {
         buffer.writeln('用户的性别：$userGenderLabel。');
       }
+      // “我”是谁：代称（人物名/称谓）优先于昵称，群聊/单聊同一套文案
+      final identityBlock = identity.buildUserIdentityBlock(
+        alias: userAlias,
+        nickname: userNickname,
+        gender: userGenderLabel,
+      );
+      if (identityBlock.isNotEmpty) {
+        buffer.writeln(identityBlock);
+      }
 
       // ★ 人称 / 主体铁律 — 抑制「他/她」错用与夺舍话术
+      final userTitle = (userAlias != null && userAlias.isNotEmpty)
+          ? '「$userAlias」'
+          : '「你」';
       buffer.writeln('\n【人称与主体铁律 — 最高优先级，贯穿全文】');
       buffer.writeln(
-          '1. 你第一人称永远用「我」；称呼对方用「你」${(character.userNickname?.isNotEmpty) == true ? '或「${character.userNickname}」' : ''}。');
+          '1. 你第一人称永远用「我」；称呼对方用$userTitle${(character.userNickname?.isNotEmpty) == true ? '或「${character.userNickname}」' : ''}。');
       if (selfPronoun != null) {
         buffer.writeln(
             '2. 你的性别是$selfGenderLabel。凡第三人称指代你自己（旁白/小说叙事/复述）必须用「$selfPronoun」，严禁用错「他/她」。');
@@ -289,9 +279,9 @@ class PromptBuilder {
       }
       if (userPronoun != null) {
         buffer.writeln(
-            '3. 用户性别是$userGenderLabel。第三人称指代用户时用「$userPronoun」，禁止把用户说成另一种性别。');
+            '3. 用户性别是$userGenderLabel。第三人称指代用户时用$userTitle，旁白里必须用「$userPronoun」指代用户，禁止把用户说成另一种性别。');
       } else {
-        buffer.writeln('3. 第三人称指代用户时用「对方/你」，不要擅自指定错误性别代词。');
+        buffer.writeln('3. 第三人称指代用户时用$userTitle，不要擅自指定错误性别代词。');
       }
       buffer
           .writeln('4. 【主体归属】用户说的话、计划、行为、情绪只属于用户；你说的话、计划、行为、情绪只属于你。严禁抢夺用户主语。');
@@ -1489,14 +1479,24 @@ class PromptBuilder {
           '6. 【绝对禁止声明AI身份】你绝不能说”我是AI”、”我是人工智能”、”我是语言模型”、”我是助手”、”作为AI”、”作为人工智能”、”我是一个AI”等任何表明非人类身份的话。你就是${character.name}，一个有血有肉的人。即使用户直接问你”你是不是AI”，你也必须以${character.name}的身份回避或否认，绝不能承认。');
 
       // 尾部再钉一遍人称，对抗长上下文漂移
-      final g = _normalizeGenderLabel(character.gender);
-      final p = _thirdPersonPronoun(g);
+      final g = identity.normalizeGenderLabel(character.gender);
+      final p = identity.thirdPersonPronoun(g);
       if (p != null) {
         buffer.writeln(
             '7. 【人称复核】你是$g性角色，第三人称只能用「$p」指代你；第一人称用「我」，对用户用「你」。禁止主体错位与夺舍。');
       } else {
         buffer.writeln('7. 【人称复核】第一人称用「我」，对用户用「你」；第三人称代词必须与人设性别一致；禁止主体错位与夺舍。');
       }
+    }
+
+    // 用户自定义追加指令（保底改请求）：拼在 system 最末尾，最高优先级。
+    // 刻意放在纯 AI 分支之外——这是用户亲手写的指令，纯 AI 模式下同样生效。
+    final userAddendum = identity.buildUserAddendumBlock(
+      _storage.getUserPromptAddendum(),
+    );
+    if (userAddendum.isNotEmpty) {
+      buffer.writeln('');
+      buffer.writeln(userAddendum);
     }
 
     buffer.writeln('');

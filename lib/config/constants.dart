@@ -97,6 +97,9 @@ class PrefKeys {
   static const String age18Gate = 'age18_gate_v2';
   static const String userAge = 'user_age';
   static const String idCardVerified = 'id_card_verified';
+  /// 用户自定义追加指令：拼到每次 AI 请求 system 末尾，最高优先级。
+  /// 用户亲手改请求内容的保底手段；空=关闭。
+  static const String userPromptAddendum = 'user_prompt_addendum';
   static const String loverModeEnabled = 'lover_mode_enabled';
   static const String openModeEnabled = 'open_mode_enabled';
   static const String faModeEnabled = 'fa_mode_enabled';
@@ -352,7 +355,7 @@ class DbDefaults {
   DbDefaults._();
 
   static const String dbName = 'solace.db';
-  static const int dbVersion = 75;
+  static const int dbVersion = 76;
   static const int newUserCoins = 100;
   static const int newUserTotalEarned = 100;
   static const int newUserTotalSpent = 0;

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import '../models/ai_character.dart';
+
+import '../models/llm_request.dart';
 import '../models/ai_turn_state.dart';
 import '../models/ai_config.dart';
 import '../models/ai_stream_chunk.dart';
@@ -150,6 +152,9 @@ abstract class _AIServiceCore {
   /// 最近一次请求的角色性别/名字（用于输出侧人称轻量纠错）
   String? _lastCharacterGender;
   String? _lastCharacterName;
+  /// 最近一次请求的用户性别：纠错时用来避开指代用户的代词。
+  /// 为空（未设置/保密/读取失败）时保持旧行为。
+  String? _lastUserGender;
   String? _lastParsedStatus;
   AiTurnState? _lastTurnState;
   Map<String, dynamic>? _lastWebSearchTrace;
@@ -335,6 +340,8 @@ class AIService extends _AIServiceCore with AIServiceCleanSplitApi, AIServiceCon
     int? overrideMaxTokens,
     bool isSideStory = false,
     bool forceConcise = false,
+    // 请求场景（单聊/群聊）：只用于"查看上次请求"快照标注，不影响组装
+    String requestScope = '单聊',
   }) async {
     _lastTurnState = null;
     _lastParsedStatus = null;
@@ -367,6 +374,7 @@ class AIService extends _AIServiceCore with AIServiceCleanSplitApi, AIServiceCon
       internalSystemContext: internalSystemContext,
       isSideStory: isSideStory,
       forceConcise: forceConcise,
+      requestScope: requestScope,
     );
 
     String baseUrl = config.baseUrl.trim();
@@ -601,6 +609,8 @@ class AIService extends _AIServiceCore with AIServiceCleanSplitApi, AIServiceCon
     String? internalSystemContext,
     bool isSideStory = false,
     bool forceConcise = false,
+    // 请求场景（单聊/群聊）：只用于"查看上次请求"快照标注，不影响组装
+    String requestScope = '单聊',
   }) async* {
     _lastTurnState = null;
     _lastParsedStatus = null;
@@ -624,6 +634,7 @@ class AIService extends _AIServiceCore with AIServiceCleanSplitApi, AIServiceCon
       internalSystemContext: internalSystemContext,
       isSideStory: isSideStory,
       forceConcise: forceConcise,
+      requestScope: requestScope,
     );
 
     yield* _streamAPI(config, messages, forceConcise: forceConcise);
@@ -1027,12 +1038,14 @@ class AIService extends _AIServiceCore with AIServiceCleanSplitApi, AIServiceCon
     cleaned = cleaned.replaceAll(
         RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]'), '');
 
-    // 人称代词轻量纠错（依赖最近一次 build 时缓存的角色性别）
+    // 人称代词轻量纠错（依赖最近一次 build 时缓存的角色性别 + 用户性别；
+    // 用户性别用来避开指代用户的代词，否则会把"她"全改成"他"）
     if (_lastCharacterGender != null || _lastCharacterName != null) {
       cleaned = MessageSanitizer.fixGenderPronouns(
         cleaned,
         characterGender: _lastCharacterGender,
         characterName: _lastCharacterName,
+        userGender: _lastUserGender,
       );
     }
 

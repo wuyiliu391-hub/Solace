@@ -13,6 +13,10 @@ class User extends Equatable {
   final String? birthday;         // 生日
   final String? location;         // 所在地
   final String? bio;              // 个人简介
+  /// 我的代称：单聊/群聊中 AI 指代"我"用的人物名或称谓。
+  /// 为空时用昵称。用户扮演其他人物（如"林晚晚"）或希望被称呼为
+  /// "主人/少爷/姐姐"时填这里，各请求组装点统一读取。
+  final String? chatAlias;
 
   // 虚拟货币
   final int coins;                // 金币数量
@@ -40,6 +44,7 @@ class User extends Equatable {
     this.birthday,
     this.location,
     this.bio,
+    this.chatAlias,
     this.status,
     this.backgroundImage,
     this.backgroundImageLandscape,
@@ -60,6 +65,7 @@ class User extends Equatable {
     String? birthday,
     String? location,
     String? bio,
+    String? chatAlias,
     String? status,
     String? backgroundImage,
     String? backgroundImageLandscape,
@@ -73,6 +79,8 @@ class User extends Equatable {
     /// 同上，用于清除竖屏 / 横屏背景图。
     bool clearBackgroundImage = false,
     bool clearBackgroundImageLandscape = false,
+    /// 同上，用于清除代称（传 null 会被忽略，清空必须走这个开关）。
+    bool clearChatAlias = false,
   }) {
     return User(
       id: id ?? this.id,
@@ -85,6 +93,7 @@ class User extends Equatable {
       birthday: birthday ?? this.birthday,
       location: location ?? this.location,
       bio: bio ?? this.bio,
+      chatAlias: clearChatAlias ? null : (chatAlias ?? this.chatAlias),
       status: status ?? this.status,
       backgroundImage: clearBackgroundImage
           ? null
@@ -111,6 +120,7 @@ class User extends Equatable {
       'birthday': birthday,
       'location': location,
       'bio': bio,
+      'chatAlias': chatAlias,
       'status': status,
       'backgroundImage': backgroundImage,
       'backgroundImageLandscape': backgroundImageLandscape,
@@ -139,6 +149,8 @@ class User extends Equatable {
       birthday: map['birthday'] as String?,
       location: map['location'] as String?,
       bio: map['bio'] as String?,
+      // 老库无此列时为 null，视为未设置（用昵称回退），不炸
+      chatAlias: map['chatAlias'] as String?,
       status: map['status'] as String?,
       backgroundImage: map['backgroundImage'] as String?,
       backgroundImageLandscape: map['backgroundImageLandscape'] as String?,
@@ -152,7 +164,7 @@ class User extends Equatable {
   @override
   List<Object?> get props => [
         id, nickname, avatarUrl, createdAt, lastLoginAt,
-        signature, gender, birthday, location, bio, status, backgroundImage,
+        signature, gender, birthday, location, bio, chatAlias, status, backgroundImage,
         backgroundImageLandscape,
         coins, totalCoinsEarned, totalCoinsSpent, syncSeq,
       ];

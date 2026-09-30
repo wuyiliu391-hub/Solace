@@ -112,6 +112,49 @@ class LlmMessage {
   }
 }
 
+/// 上次 LLM 请求快照（静态 holder，供「查看上次请求内容」UI 读取）。
+///
+/// 动因：用户要求"保底能改发送的请求内容"——改之前得先能看见发了什么。
+/// 用静态字段而不用 DI：AI 组装侧（`_buildMessages`、桥接）与 UI 侧
+/// （单聊/群聊设置页）之间没有现成的实例通道，静态是最不侵入的桥。
+/// 只存 system 全文 + 元信息，不存历史消息（system 已含身份/模式/追加指令，
+/// 正是用户最需要核对的部分；历史消息以气泡为准，不必重复存）。
+class LastLlmRequestSnapshot {
+  LastLlmRequestSnapshot._();
+
+  /// 请求场景：单聊 / 群聊 / 单聊桥接 / 记忆摘要 等
+  static String scope = '';
+
+  /// 发出的 system 提示词全文
+  static String systemPrompt = '';
+
+  /// 组装时的历史消息条数
+  static int historyCount = 0;
+
+  /// 快照时间
+  static DateTime? capturedAt;
+
+  static bool get hasData => systemPrompt.isNotEmpty;
+
+  static void capture({
+    required String scope,
+    required String systemPrompt,
+    required int historyCount,
+  }) {
+    LastLlmRequestSnapshot.scope = scope;
+    LastLlmRequestSnapshot.systemPrompt = systemPrompt;
+    LastLlmRequestSnapshot.historyCount = historyCount;
+    LastLlmRequestSnapshot.capturedAt = DateTime.now();
+  }
+
+  static void clear() {
+    scope = '';
+    systemPrompt = '';
+    historyCount = 0;
+    capturedAt = null;
+  }
+}
+
 /// LLM 响应（对标 KouriChat LLM 响应结构）
 class LlmResponse {
   /// 回复内容（对标 response）

@@ -661,6 +661,12 @@ Future<void> _generateOneReply({
     LogService.instance.w('GroupChat', '构建朋友圈上下文失败: $e');
   }
   final nudge = buildGroupNudge(character.name);
+  // “我”是谁 + 用户追加指令：群聊此前从不声明用户身份与性别，
+  // 模型只能靠猜——这是群聊里代称/性别错乱的根源。与单聊主路径同源文案。
+  final meIdentity = await _groupUserIdentity(_storage);
+  final userIdentity = meIdentity.identityBlock;
+  final userAddendum = meIdentity.addendumBlock;
+  final groupUserAlias = meIdentity.alias;
   final recentReplies = history
       .where((message) => !message.isUser && !message.isSystem)
       .toList()
@@ -689,6 +695,12 @@ Future<void> _generateOneReply({
   }
   final internalContext = _promptPipeline.build(
     segments: [
+      if (userAddendum.isNotEmpty)
+        GroupPromptSegment(
+            id: 'user_addendum', content: userAddendum, priority: 130),
+      if (userIdentity.isNotEmpty)
+        GroupPromptSegment(
+            id: 'user_identity', content: userIdentity, priority: 120),
       GroupPromptSegment(id: 'intro', content: intro, priority: 100),
       GroupPromptSegment(id: 'member_voice', content: voice, priority: 110),
       if (momentCtx.isNotEmpty)
@@ -702,7 +714,9 @@ Future<void> _generateOneReply({
     tokenBudget: 1800,
   );
 
-  final chatHistory = _toChatHistory(history, character.id);
+  final chatHistory = _toChatHistory(history, character.id,
+      // 用户发言标注代称，让模型把"我"绑定到代称人物
+      userAlias: groupUserAlias);
 
   emit(GroupChatTyping(groupId, character.name,
       messages: await _storage.getGroupChatMessages(groupId,
@@ -726,6 +740,7 @@ Future<void> _generateOneReply({
       sentiment: null,
       imagePaths: imagePaths,
       internalSystemContext: internalContext,
+      requestScope: '群聊',
     )) {
       fullText = chunk.content;
       fullReasoning = chunk.reasoning;

@@ -16,6 +16,8 @@ import '../../models/bt_agent_action.dart';
 import '../../utils/sentiment_analyzer.dart';
 import '../../utils/message_sanitizer.dart';
 import '../../utils/global_mode_prompt.dart';
+import '../../utils/identity_label.dart' as identity;
+import '../../models/llm_request.dart';
 import '../llm_service.dart';
 import '../../repositories/memory_repository.dart';
 import '../../services/emotion_memory_pool.dart';
@@ -130,6 +132,19 @@ class AIServiceAdapter {
   }) async {
     _lastTurnState = null;
     _lastParsedStatus = null;
+    // 当前用户（代称/性别/追加指令）：桥接此前从不声明，模型自由发挥
+    String? userAlias;
+    String? userNickname;
+    String? userGender;
+    try {
+      final user = await _storage?.getCurrentUser();
+      userAlias = user?.chatAlias?.trim();
+      if (userAlias != null && userAlias.isEmpty) userAlias = null;
+      userNickname = user?.nickname.trim();
+      if (userNickname != null && userNickname.isEmpty) userNickname = null;
+      userGender = user?.gender;
+    } catch (_) {}
+    final userAddendum = _storage?.getUserPromptAddendum() ?? '';
     // 构建系统提示词（从角色卡 + 记忆 + 情绪）
     final systemPrompt = _buildSystemPrompt(
       character: character,
@@ -138,6 +153,16 @@ class AIServiceAdapter {
       userStatus: userStatus,
       sentiment: sentiment,
       forceConcise: forceConcise,
+      userAlias: userAlias,
+      userNickname: userNickname,
+      userGender: userGender,
+      userAddendum: userAddendum,
+    );
+    // 上次请求快照（供"查看上次请求内容"）
+    LastLlmRequestSnapshot.capture(
+      scope: '单聊桥接',
+      systemPrompt: systemPrompt,
+      historyCount: chatHistory.length,
     );
 
     // 构建额外上下文（记忆注入）
@@ -585,6 +610,11 @@ class AIServiceAdapter {
   }
 
   /// 构建系统提示词
+  ///
+  /// [userAlias]/[userNickname]/[userGender] 由 [sendMessage] 从当前用户读出后传入
+  /// （本函数保持同步，调用方负责异步取用户）。用户追加指令同理经 [userAddendum] 传入。
+  /// 桥接此前完全没有用户性别/代称逻辑——用户设了性别这边也从不声明，模型自由发挥，
+  /// 这是"设置了性别却出现相反"的另一半原因；此处与单聊主路径用同一套纯函数补上。
   String _buildSystemPrompt({
     required AICharacter character,
     required List<Memory> memories,
@@ -592,6 +622,10 @@ class AIServiceAdapter {
     String? userStatus,
     SentimentResult? sentiment,
     bool forceConcise = false,
+    String? userAlias,
+    String? userNickname,
+    String? userGender,
+    String? userAddendum,
   }) {
     final parts = <String>[];
 
@@ -701,6 +735,22 @@ class AIServiceAdapter {
     // 用户状态
     if (userStatus != null && userStatus.isNotEmpty) {
       addClean('用户当前状态：', userStatus);
+    }
+
+    // “我”是谁：代称/性别（与单聊主路径同源；桥接此前缺失导致模型自由发挥）
+    final identityBlock = identity.buildUserIdentityBlock(
+      alias: userAlias,
+      nickname: userNickname,
+      gender: userGender,
+    );
+    if (identityBlock.isNotEmpty) {
+      parts.add(identityBlock);
+    }
+
+    // 用户自定义追加指令（保底改请求）：system 末尾，最高优先级
+    final addendumBlock = identity.buildUserAddendumBlock(userAddendum);
+    if (addendumBlock.isNotEmpty) {
+      parts.add(addendumBlock);
     }
 
     parts.add('''

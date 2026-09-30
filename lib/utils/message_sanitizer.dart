@@ -856,10 +856,18 @@ class MessageSanitizer {
   ///
   /// 说明：不碰「你/我」对话主体，只修正旁白式「他/她」在指代角色自身时的常见错用。
   /// 保守策略：只处理「他/她 + 常见自指动词/状态」且句中出现角色名或第一人称混用痕迹时再替换。
+  ///
+  /// ★ [userGender] 必传（能拿到时）：此前的 blanket 替换会把**正确指代用户的代词**
+  /// 一起改掉——例如角色男、用户女，AI 正确写了"她的笑容"，清洗器看到"她"+"我"
+  /// 就全改成"他"，用户看到的就是"性别设置女、实际全是男"，即本次修复的 bug。
+  /// 规则：当"对角色错的代词"恰好是"对用户对的代词"时，跳过规则 2 的全文替换
+  /// （那些很可能在指代用户），只保留规则 1 的角色名邻接替换（角色专属，安全）。
+  /// [userGender] 为 null（未知/保密）时保持旧行为。
   static String fixGenderPronouns(
     String text, {
     String? characterGender,
     String? characterName,
+    String? userGender,
   }) {
     if (text.isEmpty) return text;
     final gender = _normalizeGender(characterGender);
@@ -868,15 +876,22 @@ class MessageSanitizer {
     final right = gender == '女' ? '她' : '他';
     if (!text.contains(wrong)) return text;
 
+    // 用户的正确代词：wrong 若等于它，说明 wrong 在文中极可能指代用户
+    final userPronoun = _normalizeGender(userGender) == '女'
+        ? '她'
+        : (_normalizeGender(userGender) == '男' ? '他' : null);
+    final wrongMayReferToUser = userPronoun != null && wrong == userPronoun;
+
     var result = text;
-    // 1) 角色名 + 错代词 → 角色名 + 正代词
+    // 1) 角色名 + 错代词 → 角色名 + 正代词（角色专属，不受用户性别影响）
     if (characterName != null && characterName.isNotEmpty) {
       result =
           result.replaceAll('$characterName$wrong', '$characterName$right');
       result =
           result.replaceAll('$wrong$characterName', '$right$characterName');
     }
-    // 2) 常见自指搭配：「他很/她很/他会/她会…」在明显角色叙事中纠错
+    // 2) 常见自指搭配：只有"错代词不可能指代用户"时才做全文替换
+    if (wrongMayReferToUser) return result;
     // 仅当全文同时出现「我」时更可能是角色第一人称叙事泄漏第三人称错代词
     final hasFirstPerson = result.contains('我');
     if (hasFirstPerson) {

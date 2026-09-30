@@ -19,6 +19,7 @@ import '../../utils/avatar_resolver.dart';
 import '../../utils/character_color.dart';
 import '../../utils/vision_image_encoder.dart';
 import '../../widgets/avatar_picker.dart';
+import '../../widgets/last_request_viewer.dart';
 import '../../widgets/group_chat/group_top_bar.dart';
 import '../../widgets/group_chat/member_activation_bar.dart';
 import '../../widgets/group_chat/group_message_bubble.dart';
@@ -1843,6 +1844,17 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                         Text('创建者: ${_session.creatorId.substring(0, 8)}...'),
                     onTap: () {
                       Navigator.pop(ctx);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.plumbing_outlined),
+                    title: const Text('查看上次请求内容'),
+                    subtitle: const Text('最近一次发给 AI 的 system 全文'),
+                    trailing:
+                        const Icon(Icons.chevron_right, size: 18),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      LastRequestViewer.show(context);
                     },
                   ),
                 ],

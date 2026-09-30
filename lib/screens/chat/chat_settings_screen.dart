@@ -19,6 +19,7 @@ import '../../services/permission_service.dart';
 import '../../widgets/ai_wallet_card.dart';
 import '../../widgets/image_cropper.dart';
 import '../../widgets/background_picker.dart';
+import '../../widgets/last_request_viewer.dart';
 import '../../utils/background_resolver.dart';
 import '../voice/voice_clone_screen.dart';
 import 'interaction_settings_screen.dart';
@@ -891,6 +892,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             const Divider(height: 32),
             _buildBackgroundSection(context),
             const Divider(height: 32),
+            _buildRequestDebugSection(context),
+            const Divider(height: 32),
             _buildDangerZone(context),
           ],
         ),
@@ -1530,6 +1533,44 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
             onTap: _clearBackgroundImage,
           ),
+      ],
+    );
+  }
+
+  /// 请求与调试：查看上次实际发出的 system 全文。
+  ///
+  /// 用户核对代称/性别/追加指令是否生效的入口；复制后可拿到
+  /// 「我 → 设置 → 自定义请求指令」里去改（保底改请求内容的另一半）。
+  Widget _buildRequestDebugSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            '请求与调试',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        ListTile(
+          leading: Icon(Icons.plumbing_outlined,
+              color: Theme.of(context).colorScheme.primary),
+          title: const Text('查看上次请求内容'),
+          subtitle: Text(
+            '最近一次发给 AI 的 system 全文',
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+            ),
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => LastRequestViewer.show(context),
+        ),
       ],
     );
   }

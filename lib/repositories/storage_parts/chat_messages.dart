@@ -2096,6 +2096,25 @@ mixin LocalStorageRepositoryChatMessagesApi on _LocalStorageRepositoryCore {
     return _prefs?.getBool(PrefKeys.pureAiModeEnabled) ?? false;
   }
 
+  /// 用户自定义追加指令（保底改请求内容）。
+  ///
+  /// 用户亲手写的文本，会被拼到每次 AI 请求 system 提示词的末尾（最高优先级）。
+  /// 自动组装（代称/性别/模式）再怎么出 bug，用户都能用这段话亲手纠正。
+  /// 空串=关闭。长度截断在注入侧做（`buildUserAddendumBlock`），这里原样存。
+  String getUserPromptAddendum() {
+    return _prefs?.getString(PrefKeys.userPromptAddendum)?.trim() ?? '';
+  }
+
+  Future<void> setUserPromptAddendum(String value) async {
+    final v = value.trim();
+    if (v.isEmpty) {
+      await _prefs?.remove(PrefKeys.userPromptAddendum);
+    } else {
+      await _prefs?.setString(PrefKeys.userPromptAddendum, v);
+    }
+    modeSettingsNotifier.value++;
+  }
+
   String buildGlobalModePrompt({String scope = 'AI回复'}) {
     return buildGlobalModePromptText(
       pureAiMode: isPureAiModeEnabled(),

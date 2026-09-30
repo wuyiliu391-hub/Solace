@@ -122,6 +122,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// 自定义请求指令：用户亲手改每次发给 AI 的请求（保底手段）。
+  ///
+  /// 存到 SharedPreferences（`PrefKeys.userPromptAddendum`），为空=关闭。
+  /// 单聊 system 末尾 / 群聊最高优先级段 / 桥接 system 都会拼上。
+  Future<void> _openUserPromptAddendum() async {
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final controller =
+        TextEditingController(text: storage.getUserPromptAddendum());
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('自定义请求指令'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '你亲手写的指令，会拼到每次 AI 请求的 system 最末尾（最高优先级）。\n'
+                '自动组装再怎么出错（代称/性别/人设），都能用这段话亲手纠正。\n'
+                '留空=关闭。超长按 2000 字截断。',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLines: 8,
+                minLines: 4,
+                maxLength: 2000,
+                decoration: const InputDecoration(
+                  hintText: '例如：我是女生，旁白里必须用「她」指代我；叫我晚晚',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () async {
+              controller.clear();
+              await storage.setUserPromptAddendum('');
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('自定义请求指令已清空（已关闭）')),
+                );
+              }
+            },
+            child: const Text('清空关闭'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await storage.setUserPromptAddendum(controller.text);
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('自定义请求指令已保存，下次请求生效')),
+                );
+              }
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+  }
+
   /// 配置 Fish Audio API Key 与模型。
   Future<void> _openFishAudioSettings() async {
     final config = await FishAudioTtsConfigStore.load();
@@ -423,6 +496,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: '配置 AI 接口和模型',
               onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const AIConfigScreen())),
+              colorScheme: colorScheme,
+            ),
+            _buildDivider(colorScheme),
+            _buildNavTile(
+              icon: Icons.edit_note_outlined,
+              iconBgColor: Colors.teal.withOpacity(0.1),
+              title: '自定义请求指令',
+              subtitle: '亲手改每次发给 AI 的请求，最高优先级兜底',
+              onTap: _openUserPromptAddendum,
               colorScheme: colorScheme,
             ),
           ], colorScheme),

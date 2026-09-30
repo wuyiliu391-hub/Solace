@@ -279,6 +279,50 @@ flutter test test/xxx_test.dart                        # 单文件
 `插入U盘` / `把数据插入表格` 会被改坏。修它要区分语境（`插入` 既是普通词也是性描写用词），
 风险大于收益，先记着。**往这两处加词前，先想清楚谁先执行。**
 
+## 用户身份：代称 / 性别 / 请求兜底（2026-09-30）
+
+用户要的是"单聊群聊都认识我是谁"：`User.chatAlias`（我的代称，可填人物名"林晚晚"或称谓"主人"，
+编辑资料页可改，清空走 `copyWith(clearChatAlias:)`），db v76（`users.chatAlias`，`_onUpgrade` +
+`_onCreate` + `expectedColumns` 三处同步）。
+
+### 身份文案必须同源
+
+纯函数：`lib/utils/identity_label.dart` → `normalizeGenderLabel` / `thirdPersonPronoun` /
+`buildUserIdentityBlock` / `buildUserAddendumBlock`
+三处调用点（单聊 `prompt_builder` / 群聊 `gc_chat_flow`+`gc_config_memory` / 桥接 `ai_service_adapter`）
+**禁止各写一套**，此前桥接与群聊完全没有用户性别/代称逻辑就是这么漏掉的。
+`prompt_builder` 的旧私有 `_normalizeGenderLabel` / `_thirdPersonPronoun` 已删除，统一调这里。
+
+要点：
+- 代称块必须写明"代称指的就是用户本人，不是新成员"——否则群聊里模型把代称当成新 AI 成员。
+  群成员名单（`_buildMemberNames`）同样标注"（就是用户本人）"；群历史里用户发言标
+  "代称: 内容"（`_toChatHistory(userAlias:)`，无代称保持旧行为）。
+- 单聊 `character.userPersona`（每角色的用户人设）保持不动：它是角色级自由文本，代称是用户级
+  结构化身份，两者叠加不冲突。
+
+### 性别翻转 bug（已修）：输出侧清洗器是凶手，不是输入侧
+
+现象：用户性别设女，AI 回复里指代用户的"她"全被改成"他"。
+根因：`MessageSanitizer.fixGenderPronouns` 规则 2（全文 blanket 替换）——角色男时把所有
+"她X"改"他X"，而正确指代用户的"她"也被改掉；且 prompt 要求 AI 第一人称用「我」，
+所以 `contains('我')` 门控几乎恒为真，等于无门控。
+修复：新增 `userGender` 参数；当"对角色错的代词 == 对用户对的代词"时跳过规则 2，
+只保留规则 1（角色名邻接，角色专属，安全）。用户性别未知/保密时保持旧行为。
+`_lastUserGender` 在 `_buildMessages` 里与角色性别一并缓存（`sendMessage`/`sendMessageStream`
+共用，群聊走 stream 同样被缓存；但群聊输出只走 `sanitizeFinal` 不调纠错，所以群聊从无此 bug）。
+测试：`test/gender_pronoun_fix_test.dart`；身份纯函数：`test/user_identity_prompt_test.dart`。
+
+### 保底改请求：追加指令 + 上次请求查看
+
+- `PrefKeys.userPromptAddendum` + `getUserPromptAddendum`/`setUserPromptAddendum`
+ （`storage_parts/chat_messages.dart`，与模式开关同文件）。
+  设置页「AI 设置 → 自定义请求指令」可写，拼到单聊 system 末尾 / 群聊最高优先级段（130）/
+  桥接 system 末尾。**纯 AI 模式下同样生效**（用户亲手写的，不走模式短路）。
+- `LastLlmRequestSnapshot`（`models/llm_request.dart` 静态 holder）：`_buildMessages` 与桥接
+  `sendMessage` 组装完 system 即 capture（scope 靠 `requestScope` 参数区分单聊/群聊/桥接，
+  群聊两处调用已传 `'群聊'`）。单聊设置「请求与调试」与群聊设置「查看上次请求内容」
+  共用 `widgets/last_request_viewer.dart` 展示 + 复制。
+
 ## 头像自定义与裁剪（2026-09-30）
 
 所有头像都是**圆形**显示（`BoxShape.circle` / `ClipOval`），所以头像裁剪统一输出**正方形**。
@@ -413,7 +457,7 @@ flutter test test/xxx_test.dart                        # 单文件
 
 ## 数据库
 
-- 版本常量：`lib/config/constants.dart` → `DbDefaults.dbVersion`（**当前 75**，v75 新增背景图横竖屏分列）
+- 版本常量：`lib/config/constants.dart` → `DbDefaults.dbVersion`（**当前 76**，v76 新增 `users.chatAlias` 我的代称）
 - 迁移只走 `local_storage_repository.dart` 的 `_onUpgrade`；自愈靠 `expectedColumns`（补列）+ `createMissingTable`（补表），v74 增加了自愈分支
 - 数据库文件 / `-journal` / `.db` 全部 gitignore（`solace.db` / `solace_backup.db` / `solace_raw.db`）
 - `screens/error/storage_recovery_screen.dart` + `services/storage/storage_recovery_controller.dart` 处理损坏恢复

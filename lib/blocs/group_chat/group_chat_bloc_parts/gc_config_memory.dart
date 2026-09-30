@@ -88,6 +88,8 @@ Future<void> _generateAppendReply({
     userId: userId.isNotEmpty ? userId : 'local_user',
   );
   final memberNames = members.map((m) => m.name).toList();
+  // 用户身份三件套（代称/性别/追加指令）：合体路径此前同样缺失，一并补上
+  final comboUser = await _groupUserIdentity(_storage);
   final shared = await _memoryEngine.buildGroupSharedContext(
     self: combo,
     members: members,
@@ -95,13 +97,19 @@ Future<void> _generateAppendReply({
     groupId: groupId,
     chatId: session.chatId,
   );
-  final internalContext = '${buildGroupIntroPrompt(
+  // 注意引号：外层双引号、内层单引号，Dart 不允许同种引号嵌套
+  final comboIdBlock = comboUser.identityBlock;
+  final comboAdBlock = comboUser.addendumBlock;
+  final internalContext = "${buildGroupIntroPrompt(
     selfName: session.name.isEmpty ? '群聊' : session.name,
     memberNames: [...memberNames, '你'],
     isNewChat: history.isEmpty,
-  )}\n$shared';
+  )}\n$shared"
+      "${comboIdBlock.isEmpty ? '' : '\n$comboIdBlock'}"
+      "${comboAdBlock.isEmpty ? '' : '\n$comboAdBlock'}";
 
-  final chatHistory = _toChatHistory(history, combo.id);
+  final chatHistory =
+      _toChatHistory(history, combo.id, userAlias: comboUser.alias);
 
   emit(GroupChatTyping(groupId, combo.name,
       messages: await _storage.getGroupChatMessages(groupId,
@@ -125,6 +133,7 @@ Future<void> _generateAppendReply({
       sentiment: null,
       imagePaths: imagePaths,
       internalSystemContext: internalContext,
+      requestScope: '群聊',
     )) {
       fullText = chunk.content;
       fullReasoning = chunk.reasoning;

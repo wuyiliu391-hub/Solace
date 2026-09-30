@@ -1096,10 +1096,16 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       }
       debugPrint(' v75 迁移: 背景图横竖屏分列（backgroundImageLandscape）');
     }
+    if (oldVersion < 76) {
+      // 我的代称：单聊/群聊中 AI 指代"我"用的人物名或称谓。
+      // 老数据无此列，fromMap 读到 null 即视为未设置（用昵称回退），零改动。
+      await _addColumnIfNotExists(db, 'users', 'chatAlias', 'TEXT');
+      debugPrint(' v76 迁移: users 表新增 chatAlias（我的代称）');
+    }
   }
   Future<void> _onCreate(Database db, int version) async {
     await db.execute(
-        ''' CREATE TABLE users ( id TEXT PRIMARY KEY, nickname TEXT NOT NULL, avatarUrl TEXT, createdAt TEXT NOT NULL, lastLoginAt TEXT, signature TEXT, gender TEXT, birthday TEXT, location TEXT, bio TEXT, status TEXT, backgroundImage TEXT, coins INTEGER NOT NULL DEFAULT 100, totalCoinsEarned INTEGER NOT NULL DEFAULT 100, totalCoinsSpent INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
+        ''' CREATE TABLE users ( id TEXT PRIMARY KEY, nickname TEXT NOT NULL, avatarUrl TEXT, createdAt TEXT NOT NULL, lastLoginAt TEXT, signature TEXT, gender TEXT, birthday TEXT, location TEXT, bio TEXT, chatAlias TEXT, status TEXT, backgroundImage TEXT, coins INTEGER NOT NULL DEFAULT 100, totalCoinsEarned INTEGER NOT NULL DEFAULT 100, totalCoinsSpent INTEGER NOT NULL DEFAULT 0, sync_seq INTEGER NOT NULL DEFAULT 0 ) ''');
     await db.execute(
         ''' CREATE TABLE ai_characters ( id TEXT PRIMARY KEY, name TEXT NOT NULL, avatarUrl TEXT, personality TEXT NOT NULL, coreDesire TEXT NOT NULL, moralBoundary TEXT NOT NULL, backgroundStory TEXT, createdAt TEXT NOT NULL, updatedAt TEXT, worldSetting TEXT, languageStyle TEXT, tabooTopics TEXT, userNickname TEXT, userAlias TEXT, userPersona TEXT, catchphrases TEXT, openingLine TEXT, dialogueExamples TEXT, interactionConfig TEXT, gender TEXT, isHidden INTEGER NOT NULL DEFAULT 0, isOnline INTEGER NOT NULL DEFAULT 1, currentStatus TEXT, lastOnlineAt TEXT, avatarGif TEXT, autoReplyStickers INTEGER NOT NULL DEFAULT 0, translatedSettings TEXT, sync_seq INTEGER NOT NULL DEFAULT 0, immutableAnchor TEXT, deviationRadius REAL NOT NULL DEFAULT 0.4, evolutionEnabled INTEGER NOT NULL DEFAULT 1, qualitativeEvolutionEnabled INTEGER NOT NULL DEFAULT 0, currentAnchor TEXT, referenceImg TEXT, fixedSeed INTEGER NOT NULL DEFAULT -1, characterTag TEXT, styleLock TEXT NOT NULL DEFAULT "anime", age INTEGER, structuredTraits TEXT, storyState TEXT ) ''');
     await db.execute(
@@ -1741,6 +1747,8 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       'birthday': 'TEXT',
       'location': 'TEXT',
       'bio': 'TEXT',
+      // 我的代称：单聊/群聊中 AI 指代"我"用的人物名或称谓（v76）
+      'chatAlias': 'TEXT',
       'status': 'TEXT',
       'backgroundImage': 'TEXT',
       // 横竖屏分别设置背景图：backgroundImage 语义为竖屏，本列为横屏
