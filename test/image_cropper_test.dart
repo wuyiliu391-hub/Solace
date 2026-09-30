@@ -217,10 +217,11 @@ void main() {
     });
 
     test('clampOffsetForBox 放大后两轴都可移动且不越界', () {
+      // 注意输入 dy 是 -99999，clamp 后应保留负号
       final o = CropGeometry.clampOffsetForBox(
           const Offset(99999, -99999), const Size(1600, 900), wide, 2.0);
       expect(o.dx, 800.0); // (3200-1600)/2
-      expect(o.dy, 450.0); // (1800-900)/2
+      expect(o.dy, -450.0); // -(1800-900)/2
     });
 
     test('clampOffsetForBox 各种缩放下四边始终覆盖取景框', () {
