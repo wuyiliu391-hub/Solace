@@ -14,7 +14,6 @@ import 'blocs/theme/theme_bloc.dart';
 import 'repositories/local_storage_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/terms_agreement_screen.dart';
-import 'services/battery_service.dart';
 import 'screens/chat/chat_list_screen.dart';
 import 'screens/chat/chat_detail_screen.dart';
 import 'screens/contacts/contacts_screen.dart';
@@ -60,7 +59,6 @@ import 'services/bridge/ai_service_adapter.dart';
 import 'services/pure_ai_service.dart';
 import 'services/emotion_engine.dart';
 import 'services/memory_engine.dart';
-import 'services/core_hub.dart';
 import 'package:intl/intl.dart';
 import 'services/usage_meter_service.dart';
 import 'services/memory_rebuild_service.dart';
@@ -129,15 +127,6 @@ void main() async {
     }
   }
 
-  // 初始化 Core Hub 全局中枢（BT 病娇模块升级版）
-  try {
-    final prefs = await PrefsHelper.instance;
-    await CoreHub.init(prefs);
-    debugPrint('CoreHub 初始化完成');
-  } catch (e) {
-    debugPrint('CoreHub 初始化失败: $e');
-  }
-
   // 性能优化 -- 耗电与老手机兼容
   // 关键服务已就绪，立即启动 App 显示首屏
   runApp(SolaceApp(storageRepo: storageRepo, storageReady: storageReady));
@@ -169,10 +158,6 @@ void main() async {
     } catch (e) {
       debugPrint('Hive 初始化失败: $e');
     }
-
-    BatteryService.init().catchError((e) {
-      debugPrint('BatteryService 初始化失败: $e');
-    });
   });
 
   // Workmanager 最后初始化（后台任务，完全不急）

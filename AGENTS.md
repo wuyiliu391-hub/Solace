@@ -284,6 +284,35 @@ flutter test test/xxx_test.dart                        # 单文件
 （对齐 `AICharacter` 早已有的 `clearColorHex` 写法），`GroupChatUpdateSession` 事件同步加了同名参数。
 `AvatarPicker` 的清除按钮走独立的 `onAvatarCleared` 回调，**不要**复用 `onAvatarSelected(null)`。
 
+## 已清理的死代码（2026-09-30）
+
+排查出 25 个「有实现、无 UI 入口」的文件，共 **5235 行**已删除。判定口径：
+`lib/screens` + `lib/widgets`（UI 层）零引用，且 `lib/` 内除自身与相互引用外无调用方，
+`test/` 也不引用。
+
+| 类别 | 数量 | 代表文件 |
+|------|------|----------|
+| 直接死（零引用） | 16 | `persona_evolution_service`(1106)、`chat_screen_v2`(600)、`memory_prompt_builder`(280)、`email_verification_service`(207)、`character_bloc`(198)、`chat_repository`(179)、`announcement_dialog`(133)、`mood_environment`(117) 等 |
+| 传递性死（引用方本身已死） | 3 | `memory_bloc`（只被孤儿 `memory_screen_v2` 用）、`background_manager`（只被孤儿 `chat_screen_v2` 用）、`task_request` |
+| CoreHub 子系统（无 UI 入口） | 6 | `core_hub`、`persona_rule_registry`、`task_queue`、`admin_guard`、`audit_service`、`battery_service` |
+
+删除时连带清理的存活引用仅 3 处：
+- `lib/main.dart`：去掉 `CoreHub.init(prefs)` 与 `BatteryService.init()` 两段（后者原本
+  每启动白跑一个 60 秒 Timer）及两个 import
+- `lib/blocs/chat/chat_bloc.dart`：去掉 `core_hub.dart` 的 unused import
+
+随之消失的 3 个空目录：`lib/screens/chat/v2`、`lib/screens/memory/v2`、`lib/blocs/character`。
+
+**未删但需留意**：
+- `AgentLoop`（425 行）：生产代码零调用（`context_forgiveness` / `ai_service_adapter` 里的
+  "AgentLoop" 全是**注释**），但静态方法 `matchBtKeyword` 有 67 处测试在用，删要连带改测试
+- `agent_tools.dart`（324 行）：`agentTools` 列表已死，但同文件的 `mapToolNameToBtAction` /
+  `mapThemeMode` 被 `bloc_bt_agent.dart` 实际使用，**不能整文件删**
+
+> 教训：新增组件前先确认名字没被占用。`background_manager.dart` 里曾有一个旧的
+> `BackgroundPicker`，与新增的 `lib/widgets/background_picker.dart` 同名，
+> 同时 import 会 ambiguous。该旧文件已在本次删除。
+
 ## 数据库
 
 - 版本常量：`lib/config/constants.dart` → `DbDefaults.dbVersion`（**当前 75**，v75 新增背景图横竖屏分列）

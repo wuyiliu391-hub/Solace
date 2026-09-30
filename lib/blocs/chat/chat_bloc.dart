@@ -22,7 +22,6 @@ import '../../services/ai_service.dart';
 import '../../services/ai_usage_gate.dart';
 import '../../services/ai_status_service.dart';
 import '../../services/bt_agent_execution_service.dart';
-import '../../services/core_hub.dart';
 import '../../services/agent/agent_tools.dart';
 import '../../models/bt_agent_action.dart';
 import '../../services/pure_ai_service.dart';
