@@ -206,6 +206,7 @@ void main() {
       sentiment: any(named: 'sentiment'),
       imagePaths: any(named: 'imagePaths'),
       internalSystemContext: any(named: 'internalSystemContext'),
+      requestScope: '群聊',
     )).thenAnswer((_) => Stream<AIStreamChunk>.empty());
 
     bloc.add(GroupChatSendMessage(

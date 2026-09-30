@@ -140,6 +140,7 @@ void main() {
           sentiment: any(named: 'sentiment'),
           imagePaths: any(named: 'imagePaths'),
           internalSystemContext: any(named: 'internalSystemContext'),
+          requestScope: '群聊',
         )).thenAnswer((_) => Stream.fromIterable([
           AIStreamChunk(reasoning: '', content: '你好呀'),
         ]));
@@ -272,6 +273,7 @@ void main() {
           sentiment: any(named: 'sentiment'),
           imagePaths: any(named: 'imagePaths'),
           internalSystemContext: any(named: 'internalSystemContext'),
+          requestScope: '群聊',
         )).thenAnswer((inv) {
       capturedMemories = inv.namedArguments[#memories] as List<Memory>?;
       return Stream.fromIterable([
@@ -374,6 +376,8 @@ void main() {
               sentiment: any(named: 'sentiment'),
               imagePaths: any(named: 'imagePaths'),
               internalSystemContext: any(named: 'internalSystemContext'),
+              requestScope: '群聊',
+          requestScope: '群聊',
             ))
         .thenAnswer((_) =>
             Stream.fromIterable([AIStreamChunk(reasoning: '', content: '回复')]));
@@ -392,6 +396,7 @@ void main() {
           sentiment: any(named: 'sentiment'),
           imagePaths: any(named: 'imagePaths'),
           internalSystemContext: any(named: 'internalSystemContext'),
+          requestScope: '群聊',
         ));
     final captured = verification.captured.first as List<ChatMessage>;
     expect(captured, isNotEmpty);

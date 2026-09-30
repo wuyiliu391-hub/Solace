@@ -136,6 +136,7 @@ void main() {
       sentiment: any(named: 'sentiment'),
       imagePaths: any(named: 'imagePaths'),
       internalSystemContext: any(named: 'internalSystemContext'),
+      requestScope: '群聊',
     )).thenAnswer((_) => Stream.fromIterable([
           AIStreamChunk(reasoning: '', content: '新的回复'),
         ]));
@@ -249,6 +250,7 @@ void main() {
       sentiment: any(named: 'sentiment'),
       imagePaths: any(named: 'imagePaths'),
       internalSystemContext: any(named: 'internalSystemContext'),
+      requestScope: '群聊',
     )).called(1);
   });
 

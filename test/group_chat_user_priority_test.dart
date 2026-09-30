@@ -94,6 +94,7 @@ void main() {
       sentiment: any(named: 'sentiment'),
       imagePaths: any(named: 'imagePaths'),
       internalSystemContext: any(named: 'internalSystemContext'),
+      requestScope: '群聊',
     )).thenAnswer((_) => Stream.fromIterable([
           AIStreamChunk(reasoning: '', content: 'AI 回复'),
         ]));
@@ -131,6 +132,7 @@ void main() {
       sentiment: any(named: 'sentiment'),
       imagePaths: any(named: 'imagePaths'),
       internalSystemContext: any(named: 'internalSystemContext'),
+      requestScope: '群聊',
     )).thenAnswer((inv) {
       usages.add(inv.namedArguments[#userMessage] as String? ?? '');
       return Stream.fromIterable([AIStreamChunk(reasoning: '', content: '好的')]);
@@ -173,6 +175,7 @@ void main() {
       sentiment: any(named: 'sentiment'),
       imagePaths: any(named: 'imagePaths'),
       internalSystemContext: any(named: 'internalSystemContext'),
+      requestScope: '群聊',
     )).thenAnswer((inv) {
       call++;
       userMessages.add(inv.namedArguments[#userMessage] as String? ?? '');
