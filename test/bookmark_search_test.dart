@@ -56,6 +56,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final repo = LocalStorageRepository(isWeb: true);
       await repo.initialize();
+      await repo.saveChatSession(ChatSessionFixture.session);
       // 回归：saveChatMessage 里 `id.substring(0, 8)` 无保护，
       // 短 id 直接抛 RangeError（debugPrint 参数在 release 也会求值）。
       await repo.saveChatMessage(_msg('m1', 'c1', ''));

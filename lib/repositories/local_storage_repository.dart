@@ -1855,6 +1855,9 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       'isMuted': 'INTEGER NOT NULL DEFAULT 0',
       'isPinned': 'INTEGER NOT NULL DEFAULT 0',
       'backgroundImage': 'TEXT',
+      // 横竖屏分别设置背景图（v75）：backgroundImage 语义为竖屏，本列为横屏。
+      // 此前只在 _onUpgrade v75 补过，没进 expectedColumns —— 迁移被跳过就永远补不上。
+      'backgroundImageLandscape': 'TEXT',
       'isHidden': 'INTEGER NOT NULL DEFAULT 0',
       'aiIsOnline': 'INTEGER NOT NULL DEFAULT 1',
       'aiCurrentStatus': 'TEXT',
