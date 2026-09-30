@@ -16,6 +16,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'audio_converter_service.dart';
+import '../../services/voice/local_tts_service.dart';
 
 class VoiceProfileStore {
   VoiceProfileStore._();

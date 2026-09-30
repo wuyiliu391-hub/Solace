@@ -33,7 +33,7 @@ class VoiceCloneScreen extends StatefulWidget {
 }
 
 class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
-  final LocalTtsService _tts = createLocalTtsService();
+  final TtsService _tts = createTtsServiceFromSettings();
   final VoicePlayerService _player = VoicePlayerService();
   final VoiceRecorderService _recorder = VoiceRecorderService();
   final VoiceProfileStore _store = VoiceProfileStore.instance;
@@ -245,13 +245,22 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
       }
       await _tts.setReferenceAudio(widget.characterId, refPath, text);
       // 一次生成 3 版供挑选（官方建议：TTS 有随机性，多生成挑选）
-      final tts = _tts as MiMoTtsService;
-      final results = await tts.synthesizeMultiple(
-        widget.characterId,
-        '你好，我是${widget.characterName}，这是我的声音。',
-        count: 3,
-      );
-      _previewResults = [for (final r in results) r.audioFilePath];
+      // 只有 MiMo 支持一次多版本；Fish Audio 走单次合成。
+      if (_tts is! MiMoTtsService) {
+        final r = await _tts.synthesize(
+          widget.characterId,
+          '你好，我是${widget.characterName}，这是我的声音。',
+        );
+        _previewResults = [r.audioFilePath];
+      } else {
+        final tts = _tts as MiMoTtsService;
+        final results = await tts.synthesizeMultiple(
+          widget.characterId,
+          '你好，我是${widget.characterName}，这是我的声音。',
+          count: 3,
+        );
+        _previewResults = [for (final r in results) r.audioFilePath];
+      }
       if (!mounted) return;
       await _showPickVersionDialog();
     } catch (e) {
@@ -363,6 +372,15 @@ Future<void> _resetToDefault() async {
     if (prompt == null || prompt.trim().isEmpty || !mounted) return;
     setState(() => _designing = true);
     try {
+      // 文字设计音色是 MiMo 专属能力（voicedesign 模型）；Fish Audio 无对应接口
+      if (_tts is! MiMoTtsService) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('「文字设计音色」仅 MiMo 支持，请先在设置里切回 MiMo')),
+          );
+        }
+        return;
+      }
       final tts = _tts as MiMoTtsService;
       // 样本台词贴合音色描述（官方建议），短句保证时长
       final sampleText = '你好，我是${widget.characterName}，很高兴认识你。';

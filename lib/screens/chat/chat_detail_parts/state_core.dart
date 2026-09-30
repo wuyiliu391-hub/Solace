@@ -118,7 +118,11 @@ mixin _StateCore {
 
   final VoicePlayerService _voicePlayer = VoicePlayerService();
 
-  final LocalTtsService _localTts = createLocalTtsService();
+  // 语音合成实例。createTtsServiceFromSettings() 是异步的（读 provider 设置），
+  // 构造期无法 await，故延迟到首次使用前创建。
+  TtsService? _ttsInstance;
+  Future<TtsService> _ensureTts() async =>
+      _ttsInstance ??= await createTtsServiceFromSettings();
 
   final LocalSttService _localStt = createLocalSttService();
 

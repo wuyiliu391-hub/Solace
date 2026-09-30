@@ -29,6 +29,7 @@ import 'voice_player_service.dart';
 import 'voice_profile_store.dart';
 import 'voice_recorder_service.dart';
 import 'voice_vad_service.dart';
+import 'local_tts_service.dart';
 
 enum VoiceCallPhase { connecting, listening, thinking, aiSpeaking, ended }
 
@@ -37,7 +38,8 @@ class VoiceCallController extends ChangeNotifier {
   final ChatSession session;
   final String userId;
 
-  final MiMoTtsService _tts;
+  /// TTS 实例。按设置页选定的 provider 构造（MiMo / Fish Audio）。
+  late final TtsService _tts;
   final LocalSttService _stt;
   final VoiceVadService _vad = VoiceVadService();
   final VoiceRecorderService _recorder = VoiceRecorderService();
@@ -97,7 +99,7 @@ class VoiceCallController extends ChangeNotifier {
     required this.chatBloc,
     required this.session,
     required this.userId,
-    MiMoTtsService? tts,
+    TtsService? tts,
     LocalSttService? stt,
   })  : _tts = tts ?? MiMoTtsService(),
         _stt = stt ?? createLocalSttService();
@@ -109,7 +111,7 @@ class VoiceCallController extends ChangeNotifier {
     _setPhase(VoiceCallPhase.connecting, '正在准备…');
     try {
       debugPrint('[VoiceCall] start: 检查模型就绪...');
-      if (!await _allModelsReady()) {
+      if (!_allModelsReady()) {
         debugPrint('[VoiceCall] start: 模型未就绪，提示导入');
         _needsModels = true;
         _setPhase(VoiceCallPhase.connecting, '需要先导入语音识别模型');
@@ -670,6 +672,13 @@ class VoiceCallController extends ChangeNotifier {
 
   Future<void> _beginAfterModels() async {
     _needsModels = false;
+    // 按设置页选定的 provider 重建 TTS 实例（构造器是同步的，读不了设置）
+    try {
+      _tts = await createTtsServiceFromSettings();
+      debugPrint('[VoiceCall] init: TTS provider 已切换');
+    } catch (e) {
+      debugPrint('[VoiceCall] init: 读取 TTS provider 失败，沿用默认: $e');
+    }
     debugPrint('[VoiceCall] init: 解析参考音色...');
     await _setupVoiceProfile();
     if (!_safe()) return;

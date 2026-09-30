@@ -17,6 +17,8 @@ import '../phone/phone_icon_preview_screen.dart';
 
 import '../../utils/safe_file_picker.dart';
 import '../../services/voice/mimo_tts_service.dart';
+import '../../services/voice/fish_audio_tts_service.dart';
+import '../../services/voice/local_tts_service.dart';
 import '../voice/voice_stt_models_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -56,6 +58,148 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _autoParagraphEnabled = storage.isAutoParagraphEnabled();
       });
     }
+  }
+
+  /// 选择语音合成供应商（MiMo / Fish Audio）。
+  Future<void> _openTtsProviderSettings() async {
+    var provider = await TtsProviderStore.load();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('语音合成供应商'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<TtsProvider>(
+                contentPadding: EdgeInsets.zero,
+                value: TtsProvider.mimo,
+                groupValue: provider,
+                title: const Text('MiMo', style: TextStyle(fontSize: 14)),
+                subtitle: const Text('小米开放平台，支持音色克隆与文字设计音色',
+                    style: TextStyle(fontSize: 11)),
+                onChanged: (v) => setDialogState(() => provider = v!),
+              ),
+              RadioListTile<TtsProvider>(
+                contentPadding: EdgeInsets.zero,
+                value: TtsProvider.fishAudio,
+                groupValue: provider,
+                title: const Text('Fish Audio', style: TextStyle(fontSize: 14)),
+                subtitle: const Text('S2.1 Pro，免费档限时至 2026-11-30',
+                    style: TextStyle(fontSize: 11)),
+                onChanged: (v) => setDialogState(() => provider = v!),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '切换后需重新配置对应供应商的 API Key。\n'
+                '注意：Fish Audio 免费模型有截止日期，且请求内容可能被其用于模型改进。',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await TtsProviderStore.save(provider);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) setState(() {});
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('已切换到 ${provider.label}')),
+                  );
+                }
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 配置 Fish Audio API Key 与模型。
+  Future<void> _openFishAudioSettings() async {
+    final config = await FishAudioTtsConfigStore.load();
+    final apiKeyController = TextEditingController(text: config?.apiKey ?? '');
+    var model = config?.model ?? FishAudioTtsConfig.freeModel;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Fish Audio 设置'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '在 fish.audio/app/api-keys 注册后获取 API Key。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: apiKeyController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'API Key',
+                    hintText: 'sk-xxxxx',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text('模型',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                for (final m in FishAudioTtsConfig.models)
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(m.label, style: const TextStyle(fontSize: 13)),
+                    value: m.id,
+                    groupValue: model,
+                    onChanged: (v) => setDialogState(() => model = v!),
+                  ),
+                const SizedBox(height: 8),
+                const Text(
+                  '免费模型 \$0/M 字节，但：\n'
+                  '· 免费期至 2026-11-30，官方已多次延期，随时可能变\n'
+                  '· 无 SLA 与延迟保证\n'
+                  '· 请求内容可能被用于改进模型\n'
+                  '· 商用 ARR > \$100 万需联系官方',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await FishAudioTtsConfigStore.save(
+                  apiKeyController.text.trim(),
+                  model: model,
+                );
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Fish Audio 设置已保存')),
+                  );
+                }
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _openMiMoTtsSettings() async {
@@ -307,6 +451,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildSectionTitle('语音', colorScheme),
           _buildCard([
             _buildNavTile(
+              icon: Icons.swap_horiz_outlined,
+              iconBgColor: Colors.indigo.withOpacity(0.1),
+              title: '语音合成供应商',
+              subtitle: '选择使用 MiMo 还是 Fish Audio',
+              onTap: _openTtsProviderSettings,
+              colorScheme: colorScheme,
+            ),
+            _buildDivider(colorScheme),
+            _buildNavTile(
               icon: Icons.record_voice_over_outlined,
               iconBgColor: Colors.deepOrange.withOpacity(0.1),
               title: 'MiMo TTS 设置',
@@ -316,10 +469,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             _buildDivider(colorScheme),
             _buildNavTile(
+              icon: Icons.graphic_eq_outlined,
+              iconBgColor: Colors.blueGrey.withOpacity(0.1),
+              title: 'Fish Audio 设置',
+              subtitle: '配置 Fish Audio API Key 与模型（默认 S2.1 Pro 免费档）',
+              onTap: _openFishAudioSettings,
+              colorScheme: colorScheme,
+            ),
+            _buildDivider(colorScheme),
+            _buildNavTile(
               icon: Icons.hearing_outlined,
               iconBgColor: Colors.teal.withOpacity(0.1),
               title: '语音识别模型',
-              subtitle: '导入/管理 STT（SenseVoice）与 VAD（Silero）本地模型',
+              subtitle: '导入/管理本地 STT（SenseVoice）识别模型',
               onTap: () => showDialog<void>(
                 context: context,
                 builder: (_) => const VoiceSttModelsDialog(),

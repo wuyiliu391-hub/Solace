@@ -141,7 +141,7 @@ class MiMoTtsConfigStore {
 /// - 音频标签：assistant 文本内嵌 (风格)[内联标签]，官方推荐克制使用
 /// - 无记忆：每次调用重传样本；本地按角色缓存 base64（文件 sha1 变化才失效）
 /// - 随机性：TTS 有随机性，官方建议多生成挑选；429 指数退避重试
-class MiMoTtsService implements LocalTtsService {
+class MiMoTtsService implements TtsService {
   MiMoTtsService() {
     // 预置音色切换时同步清除内存缓存，避免旧样本被复用
     VoiceProfileStore.instance.onPresetChanged = _onPresetChanged;
@@ -193,7 +193,7 @@ class MiMoTtsService implements LocalTtsService {
   }
 
   @override
-  Future<LocalTtsResult> synthesize(String characterId, String text) =>
+  Future<TtsResult> synthesize(String characterId, String text) =>
       synthesizeWithStyle(characterId, text);
 
   /// 合成带导演指令的角色语音。
@@ -201,7 +201,7 @@ class MiMoTtsService implements LocalTtsService {
   /// [style]：导演模式指令文本（角色/场景/指导三层，放入 role:user）。
   /// 为空时不传 user 内容（等效官方空串）。
   /// [maxRetries]：429 退避重试次数（默认 3）。
-  Future<LocalTtsResult> synthesizeWithStyle(
+  Future<TtsResult> synthesizeWithStyle(
     String characterId,
     String text, {
     String style = '',
@@ -295,7 +295,7 @@ class MiMoTtsService implements LocalTtsService {
         tmp.path, 'mimo_tts_${DateTime.now().millisecondsSinceEpoch}.wav');
     await File(outputPath).writeAsBytes(audioBytes, flush: true);
     final durationMs = _wavDurationMs(audioBytes);
-    return LocalTtsResult(
+    return TtsResult(
       audioFilePath: outputPath,
       durationMs: durationMs,
     );
@@ -304,14 +304,14 @@ class MiMoTtsService implements LocalTtsService {
   /// 生成多版语音供挑选（官方建议：TTS 有随机性，多生成几次挑选）。
   ///
   /// 返回 [count] 个合成结果（wav 文件路径列表），同一输入每次结果不同。
-  Future<List<LocalTtsResult>> synthesizeMultiple(
+  Future<List<TtsResult>> synthesizeMultiple(
     String characterId,
     String text, {
     String style = '',
     int count = 3,
     int maxRetries = 3,
   }) async {
-    final results = <LocalTtsResult>[];
+    final results = <TtsResult>[];
     for (var i = 0; i < count; i++) {
       final r = await synthesizeWithStyle(
         characterId,

@@ -64,16 +64,19 @@ mixin _StateVoice on State<ChatDetailScreen>, _StateCore, _StateLoadCore, _State
     setState(() => _synthesizingMessageId = message.id);
     try {
       final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final config = await MiMoTtsConfigStore.load();
-      if (config == null || !config.isValid) {
+      // 按当前 provider 校验配置（切到 Fish Audio 时不能只查 MiMo Key）
+      final ttsSvc = await _ensureTts();
+      final ready = await ttsSvc.isModelReady;
+      if (!ready) {
         if (mounted) {
+          final provider = await TtsProviderStore.load();
           await showDialog<void>(
             context: context,
             builder: (_) => AlertDialog(
-              title: const Text('需要配置 MiMo TTS'),
-              content: const Text(
-                '语音合成需要 MiMo TTS API Key。\n'
-                '请到「我」→「设置」→「MiMo TTS 设置」填写。',
+              title: Text('需要配置 ${provider.label} TTS'),
+              content: Text(
+                '语音合成需要 ${provider.label} 的 API Key。\n'
+                '请到「我」→「设置」→「${provider.label} 设置」填写。',
               ),
               actions: [
                 TextButton(
@@ -105,7 +108,10 @@ mixin _StateVoice on State<ChatDetailScreen>, _StateCore, _StateLoadCore, _State
         character = await storage.getAICharacter(widget.session.aiCharacterId);
       } catch (_) {}
       final director = buildDirectorPrompt(character, text);
-      final result = await (_localTts as MiMoTtsService).synthesizeWithStyle(
+      // 注意：不要用 `as MiMoTtsService` —— provider 切到 Fish Audio 时会崩。
+      // synthesizeWithStyle 已在 TtsService 接口上，Fish 实现会忽略 style。
+      final tts = await _ensureTts();
+      final result = await tts.synthesizeWithStyle(
         widget.session.aiCharacterId,
         text,
         style: director,
