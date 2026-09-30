@@ -2,9 +2,18 @@ name: CI
 
 on:
   push:
-    branches: [ main, 'refactor/**', 'feat/**' ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+# 同一分支/PR 的旧运行自动取消，避免重复占用缓存配额
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   analyze-and-test:
@@ -15,12 +24,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 第 1 层缓存：Flutter SDK 二进制（由 flutter-action 内置管理）
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.x'
           channel: 'stable'
           cache: true
+
+      # 第 2 层缓存：Pub 全局包缓存（flutter-action 的 cache 不覆盖这层）
+      # key 基于 pubspec.yaml —— 因为 pubspec.lock 被 gitignore，检出后不存在
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
 
       - name: Flutter version
         run: flutter --version
@@ -31,6 +52,6 @@ jobs:
       - name: Analyze (must be 0 error)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
+      # 全量测试：只跑一次，无 matrix、无重试
       - name: Run tests
-        run: flutter test --reporter expanded
-        continue-on-error: false
+        run: flutter test
