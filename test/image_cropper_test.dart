@@ -41,8 +41,8 @@ void main() {
     });
 
     test('coverScale 保证两个方向都不小于取景框', () {
-      final box = 300.0;
-      final cases = <Size>[
+      const box = 300.0;
+      const cases = <Size>[
         const Size(800, 400),
         const Size(400, 800),
         const Size(500, 500),
@@ -113,7 +113,7 @@ void main() {
     });
 
     test('box 非法时原样返回', () {
-      final raw = const Offset(5, 6);
+      const raw = Offset(5, 6);
       expect(CropGeometry.clampOffset(raw, disp, 0, 1.0), raw);
     });
   });

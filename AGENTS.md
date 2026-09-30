@@ -208,6 +208,22 @@ flutter test test/xxx_test.dart                        # 单文件
 **新增头像入口时走 `showImageCropper`**，别再抄 `pickImage` + `_copyToPersistentPath` 那套
 （已删除 4 份重复实现）。`screens/moments/x/x_edit_profile_screen.dart` 仍是旧写法，属朋友圈资料，未改造。
 
+### 写 dart:ui 相关代码的三个已踩坑（本机无法编译，只能靠 CI 发现）
+
+1. **`ui.instantiateImageCodec` 要 `Uint8List`，不是 `List<int>`**。
+   `File.readAsBytes()` 返回 `Uint8List`，所以形参也得声明成 `Uint8List`。
+   用 `import 'dart:typed_data' as td;` + `td.Uint8List` 隔离（`dart:io` 也 re-export 了它）。
+   同理 `File.writeAsBytes` 也只收 `Uint8List`。
+2. **显示 `ui.Image` 要用 `RawImage`，不能用 `Image`**。
+   `Image` 的 `image` 参数类型是 `ImageProvider`，传 `ui.Image` 直接
+   `argument_type_not_assignable`。
+3. **`num.clamp()` 返回 `num`**，赋给 `int?` / 传给 `int` 形参要补 `.toInt()`；
+   赋给 `double` 要补 `.toDouble()`。
+
+另外：仓库里**没有** `translateByDouble` 等新 API 的先例，analyze 报的
+`deprecated_member_use`（如 `Matrix4.translate`）只是 info，**不要**为了消警告换成
+没验证过存在的新 API —— 那是拿编译错误换零 warning。
+
 ### 清除头像的坑
 
 `copyWith` 普遍写成 `avatarUrl ?? this.avatarUrl`，**传 null 清不掉**。

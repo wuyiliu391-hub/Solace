@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
+// 用别名隔离：dart:io 也 re-export 了 Uint8List，直接同名 import 依赖 SDK 行为不可靠。
+import 'dart:typed_data' as td;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -25,7 +27,7 @@ class CropGeometry {
   /// 刚好铺满边长 [box] 正方形取景框所需的缩放（cover）。
   /// 图片不允许缩到比它更小，否则取景框会露白。
   static double coverScale(Size disp, double box) {
-    if (disp.width <= 0 || disp.height <= 0 || box <= 0) return 1;
+    if (disp.width <= 0 || disp.height <= 0 || box <= 0) return 1.0;
     return math.max(box / disp.width, box / disp.height);
   }
 
@@ -136,7 +138,9 @@ class _CropperRouteState extends State<_CropperRoute> {
     super.dispose();
   }
 
-  Future<ui.Image> _decodeOnce(List<int> bytes,
+  // instantiateImageCodec 要求 Uint8List；File.readAsBytes() 返回的正是 Uint8List，
+  // 所以这里必须声明成 Uint8List，写成 List<int> 会编译报错。
+  Future<ui.Image> _decodeOnce(td.Uint8List bytes,
       {int? targetWidth, int? targetHeight}) async {
     final ui.Codec codec;
     if (targetWidth != null && targetHeight != null) {
@@ -162,8 +166,9 @@ class _CropperRouteState extends State<_CropperRoute> {
       final maxSide = math.max(img.width, img.height);
       if (maxSide > 2048) {
         final k = 2048 / maxSide;
-        final w = (img.width * k).round().clamp(1, 100000);
-        final h = (img.height * k).round().clamp(1, 100000);
+        // 注意 clamp 返回 num，必须 toInt() 才能传给 int? 参数
+        final w = (img.width * k).round().clamp(1, 100000).toInt();
+        final h = (img.height * k).round().clamp(1, 100000).toInt();
         img.dispose();
         img = await _decodeOnce(bytes, targetWidth: w, targetHeight: h);
       }
@@ -183,7 +188,7 @@ class _CropperRouteState extends State<_CropperRoute> {
   ///
   /// 这里的画布变换顺序（平移 → 旋转 → 缩放 → 以图心绘制）
   /// 必须与 `CropSurface` 的 Transform 顺序一致，否则所见非所得。
-  static Future<List<int>> _renderCrop(
+  static Future<td.Uint8List> _renderCrop(
     ui.Image image,
     CropTransform t,
     int outputSize,
@@ -447,13 +452,18 @@ class _CropSurfaceState extends State<CropSurface> {
                     child: Transform(
                       alignment: Alignment.center,
                       transform: Matrix4.identity()
+                        // 用 translate 而非已弃用的 translateByDouble：
+                        // 后者在仓库里没有先例，无法确认当前 SDK 一定提供。
                         ..translate(_offset.dx, _offset.dy)
                         ..rotateZ(_turns * math.pi / 2)
                         ..scale(_scale),
-                      child: Image(
+                      // RawImage 直接吃 ui.Image。Image widget 只接受 ImageProvider，
+                      // 传 ui.Image 会报 argument_type_not_assignable。
+                      // 不用 isAntiAlias / filterQuality：这两个参数在仓库里没有先例，
+                      // 无法确认当前 SDK 一定提供；平滑交给 filterQuality 默认值。
+                      child: RawImage(
                         image: widget.image,
                         fit: BoxFit.fill,
-                        gaplessPlayback: true,
                       ),
                     ),
                   ),
