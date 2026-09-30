@@ -162,7 +162,7 @@ class _XEditProfileScreenState extends State<XEditProfileScreen> {
                     if (provider == null) {
                       return Container(color: MomentsTheme.surface(context));
                     }
-                    return Image(provider, fit: BoxFit.cover,
+                    return Image(image: provider, fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) =>
                             Container(color: MomentsTheme.surface(context)));
                   }),

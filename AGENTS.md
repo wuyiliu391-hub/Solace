@@ -248,7 +248,7 @@ flutter test test/xxx_test.dart                        # 单文件
 **新增头像/背景入口时一律走 `showImageCropper` / `BackgroundPicker`**，
 别再抄 `pickImage` + 手工 `File.copy` 那套（已删除 5 份重复实现）。
 
-### 写 dart:ui 相关代码的三个已踩坑（本机无法编译，只能靠 CI 发现）
+### 写 dart:ui / Flutter widget 的已踩坑（本机无法编译，只能靠 CI 发现）
 
 1. **`ui.instantiateImageCodec` 要 `Uint8List`，不是 `List<int>`**。
    `File.readAsBytes()` 返回 `Uint8List`，所以形参也得声明成 `Uint8List`。
@@ -259,6 +259,19 @@ flutter test test/xxx_test.dart                        # 单文件
    `argument_type_not_assignable`。
 3. **`num.clamp()` 返回 `num`**，赋给 `int?` / 传给 `int` 形参要补 `.toInt()`；
    赋给 `double` 要补 `.toDouble()`。
+4. **`Image(...)` 没有位置参数构造**。写 `Image(provider, fit: ...)` 会报
+   「named parameter 'image' is required」+「Too many positional arguments」。
+   必须 `Image(image: provider, fit: ...)`。
+5. **`bool?` 不能直接作条件**：`if (isLandscape)` 报
+   「A nullable expression can't be used as a condition」。要写 `isLandscape == true`。
+6. **collection-if 元素后面必须跟 `,` 或 `]`**。写
+   `children: [ if (c) IconButton(...)  const Icon(...) ]` 报
+   「Expected 'else' or comma」。注意区分 collection-if（列表里）与函数体里
+   普通 `if` 语句（后者不需要逗号）。
+7. **给模型加字段要同步 6 处**（漏一处就是 `Undefined name` / `isn't a field`）：
+   `final` 声明 → 构造 `this.` → `copyWith` 形参 → `copyWith` 赋值 →
+   `toMap`/`fromMap`（含 `json`）→ `props`（Equatable）。
+   `scripts/` 下没有检查工具，只能自己数，或临时 grep 字段名确认出现次数。
 
 另外：仓库里**没有** `translateByDouble` 等新 API 的先例，analyze 报的
 `deprecated_member_use`（如 `Matrix4.translate`）只是 info，**不要**为了消警告换成

@@ -19,6 +19,8 @@ class ChatSession extends Equatable {
   final bool isMuted;
   final bool isPinned;
   final String? backgroundImage;
+  /// 横屏背景图。[backgroundImage] 语义为竖屏，保持老数据兼容。
+  final String? backgroundImageLandscape;
   final bool isHidden;
   final bool aiIsOnline;
   final String? aiCurrentStatus;

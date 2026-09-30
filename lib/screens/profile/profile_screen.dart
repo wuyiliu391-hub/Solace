@@ -164,7 +164,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           fit: StackFit.expand,
           children: [
             if (hasBg)
-              Image(bgProvider, fit: BoxFit.cover,
+              Image(image: bgProvider, fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(

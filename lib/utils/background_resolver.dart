@@ -11,14 +11,18 @@ class BackgroundResolver {
   BackgroundResolver._();
 
   /// [portrait] 语义为竖屏背景，[landscape] 为横屏背景（可空）。
+  /// [isLandscape] 为 null 时按竖屏处理。
   static String? resolve({
     String? portrait,
     String? landscape,
     bool? isLandscape,
   }) {
-    final wide = isLandscape ? _clean(landscape) : _clean(portrait);
+    // bool? 不能直接作条件，必须显式 == true
+    final wide = isLandscape == true;
+    final mine = wide ? _clean(landscape) : _clean(portrait);
+    final other = wide ? _clean(portrait) : _clean(landscape);
     // 本朝向没有就回退到另一朝向
-    return wide ?? _clean(isLandscape ? portrait : landscape);
+    return mine ?? other;
   }
 
   /// 直接给 ImageProvider；无图返回 null（调用方决定退化样式）。

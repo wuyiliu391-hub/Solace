@@ -248,12 +248,14 @@ class _OrientationRow extends StatelessWidget {
                 ],
               ),
             ),
+            // 先算好再放进 children：避免 collection-if 后面紧跟普通元素时
+            // 解析器要求 else/逗号而报错
             if (allowClear && path != null)
               IconButton(
                 icon: const Icon(Icons.close, size: 18),
                 tooltip: '清除',
                 onPressed: onTap,
-              )
+              ),
             const Icon(Icons.chevron_right),
           ],
         ),
