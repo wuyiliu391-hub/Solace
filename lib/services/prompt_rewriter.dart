@@ -204,7 +204,9 @@ class PromptRewriter {
     var r = message;
     r = r.replaceAll(RegExp(r'直白一点|更直接|别回避|不要回避'), '更贴近此刻真实的身体与呼吸');
     r = r.replaceAll(RegExp(r'露骨|色情|性描写'), '亲密场景细节');
-    r = r.replaceAll(RegExp(r'写?性交|做爱|插入'), '床笫之间');
+    // 只改写「写X」这类指令句；裸词留给 rewriteUserMessage 的精细映射。
+    // 否则这里会抢占 做爱→亲密 / 插入→进入，并误伤「插入U盘」这类常用词。
+    r = r.replaceAll(RegExp(r'写(?:性交|做爱|插入)'), '床笫之间');
     r = r.replaceAll(RegExp(r'生成(?:露骨|色情)'), '续写');
     // 「恋人角色扮演」在 mimo 上会触发身份拒绝，改成小说场景续写
     r = r.replaceAll(

@@ -1,15 +1,24 @@
 name: CI
 
+# 说明：本仓库的「唯一测试闸门」。改动后应只有这一个 workflow 会跑 flutter test。
+# apk.yml 刻意不跑测试（复用这里的结论），以免同一 commit 花两次 CI 时间。
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+    # 纯文档提交不消耗 CI（AGENTS.md / docs/ 改动不影响编译与测试）
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   pull_request:
-    branches: [ main ]
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   workflow_dispatch:
 
-# 同一分支/PR 的旧运行自动取消，避免重复占用缓存配额
+# 同一分支的旧运行自动取消，避免连推时白跑
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -22,30 +31,51 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      # 第 1 层缓存：Flutter SDK 二进制（由 flutter-action 内置管理）
+      # ── 缓存第 1 层：Flutter SDK（flutter-action 内部走 actions/cache） ──
+      # 版本必须钉死：写成 3.47.x 会随补丁版漂移，SDK 缓存 key 跟着变 → 每次冷启动。
+      # 升级 Flutter 时改这两处（apk.yml 里也有同一个常量）。
       - name: Setup Flutter
+        id: flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.47.x'
-          channel: 'stable'
-          cache: true
+          channel: stable
+          flutter-version: '3.47.5'
+          cache: true      # 缓存 SDK
+          pub-cache: false # pub 依赖我们自己控 key，原因见下一层
 
-      # 第 2 层缓存：Pub 全局包缓存（flutter-action 的 cache 不覆盖这层）
-      # key 基于 pubspec.yaml —— 因为 pubspec.lock 被 gitignore，检出后不存在
-      - name: Cache Pub packages
-        uses: actions/cache@v4
+      # ── 缓存第 2 层：pub 依赖（~/.pub-cache） ──
+      # 两条关键设计：
+      # 1) key 里**不出现** github.ref / ref_name —— 所以 main、任意分支、apk.yml
+      #    都命中同一把 key，这就是「跨 workflow / 跨环境」的最大化复用。
+      #    （GitHub 的 cache 默认按分支隔离，key 里带分支名就等于放弃共享。）
+      # 2) key 基于 **pubspec.yaml** 而不是 pubspec.lock —— 本仓库 pubspec.lock 在
+      #    .gitignore 里（见 .gitignore），lock 文件在 runner 上 checkout 后并不存在。
+      #    restore-keys 做前缀兜底：pubspec.yaml 变了也能复用旧 pub cache 里的包
+      #    （pub cache 是内容寻址的可叠加存储，只补下载增量，安全且省时间）。
+      - name: Cache pub dependencies
+        id: pub-cache
+        uses: actions/cache@v6
         with:
-          path: |
-            ~/.pub-cache
-          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.yaml') }}
+          path: ~/.pub-cache
+          key: sol-pub-linux-3.47.5-${{ hashFiles('pubspec.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-pub-
+            sol-pub-linux-3.47.5-
+            sol-pub-linux-
+
+      - name: Report cache status
+        run: |
+          echo "SDK cache-hit:   '${{ steps.flutter.outputs.CACHE-HIT }}'"
+          echo "pub cache-hit:   '${{ steps.pub-cache.outputs.cache-hit }}'"
+          echo "resolved key:    '${{ steps.pub-cache.outputs.cache-primary-key }}'"
 
       - name: Flutter version
         run: flutter --version
 
+      # 注意：这里**不要**设 PUB_HOSTED_URL / FLUTTER_STORAGE_BASE_URL。
+      # 仓库里的 flutter-io.cn 镜像是为国内本机准备的，GitHub runner 在美国，
+      # 走镜像反而更慢。pubspec.yaml 的 sqlite3 hooks（ghproxy）仍然照走，已验证可用。
       - name: Pub get
         run: flutter pub get
 

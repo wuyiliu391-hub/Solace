@@ -1,0 +1,174 @@
+name: Build APK
+
+# 交付用工作流：**刻意不跑 flutter test**。
+# 测试结论由 ci.yml 单独把关（见 ci.yml 顶部说明），避免同一 commit 花两次 CI 时间。
+# 因此本 workflow 只在「人工点按钮」或「打 tag」时触发，不会跟着普通 push 跑。
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: '构建类型'
+        type: choice
+        options: [release, debug]
+        default: release
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      # ── 缓存第 1 层：Flutter SDK（与 ci.yml 同一把 key，跨 workflow 复用） ──
+      # 版本常量必须与 ci.yml 保持一致，否则两边的 SDK 缓存会分裂成两份。
+      - name: Setup Flutter
+        id: flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.5'
+          cache: true
+          pub-cache: false
+
+      # ── 缓存第 2 层：pub 依赖 ──
+      # key 字符串与 ci.yml **逐字相同**，这是跨 workflow 命中同一份缓存的关键。
+      - name: Cache pub dependencies
+        id: pub-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.pub-cache
+          key: sol-pub-linux-3.47.5-${{ hashFiles('pubspec.yaml') }}
+          restore-keys: |
+            sol-pub-linux-3.47.5-
+            sol-pub-linux-
+
+      # ── 缓存第 3 层：Gradle（发行版 + 依赖 + build-cache） ──
+      # 同样不带分支名，跨分支/跨 workflow 共用。首次会冷（要下 NDK 和依赖），之后很快。
+      - name: Cache Gradle
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: sol-gradle-linux-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/build.gradle', 'android/app/build.gradle', 'android/gradle.properties') }}
+          restore-keys: |
+            sol-gradle-linux-
+
+      # NDK 版本来自 android/build.gradle 的 project.ext.flutter.ndkVersion
+      # 首次运行要下 NDK（约 1GB）+ 依赖，比较慢；之后由 Gradle 缓存接管。
+      - name: Install Android SDK packages
+        run: |
+          set -eo pipefail
+          # 先接受 license，否则 sdkmanager --install 会在中途交互卡住
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+
+      # 签名：优先用仓库 Secrets 里的真 keystore（android/*.jks 已 gitignore，
+      # 只有这样才拿得到真正的 release 签名）。没有 Secrets 时退化为临时
+      # debug keystore，保证 workflow 不会因为缺密钥直接失败。
+      - name: Prepare signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.SOLACE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.SOLACE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SOLACE_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.SOLACE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_B64}" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > android/solace-release.jks
+            cat > android/key.properties <<EOF
+          storeFile=solace-release.jks
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASS}
+          storePassword=${KEYSTORE_PASS}
+          EOF
+            echo "using repository signing key"
+          else
+            echo "::warning::No SOLACE_KEYSTORE_* secrets configured; building with a throwaway debug keystore."
+            keytool -genkeypair -v -keystore android/solace-release.jks \
+              -storepass android -keypass android -alias solace \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Solace CI, OU=CI, O=Solace, L=NA, ST=NA, C=NA" >/dev/null 2>&1
+            cat > android/key.properties <<EOF
+          storeFile=solace-release.jks
+          keyAlias=solace
+          keyPassword=android
+          storePassword=android
+          EOF
+          fi
+
+      - name: Cache status
+        run: |
+          echo "SDK cache-hit: '${{ steps.flutter.outputs.CACHE-HIT }}'"
+          echo "pub cache-hit: '${{ steps.pub-cache.outputs.cache-hit }}'"
+
+      - name: Pub get
+        run: flutter pub get
+
+      # arm64-v8a 单架构（与 android/app/build.gradle 的 abiFilters 一致）。
+      # --split-per-abi 产出 app-arm64-v8a-release.apk，正是 scripts/deploy.sh 期待的文件名。
+      - name: Build APK
+        run: |
+          TYPE="${{ inputs.build_type }}"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then TYPE=release; fi
+          echo "Building $TYPE APK"
+          flutter build apk \
+            --$TYPE \
+            --split-per-abi \
+            --target-platform android-arm64 \
+            --no-shrink
+
+      - name: Locate APK
+        id: apk
+        run: |
+          TYPE="${{ inputs.build_type }}"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then TYPE=release; fi
+          APK="build/app/outputs/flutter-apk/app-arm64-v8a-$TYPE.apk"
+          if [ ! -f "$APK" ]; then
+            echo "::error::APK not found at $APK"; ls -la build/app/outputs/flutter-apk/; exit 1
+          fi
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$APK" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: solace-apk-${{ github.sha }}
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          {
+            echo "### APK 构建完成"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 文件 | \`${{ steps.apk.outputs.path }}\` |"
+            echo "| 大小 | ${{ steps.apk.outputs.size }} |"
+            echo "| commit | \`${{ github.sha }}\` |"
+            echo "| 架构 | arm64-v8a |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "下载后可用 adb install -r 覆盖安装。"
+          echo "要发布到站点：把 APK 放到 build/ 后跑 scripts/deploy.sh（需 CLOUDFLARE_API_TOKEN）。"
