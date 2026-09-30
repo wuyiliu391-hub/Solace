@@ -21,6 +21,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -43,8 +44,8 @@ class FishAudioTtsConfig {
 
   /// 可选模型（仅免费 + 付费两档，其余见官方定价页）。
   static const List<({String label, String id})> models = [
-    (label: 'S2.1 Pro（免费·限时至 2026-11-30）', id: freeModel),
-    (label: 'S2.1 Pro（付费 $15/M 字节）', id: paidModel),
+    (label: 'S2.1 Pro（免费·限时至 2026-11-30）', id: 's2.1-pro-free'),
+    (label: 'S2.1 Pro（付费 $15/M 字节）', id: 's2.1-pro'),
   ];
 
   final String apiKey;

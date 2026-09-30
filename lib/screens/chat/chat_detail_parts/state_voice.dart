@@ -96,7 +96,7 @@ mixin _StateVoice on State<ChatDetailScreen>, _StateCore, _StateLoadCore, _State
       if (preset == null) {
         final ref = await _resolveVoiceReference();
         if (ref == null || !mounted) return;
-        await _localTts.setReferenceAudio(
+        await (await _ensureTts()).setReferenceAudio(
           widget.session.aiCharacterId,
           ref.path,
           ref.text,

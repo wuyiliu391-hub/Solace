@@ -111,7 +111,7 @@ class VoiceCallController extends ChangeNotifier {
     _setPhase(VoiceCallPhase.connecting, '正在准备…');
     try {
       debugPrint('[VoiceCall] start: 检查模型就绪...');
-      if (!_allModelsReady()) {
+      if (!await _allModelsReady()) {
         debugPrint('[VoiceCall] start: 模型未就绪，提示导入');
         _needsModels = true;
         _setPhase(VoiceCallPhase.connecting, '需要先导入语音识别模型');
