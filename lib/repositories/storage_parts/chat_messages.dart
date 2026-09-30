@@ -935,11 +935,19 @@ mixin LocalStorageRepositoryChatMessagesApi on _LocalStorageRepositoryCore {
     return result;
   }
 
+  /// 日志预览：最多 [max] 个字符，短字符串原样返回（不抛越界）。
+  static String _preview(String text, {int max = 30}) =>
+      text.length <= max ? text : text.substring(0, max);
+
   Future<void> saveChatMessage(ChatMessage message) async {
     final type = message.metadata?['type'];
     final transferStatus = message.metadata?['transferStatus'];
+    // 截断预览必须防越界：id/content 长度不保证（短 id 会让 substring 抛
+    // RangeError，而 debugPrint 的参数在 release 也会求值，等于线上崩溃点）。
     debugPrint(
-        '[DBG] saveChatMessage START: id=${message.id.substring(0, 8)}, isUser=${message.isUser}, chatId=${message.chatId}, content=${message.content.substring(0, message.content.length > 30 ? 30 : message.content.length)}');
+        '[DBG] saveChatMessage START: id=${_preview(message.id)}, '
+        'isUser=${message.isUser}, chatId=${message.chatId}, '
+        'content=${_preview(message.content)}');
     LogService.instance.d('Storage',
         'saveChatMessage: id=${message.id}, type=$type, transferStatus=$transferStatus',
         chatId: message.chatId);
@@ -1584,7 +1592,10 @@ mixin LocalStorageRepositoryChatMessagesApi on _LocalStorageRepositoryCore {
         final raw = _prefs?.getString(k);
         if (raw == null) continue;
         try {
-          final m = GroupChatMessage.fromMap(jsonDecode(raw));
+          // web 落库用的是 toJson（见 saveGroupChatMessage），这里必须用
+          // fromJson 解析；用 fromMap 会因为 JSON 嵌套结构（metadata/slide 等
+          // 是字符串化的 JSON）解析失败被 catch 吞掉，表现为「搜不到群聊收藏」。
+          final m = GroupChatMessage.fromJson(jsonDecode(raw));
           if (!m.isBookmarked) continue;
           if (!m.content.contains(q) && !m.senderName.contains(q)) continue;
           out.add(m);

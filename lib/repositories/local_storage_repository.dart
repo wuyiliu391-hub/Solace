@@ -2422,11 +2422,19 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       final table = entry.key;
       final expectedCols = entry.value;
       try {
-        final existingRows = await db.rawQuery('PRAGMA table_info($table)');
+        var existingRows = await db.rawQuery('PRAGMA table_info($table)');
         if (existingRows.isEmpty) {
-          debugPrint(': $table ..');
+          debugPrint('[schema] 缺表 $table，尝试补建');
           await createMissingTable(db, table);
-          continue;
+          // ★ 建完不能直接 continue：建表语句可能比 expectedColumns 旧
+          //   （漏了后来新增的列）。这里重新读一次 PRAGMA 继续走补列校验，
+          //   否则「新建的表缺列」永远没人补 —— users.backgroundImageLandscape
+          //   就是这样丢的。
+          existingRows = await db.rawQuery('PRAGMA table_info($table)');
+          if (existingRows.isEmpty) {
+            debugPrint('[schema] 表 $table 补建后仍不存在，跳过补列');
+            continue;
+          }
         }
         final existingCols =
             existingRows.map((r) => r['name'] as String).toSet();

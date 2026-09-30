@@ -51,6 +51,20 @@ GroupChatMessage _gmsg(
     );
 
 void main() {
+  group('saveChatMessage · 日志预览不越界', () {
+    test('短 id / 空 content 不触发 RangeError', () async {
+      SharedPreferences.setMockInitialValues({});
+      final repo = LocalStorageRepository(isWeb: true);
+      await repo.initialize();
+      // 回归：saveChatMessage 里 `id.substring(0, 8)` 无保护，
+      // 短 id 直接抛 RangeError（debugPrint 参数在 release 也会求值）。
+      await repo.saveChatMessage(_msg('m1', 'c1', ''));
+      await repo.saveChatMessage(_msg('m2', 'c1', 'x'));
+      final all = await repo.getBookmarkedMessages();
+      expect(all.length, 2);
+    });
+  });
+
   group('群聊收藏标记格式（决定搜索能否查到）', () {
     test('isBookmarked 只认 metadata.bookmarked == true', () {
       expect(_gmsg('x', 'g', 'c', bookmark: false).isBookmarked, isFalse,
