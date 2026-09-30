@@ -9,8 +9,9 @@
 // 这里能纯 Dart 验证第 1 条（props 相等性）；第 2 条属于 widget 行为，
 // 由 CI 的 group_chat / chat 详情页测试覆盖，本文件给出可执行的状态断言。
 import 'package:flutter_test/flutter_test.dart';
-import 'package:solace/blocs/chat/chat_event.dart';
-import 'package:solace/blocs/chat/chat_state.dart';
+// chat_event.dart / chat_state.dart 是 chat_bloc.dart 的 part，不能直接 import
+// （import_of_non_library），必须 import 真正的库文件。
+import 'package:solace/blocs/chat/chat_bloc.dart';
 import 'package:solace/models/chat_message.dart';
 
 ChatMessage _msg(String id, {String content = 'hi'}) => ChatMessage(
