@@ -34,14 +34,22 @@ mixin _StateBodyBuilders on State<ChatDetailScreen>, _StateCore, _StateLoadCore,
                   }
                   return previous.runtimeType != current.runtimeType;
                 },
+                // ★ 首屏定位的致命坑（曾导致收藏跳转完全失效）：
+                //   这里原本只在 `messages.length` 变化时触发 listener。而
+                //   「打开即定位」走 ChatLoadUntilMessage 拿回的是**同一会话的
+                //   一整页消息**，如果长度恰好与首屏一致（收藏消息就在首屏内），
+                //   listener 根本不跑 → _didInitialJump 永不置位 → 后续任何
+                //   ChatMessagesLoaded 都不会再尝试定位，且 _pendingJumpTarget
+                //   的 pending 清理也在这段里，一并失效。
+                //   修法：状态类型一变就触发（去掉长度相等就不触发的条件）。
+                //   listenWhen 宁可多跑，不可漏跑——listener 内部已有幂等保护
+                //   （_didInitialJump / _pendingJumpTarget=null / _isLoadingMore）。
                 listenWhen: (previous, current) =>
-                    previous?.runtimeType != current.runtimeType ||
+                    previous.runtimeType != current.runtimeType ||
                     current is ChatAITyping ||
                     current is ChatError ||
                     current is ChatAIObserving ||
-                    (current is ChatMessagesLoaded &&
-                        previous is ChatMessagesLoaded &&
-                        current.messages.length != previous.messages.length),
+                    current is ChatMessagesLoaded,
                 listener: (context, state) {
                   LogService.instance.d('UI', 'Listener: ${state.runtimeType}',
                       chatId: widget.session.id);
@@ -100,7 +108,9 @@ mixin _StateBodyBuilders on State<ChatDetailScreen>, _StateCore, _StateLoadCore,
                   }
                   if (state is ChatMessagesLoaded) {
                     _hasMoreMessages = state.hasMore;
-                    // 从收藏/搜索等外部入口打开时，首帧消息加载后自动定位并高亮目标消息（仅一次）
+                    // 从收藏/搜索等外部入口打开时，首帧消息加载后自动定位并高亮
+                    // 目标消息（仅一次）。走 _jumpToMessage → 它会判断目标是否已在
+                    // 缓存里，不在则发 ChatLoadUntilMessage 取窗口后再定位。
                     if (widget.initialJumpToMessage != null &&
                         !_didInitialJump) {
                       _didInitialJump = true;
@@ -114,6 +124,28 @@ mixin _StateBodyBuilders on State<ChatDetailScreen>, _StateCore, _StateLoadCore,
                     } else {
                       _reloadSessionStatus();
                     }
+                    // 按 id 定位返回：直接定位，不用再靠 pendingTarget 猜
+                    // （pendingTarget 那条路径依赖「状态变了」触发，同内容时
+                    //   不会触发，是收藏跳转失效的根因之一）
+                    final jumpId = state.jumpToMessageId;
+                    if (jumpId != null) {
+                      _pendingJumpTarget = null;
+                      final located = _findMessageById(state.messages, jumpId);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        _userScrolledUp = true;
+                        _scrollToTargetMessage(located ?? _jumpedToMessage);
+                        setState(() => _highlightedMessageId = jumpId);
+                        _highlightTimer?.cancel();
+                        _highlightTimer =
+                            Timer(const Duration(seconds: 3), () {
+                          if (mounted) {
+                            setState(() => _highlightedMessageId = null);
+                          }
+                        });
+                      });
+                    }
+
                     final pendingTarget = _pendingJumpTarget;
                     if (pendingTarget != null) {
                       final targetLoaded =

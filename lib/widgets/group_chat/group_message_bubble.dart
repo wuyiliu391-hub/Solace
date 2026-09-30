@@ -25,6 +25,9 @@ class GroupMessageBubble extends StatelessWidget {
   /// 多选模式下是否被选中（高亮背景）
   final bool isSelected;
 
+  /// 定位高亮（从收藏/搜索跳转到该条消息时为 true）
+  final bool isHighlighted;
+
   final ValueChanged<int>? onSwipeChanged;
 
   /// 用户消息失败时的统一重试入口。
@@ -40,6 +43,7 @@ class GroupMessageBubble extends StatelessWidget {
     this.onLongPress,
     this.onTap,
     this.isSelected = false,
+    this.isHighlighted = false,
     this.onSwipeChanged,
     this.onRetry,
   });
@@ -175,16 +179,21 @@ class GroupMessageBubble extends StatelessWidget {
     }
   }
 
-  /// 多选模式下选中态高亮背景
+  /// 选中态 / 定位高亮背景。
+  ///
+  /// [isHighlighted] 用于「从收藏跳转到该条消息」的定位高亮（3 秒后自动撤掉）。
+  /// 此前群聊跳转时置了 `_highlightedMessageId` 但**没有任何组件消费它**，
+  /// 于是跳转只滚位置、看不出落在哪条上，表现为「跳了但不知道跳没跳」。
   Widget _wrapSelected(BuildContext context, Widget child) {
-    if (!isSelected) return child;
+    if (!isSelected && !isHighlighted) return child;
+    final cs = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .primaryContainer
-            .withValues(alpha: 0.5),
+        color: cs.primaryContainer.withValues(alpha: isSelected ? 0.5 : 0.32),
         borderRadius: BorderRadius.circular(10),
+        border: isHighlighted && !isSelected
+            ? Border.all(color: cs.primary.withValues(alpha: 0.7), width: 1.2)
+            : null,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: child,

@@ -24,10 +24,23 @@ class ChatMessagesLoaded extends ChatState {
   final List<ChatMessage> messages;
   final bool hasMore;
 
-  const ChatMessagesLoaded(this.messages, {this.hasMore = true});
+  /// 本次加载是否由「按 id 定位」（收藏/搜索跳转）触发。
+  ///
+  /// ★ 必须进 props：`_onLoadUntilMessage` 取回的窗口若与首屏内容完全相同，
+  /// 不带这个标记时新旧状态 Equatable 相等 → BlocConsumer 的 listenWhen /
+  /// buildWhen 都不触发 → 页面停在原处，表现为「点了收藏没反应」。
+  /// 带标记后每次定位都是可区分的新状态，定位逻辑必然被调用。
+  /// 正常加载（`_onLoadMessages` / 上滑加载更多）保持 null，不影响既有行为。
+  final String? jumpToMessageId;
+
+  const ChatMessagesLoaded(
+    this.messages, {
+    this.hasMore = true,
+    this.jumpToMessageId,
+  });
 
   @override
-  List<Object?> get props => [messages, hasMore];
+  List<Object?> get props => [messages, hasMore, jumpToMessageId];
 }
 
 class ChatAITyping extends ChatState {

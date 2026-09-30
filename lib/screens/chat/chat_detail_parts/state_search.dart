@@ -59,11 +59,17 @@ mixin _StateSearch on State<ChatDetailScreen>, _StateCore, _StateLoadCore, _Stat
   }
 
 
+  /// 跳转到指定消息（搜索结果点击 / 收藏页打开会话后自动定位，都走这里）。
+  ///
+  /// 关键点：外部入口（收藏页）传入的 `targetMessage` 来自**另一套查询**
+  /// （全库扫 isBookmark），它的对象与本会话当前缓存里的同 id 消息不是同一实例，
+  /// 内容也可能已被编辑。所以定位一律以 **id** 为准，不依赖对象相等。
   void _jumpToMessage(ChatMessage targetMessage) {
     final preservedResults = List<ChatMessage>.from(_searchResults);
     final preservedQuery = _searchQuery;
+    final targetId = targetMessage.id;
     final isLoaded =
-        _cachedMessages.any((message) => message.id == targetMessage.id);
+        _cachedMessages.any((message) => message.id == targetId);
 
     setState(() {
       _isSearching = false;
@@ -74,6 +80,8 @@ mixin _StateSearch on State<ChatDetailScreen>, _StateCore, _StateLoadCore, _Stat
       _pendingJumpTarget = isLoaded ? null : targetMessage;
       _preservedSearchResults = preservedResults;
       _preservedSearchQuery = preservedQuery;
+      // 定位后不要再被「自动滚到底部」抢走，否则会闪一下再跳回去
+      _userScrolledUp = true;
     });
 
     if (isLoaded) {
@@ -88,13 +96,14 @@ mixin _StateSearch on State<ChatDetailScreen>, _StateCore, _StateLoadCore, _Stat
           duration: Duration(seconds: 1),
         ),
       );
+      // 收藏消息可能远在历史深处：直接按 id 取窗口，而不是一页页上翻
       _chatBloc.add(ChatLoadUntilMessage(
         chatId: widget.session.id,
-        messageId: targetMessage.id,
+        messageId: targetId,
       ));
     }
 
-    setState(() => _highlightedMessageId = targetMessage.id);
+    setState(() => _highlightedMessageId = targetId);
     _highlightTimer?.cancel();
     _highlightTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _highlightedMessageId = null);
@@ -102,7 +111,20 @@ mixin _StateSearch on State<ChatDetailScreen>, _StateCore, _StateLoadCore, _Stat
   }
 
 
-  void _scrollToTargetMessage(ChatMessage target) {
+  /// 在当前消息列表里按 id 找消息。定位一律以 id 为准：
+  /// 外部入口（收藏页）传进来的 ChatMessage 来自全库扫描，与本会话缓存里的
+  /// 同 id 对象不是同一实例，内容也可能已被编辑，对象相等不可靠。
+  ChatMessage? _findMessageById(List<ChatMessage> list, String id) {
+    for (final m in list) {
+      if (m.id == id) return m;
+    }
+    return null;
+  }
+
+  /// 定位到目标消息。[target] 为 null 时退化到 [_jumpedToMessage] 再退化到
+  /// 按 id 查缓存；都拿不到就说明数据窗口没覆盖到（理论上不会，因为 bloc 侧
+  /// 已按 id 取窗口），此时静默返回而不是弹 Toast 刷屏。
+  void _scrollToTargetMessage(ChatMessage? target) {
     if (!_scrollController.hasClients) {
       // 列表尚未 layout，下一帧再试
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -111,20 +133,31 @@ mixin _StateSearch on State<ChatDetailScreen>, _StateCore, _StateLoadCore, _Stat
       return;
     }
 
+    final targetId = target?.id ?? _jumpedToMessage?.id;
+    if (targetId == null) return;
+
     final messages = _cachedMessages;
-    final targetIndex = messages.indexWhere((m) => m.id == target.id);
+    final targetIndex = messages.indexWhere((m) => m.id == targetId);
 
     if (targetIndex == -1) {
+      // 仍不在缓存：请求窗口，而不是让用户自己上滑（收藏跳转必经此路径）。
+      // 用 id 而非 target.id —— target 可能为 null（见方法签名说明）。
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('消息未加载，请上滑加载更多历史消息后再试'),
-            duration: Duration(seconds: 2)),
+          content: Text('正在加载目标消息位置...'),
+          duration: Duration(seconds: 1),
+        ),
       );
+      setState(() => _pendingJumpTarget = _findMessageById(messages, targetId) ?? target ?? _jumpedToMessage);
+      _chatBloc.add(ChatLoadUntilMessage(
+        chatId: widget.session.id,
+        messageId: targetId,
+      ));
       return;
     }
 
     // 优先：GlobalKey 已挂载 → ensureVisible 精准定位
-    final key = _messageKeys[target.id];
+    final key = _messageKeys[targetId];
     final targetContext = key?.currentContext;
     if (targetContext != null) {
       Scrollable.ensureVisible(
@@ -158,7 +191,7 @@ mixin _StateSearch on State<ChatDetailScreen>, _StateCore, _StateLoadCore, _Stat
     // 大列表上 ensureVisible 常在首帧拿不到 context：多轮重试
     void retryEnsure(int attempt) {
       if (!mounted || attempt > 6) return;
-      final ctx = _messageKeys[target.id]?.currentContext;
+      final ctx = _messageKeys[targetId]?.currentContext;
       if (ctx != null) {
         Scrollable.ensureVisible(
           ctx,

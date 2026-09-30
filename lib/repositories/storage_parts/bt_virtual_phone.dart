@@ -568,6 +568,10 @@ mixin LocalStorageRepositoryBtVPhoneApi on LocalStorageRepositoryMomentsShopApi 
 
   /// 大历史量群聊定位窗口。
   /// 返回 **DESC**（与 GroupChatBloc / UI 一致：index0 = 最新）。
+  ///
+  /// SQLite 路径用 offset 直接取窗口，不再把整段历史拉进内存
+  /// （旧的 `limit: 1<<20` 会把十万级消息全部反序列化，群聊收藏跳转
+  /// 在长会话上表现为长时间卡住/内存暴涨）。
   Future<List<GroupChatMessage>> getGroupChatMessagesAroundId({
     required String groupId,
     required String messageId,
@@ -575,20 +579,74 @@ mixin LocalStorageRepositoryBtVPhoneApi on LocalStorageRepositoryMomentsShopApi 
     int after = 20,
     String? chatId,
   }) async {
-    final desc = await getGroupChatMessages(
-      groupId,
-      limit: 1 << 20,
-      offset: 0,
-      chatId: chatId,
-    );
-    final idx = desc.indexWhere((m) => m.id == messageId);
-    if (idx < 0) {
-      return desc.take(before + after).toList();
+    if (_isWeb) {
+      final desc = await getGroupChatMessages(
+        groupId,
+        limit: 1 << 20,
+        offset: 0,
+        chatId: chatId,
+      );
+      final idx = desc.indexWhere((m) => m.id == messageId);
+      if (idx < 0) {
+        return desc.take(before + after).toList();
+      }
+      // desc[idx] = 目标；更新方向 idx-1...，更旧方向 idx+1...
+      final start = (idx - after).clamp(0, desc.length);
+      final end = (idx + before + 1).clamp(0, desc.length);
+      return desc.sublist(start, end);
     }
-    // desc[idx] = 目标；更新方向 idx-1...，更旧方向 idx+1...
-    final start = (idx - after).clamp(0, desc.length);
-    final end = (idx + before + 1).clamp(0, desc.length);
-    return desc.sublist(start, end);
+
+    final db = await _ensureDb();
+    final where = <String>['groupId = ?'];
+    final args = <Object?>[groupId];
+    if (chatId != null) {
+      where.add('chatId = ?');
+      args.add(chatId);
+    }
+    final whereSql = where.join(' AND ');
+    const table = 'group_chat_messages';
+
+    // 目标消息（不存在时直接返回最新一页，调用方会提示「已不在聊天记录中」）
+    final targetMaps = await db.query(
+      table,
+      where: '$whereSql AND id = ?',
+      whereArgs: [...args, messageId],
+      limit: 1,
+    );
+    if (targetMaps.isEmpty) {
+      return _parseGroupMessages(await db.query(table,
+          where: whereSql,
+          whereArgs: args,
+          orderBy: 'timestamp DESC',
+          limit: before + after));
+    }
+    final ts = (targetMaps.first['timestamp'] as String?) ?? '';
+
+    // 比目标更「新」= DESC 排序里排在它前面的条数，即从最新往回翻的 offset
+    final newer = Sqflite.firstIntValue(await db.rawQuery(
+      'SELECT COUNT(*) FROM $table WHERE $whereSql AND timestamp > ?',
+      [...args, ts],
+    )) ??
+        0;
+    final windowOffset = (newer - after).clamp(0, 1 << 30);
+    return _parseGroupMessages(await db.query(
+      table,
+      where: whereSql,
+      whereArgs: args,
+      orderBy: 'timestamp DESC',
+      limit: before + after + 1,
+      offset: windowOffset,
+    ));
+  }
+
+  List<GroupChatMessage> _parseGroupMessages(List<Map<String, dynamic>> maps) {
+    final out = <GroupChatMessage>[];
+    for (final map in maps) {
+      try {
+        out.add(GroupChatMessage.fromMap(map));
+      } catch (_) {}
+    }
+    return out;
   }
 
   Future<List<GroupChatLorebookEntry>> getGroupChatLorebookEntries(

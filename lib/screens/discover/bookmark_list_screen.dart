@@ -173,6 +173,7 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
 
     final sessionId = entry['sessionId'] as String;
     final targetMessage = entry['message'] as ChatMessage?;
+    if (targetMessage == null) return;
     Navigator.push(
       context,
       MaterialPageRoute(

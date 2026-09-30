@@ -84,7 +84,14 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   /// 收藏跳转：待定位消息 id + 是否已处理
   String? _pendingJumpId;
   bool _didInitialJump = false;
+
+  /// 定位高亮的消息 id（3 秒后自动撤掉）
   String? _highlightedMessageId;
+  Timer? _highlightTimer;
+
+  /// 定位期间抑制「贴底」：reverse 列表初始就在底部，定位后若被贴底逻辑
+  /// 拉回 offset 0，会表现为「闪一下又跳回最新」，看起来像定位失败。
+  bool _userScrolledToBottom = true;
 
   /// 多选模式（批量删除 / 收藏，对齐单聊）
   bool _selectionMode = false;
@@ -103,6 +110,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
 
   @override
   void dispose() {
+    _highlightTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -129,22 +137,39 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           setState(() {
             _messages = window;
             _pendingJumpId = null;
+            // 定位后不要被「贴底」逻辑抢走，否则会闪一下再跳回底部
+            _userScrolledToBottom = false;
           });
+        } else {
+          // 该消息已被清理（收藏保底清理只保留 isBookmark=1，但仍可能手动删除）
+          setState(() => _pendingJumpId = null);
+          _showJumpMissing();
         }
       } catch (e) {
         debugPrint('群聊定位加载窗口失败: $e');
+        if (mounted) _showJumpMissing();
       }
     } else {
-      _pendingJumpId = null;
+      setState(() => _pendingJumpId = null);
     }
+    if (!mounted) return;
     setState(() => _highlightedMessageId = messageId);
+    _highlightTimer?.cancel();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _scrollToMessageId(messageId);
+      if (mounted) _scrollToMessageId(messageId);
     });
-    Future.delayed(const Duration(seconds: 3), () {
+    _highlightTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _highlightedMessageId = null);
     });
+  }
+
+  void _showJumpMissing() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('这条消息已不在聊天记录中，可能已被删除'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   void _scrollToMessageId(String messageId) {
@@ -156,12 +181,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
     }
     final idx = _messages.indexWhere((m) => m.id == messageId);
     if (idx < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('没有找到目标消息位置'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      _showJumpMissing();
       return;
     }
     // 群聊列表 _messages 为 DESC：index0=最新，reverse:true 时 offset0=底部
@@ -635,6 +655,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           speakerColor: senderId != null ? _memberColors[senderId] : null,
           avatarUrl: msg.isUser ? userAvatarUrl : sender?.avatarUrl,
           isSelected: _selectionMode && _selectedIds.contains(msg.id),
+          // 定位高亮：收藏跳转到这条时显示底色+描边，3 秒后自动撤掉
+          isHighlighted: msg.id == _highlightedMessageId,
           onTap: _selectionMode ? () => _toggleSelect(msg.id) : null,
           onSwipeChanged: !_selectionMode && msg.swipeHistory.length > 1
               ? (index) => context.read<GroupChatBloc>().add(

@@ -46,6 +46,84 @@ mixin _BlocMessagesLoad on Bloc<ChatEvent, ChatState>, ChatBlocUtils, ChatBlocIn
   }
 
 
+  /// 从收藏/搜索等外部入口按 id 定位。
+  ///
+  /// ★ 与 `_onLoadMessages` 的区别（收藏跳转失效的历史根因）：
+  /// `_onLoadMessages` 永远取「最新 50 条」。所以从收藏页进来的消息若在更早的
+  /// 历史里，首屏根本不含它；此时必须走本方法按 id 取窗口，否则页面只能停在
+  /// 最新位置，看起来就是「跳转没反应」。
+  ///
+  /// 取回窗口后必须 **emit 一个与首屏不同的状态**，UI 侧的 listener 才会跑。
+  /// `ChatMessagesLoaded` 走 Equatable 比较，消息列表内容完全相同时新旧状态
+  /// `==` 成立，BlocConsumer 的 listenWhen/buildWhen 都不会被触发 —— 这正是
+  /// 「打开聊天页毫无反应」的第二个原因。
+  /// 因此这里额外携带 `jumpToMessageId`，与普通加载产生可区分的状态实例。
+  Future<void> _onLoadUntilMessage(
+    ChatLoadUntilMessage event,
+    Emitter<ChatState> emit,
+  ) async {
+    if (_loadingMore.contains(event.chatId)) return;
+    _loadingMore.add(event.chatId);
+    try {
+      // 大历史量：SQL 算 offset + 一次取窗口，替代 while 50 条翻页
+      // （收藏跳转 / 搜索定位在十万级消息下旧实现会极慢甚至加载失败）
+      final window = await _storage.getChatMessagesAroundId(
+        chatId: event.chatId,
+        messageId: event.messageId,
+        before: 40,
+        after: 20,
+      );
+
+      final exists = window.any((m) => m.id == event.messageId);
+      // 与现有列表合并去重，保持时间正序
+      final existing = state is ChatMessagesLoaded
+          ? List<ChatMessage>.from(
+              (state as ChatMessagesLoaded).messages)
+          : <ChatMessage>[];
+      final byId = <String, ChatMessage>{
+        for (final m in existing) m.id: m,
+        for (final m in window) m.id: m,
+      };
+      final merged = byId.values.toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+      // 是否还能再往更旧加载：窗口里最旧是否等于全局更旧边界
+      // 简化：若窗口条数达到请求上限则认为可能还有更旧
+      final hasMore = window.length >= 60 || existing.isNotEmpty;
+
+      LogService.instance.i(
+        'Bloc',
+        '_onLoadUntilMessage: target=${event.messageId}, '
+        'window=${window.length}, exists=$exists, total=${merged.length}',
+        chatId: event.chatId,
+      );
+      _loadedOffsets[event.chatId] = merged.length;
+      _hasMoreByChat[event.chatId] = hasMore;
+      emit(ChatMessagesLoaded(
+        merged,
+        hasMore: hasMore,
+        jumpToMessageId: event.messageId,
+      ));
+
+      if (!exists) {
+        LogService.instance.w(
+          'Bloc',
+          '_onLoadUntilMessage: 目标消息不在窗口中 id=${event.messageId}',
+          chatId: event.chatId,
+        );
+      }
+    } catch (e) {
+      LogService.instance.e(
+        'Bloc',
+        '_onLoadUntilMessage failed: $e',
+        chatId: event.chatId,
+      );
+    } finally {
+      _loadingMore.remove(event.chatId);
+    }
+  }
+
+
   /// 若某条用户消息之后已有 AI 回复，则标为已读（修复历史「未读」残留）
   Future<bool> _healUnreadUserMessages(
     String chatId,
@@ -141,66 +219,5 @@ mixin _BlocMessagesLoad on Bloc<ChatEvent, ChatState>, ChatBlocUtils, ChatBlocIn
     }
   }
 
-
-  Future<void> _onLoadUntilMessage(
-    ChatLoadUntilMessage event,
-    Emitter<ChatState> emit,
-  ) async {
-    if (_loadingMore.contains(event.chatId)) return;
-    _loadingMore.add(event.chatId);
-    try {
-      // 大历史量：SQL 算 offset + 一次取窗口，替代 while 50 条翻页
-      // （收藏跳转 / 搜索定位在十万级消息下旧实现会极慢甚至加载失败）
-      final window = await _storage.getChatMessagesAroundId(
-        chatId: event.chatId,
-        messageId: event.messageId,
-        before: 40,
-        after: 20,
-      );
-
-      final exists = window.any((m) => m.id == event.messageId);
-      // 与现有列表合并去重，保持时间正序
-      final existing = state is ChatMessagesLoaded
-          ? List<ChatMessage>.from(
-              (state as ChatMessagesLoaded).messages)
-          : <ChatMessage>[];
-      final byId = <String, ChatMessage>{
-        for (final m in existing) m.id: m,
-        for (final m in window) m.id: m,
-      };
-      final merged = byId.values.toList()
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-
-      // 是否还能再往更旧加载：窗口里最旧是否等于全局更旧边界
-      // 简化：若窗口条数达到请求上限则认为可能还有更旧
-      final hasMore = window.length >= 60 || existing.isNotEmpty;
-
-      LogService.instance.i(
-        'Bloc',
-        '_onLoadUntilMessage: target=${event.messageId}, '
-        'window=${window.length}, exists=$exists, total=${merged.length}',
-        chatId: event.chatId,
-      );
-      _loadedOffsets[event.chatId] = merged.length;
-      _hasMoreByChat[event.chatId] = hasMore;
-      emit(ChatMessagesLoaded(merged, hasMore: hasMore));
-
-      if (!exists) {
-        LogService.instance.w(
-          'Bloc',
-          '_onLoadUntilMessage: 目标消息不在窗口中 id=${event.messageId}',
-          chatId: event.chatId,
-        );
-      }
-    } catch (e) {
-      LogService.instance.e(
-        'Bloc',
-        '_onLoadUntilMessage failed: $e',
-        chatId: event.chatId,
-      );
-    } finally {
-      _loadingMore.remove(event.chatId);
-    }
-  }
 
 }
