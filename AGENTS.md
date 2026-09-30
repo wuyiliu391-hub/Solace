@@ -78,6 +78,84 @@ Flutter 写的 **AI 陪伴应用**（Android 单平台）。多角色聊天 + �
 Linux runner 上直接起不来。**已删除** —— 现在本地靠 `JAVA_HOME`、CI 靠 `actions/setup-java`。
 别再把本机绝对路径写进任何提交文件。
 
+## Fish Audio API（2026-09-30 真实调用实测，官方文档没写清的地方）
+
+网上文档和模型记忆里的 Fish Audio 接口**基本都是错的**，下面这些是实测确认的事实。
+拿不准时读 `https://api.fish.audio/openapi.json`（无需鉴权，直接 GET 200）。
+
+### 路径不对称 —— 最容易踩
+
+| 用途 | 正确 endpoint | 写错的后果 |
+|------|--------------|-----------|
+| 合成 TTS | `POST https://api.fish.audio/v1/tts` | — |
+| 建音色（克隆） | `POST https://api.fish.audio/model`（**根路径，无 `/v1`**） | `/v1/model` → 404 `Nothing matches the given URI` |
+
+所以 `FishAudioTtsConfig` 有 `rootBaseUrl` getter 专门剥掉末尾的 `/v1`。
+**别看到 baseUrl 带 `/v1` 就顺手拼 `/model`。**
+
+### 建音色必须 multipart 文件上传
+
+官方 OpenAPI 把 `voices` 声明成 `array of string`（看着像传 base64 字符串），
+**但服务端实际校验 `UploadFile`**。传 base64 会 422：
+
+```
+Expected UploadFile, received str instead.
+```
+
+正确做法：`http.MultipartRequest` + `MultipartFile.fromBytes`。
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `type` | ✔ | 固定 `"tts"` |
+| `title` | ✔ | 音色名 |
+| `train_mode` | ✔ | `"fast"` = 创建后**立即可用**，不进训练队列 |
+| `voices` | ✔ | 音频**文件**（wav/mp3/flac，建议 10~30 秒干净人声） |
+| `texts` | | 参考音频文字稿，与 voices 一一对应；**留空则服务端 ASR 自动转写**（实测可用） |
+| `visibility` | | `private` / `unlist` / `public`，建议 `private` |
+| `enhance_audio_quality` | | 默认 true |
+
+multipart 的标量字段全部要转成字符串。
+
+### Fish TTS **没有**情绪/风格参数
+
+`openapi.json` 的 `TTSRequest` 里**不存在** `expressive` / `emotion` / `style`。
+容易误认的是 Agent 平台那个 `expressive: boolean` —— 它只在 `/v1/agent/*` 的
+`AgentVoiceConfigView` 里，**不在 TTS API**。
+
+所以「病娇哭泣」这类风格化，在 Fish 上只有三条路：
+
+1. **`temperature`（0~1）** —— 唯一原生情绪杠杆。实测同一句台词在 0.1/0.5/0.95 下
+   时长极差 1.3s、频谱质心极差 253~426Hz，是真的生效。代价：越高越容易含糊吞音。
+2. **`prosody.speed`（0.5~2）+ `prosody.volume`（dB）+ `normalize_loudness`** ——
+   服务端变速且保音高，比本地 WSOLA 干净。
+   **但 `s2.1-pro-free` 上减速有效、加速近乎无效**：实测 speed=0.7 得 5.10s、
+   1.0 得 2.74s（明显变慢），而 1.4 只得 2.85s（仅快 4%，预期快 35%）。
+   所以默认别设 >1，要加速走本地变速。
+3. **参考音频本身的情绪** —— 多录几段带哭腔/撒娇的参考音频，各克隆一个音色。
+   这是效果最好也最诚实的做法：API 没有情绪参数时，情绪只能来自参考。
+
+`latency`（`low`/`balanced`/`normal`）、`features: ["quality-guard"]`、
+`format`（`wav`/`pcm`/`mp3`/`opus`）、`sample_rate` 也都在 `TTSRequest` 里。
+`model` 走 **header 或 query 参数**，不在 body。
+
+### 参考音频要求
+
+`ReferenceAudio` 注明支持 **WAV / MP3 / FLAC**，最佳 **10~30 秒**清晰人声、
+背景噪声越小越好。`audios` 时代传 base64 的老写法在当前 API 已不适用。
+
+### 本机做 TTS 验证的现状
+
+本机**没有** ffmpeg / sox / pydub / soundfile，只有 `requests` + `numpy` + 标准库 `wave`。
+可行路径（已验证）：mp3 直接丢给 API 解码（不本地转码）；合成时请求 `format="wav"`，
+返回的 wav 用标准库 `wave` + `numpy` 读回来做后处理。
+桌面 `fish_clone_test.py` 就是这套，可用 `--check` 不带 key 跑本地检查。
+
+做本地变调/变速**不能只靠重采样往返**：`rs(x, N/r)` 再 `rs(·, N)` 两次都作用在音高上，
+净效果 ≈ 1.0，音高被完全抵消（实测 factor=1.15 主频恒为 220Hz）。
+正确顺序是 **先重采样到 N/r（音高 ×r，时长 N/r），再 WSOLA 拉回 N（时长回 N，音高不变）**，
+实测音高误差 0.00%。WSOLA 的 `fl = int(sr * 0.03)` 在 44100Hz 下是 1323（**奇数**），
+`seg[half:]` 会比候选帧多 1 个样本导致 `np.dot` 抛 shapes not aligned，必须显式截断。
+
 ### APK 签名
 
 `android/*.jks` + `key.properties` 都 gitignore，CI 拿不到真签名密钥。
