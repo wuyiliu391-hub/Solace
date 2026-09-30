@@ -1,7 +1,13 @@
 # Solace — AGENTS.md
 
 > 给后续会话/代理的项目地图。**改代码前先读这里。**
-> 最后核对：2026-09-30（对照 `main` @ `82782b0`、Flutter 3.47.4 / Dart 3.13.3）
+> 最后核对：2026-09-30（对照 `main` @ `4a150ac`、CI Flutter 3.47.5 / Dart 3.13.3）
+
+## 协作约定
+
+- **一律用中文回复和描述**，包括提交信息、注释、文档、commit body。
+  代码标识符仍用英文（项目惯例：注释中文、标识符英文）。
+- 提交信息格式：`类型: 简短描述`，类型取 `feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `ci`。
 
 ## 这是什么
 
@@ -92,7 +98,6 @@ flutter test test/xxx_test.dart                        # 单文件
 
 - CI（`.github/workflows/ci.yml`）只做这三步，**无 `dart format`、无重试、无 matrix**。改动只要让 analyze 出 error 就一定红。
 - `analysis_options.yaml`：`prefer_single_quotes` / `prefer_const_constructors` / `prefer_const_literals_to_create_immutables`；`android/**` 被 exclude。
-- 提交信息：**简体中文**，`类型: 描述`（`feat` / `fix` / `refactor` / `docs` / `test` / `chore`）。
 
 ### 容易踩的环境坑
 
