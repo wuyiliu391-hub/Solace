@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../../config/moments_theme.dart';
+import '../image_cropper.dart';
 
 /// 身份信息
 class PostIdentity {
@@ -438,12 +439,18 @@ class _IdentityPickerState extends State<IdentityPicker> {
                   Center(
                     child: GestureDetector(
                       onTap: () async {
-                        final picker = ImagePicker();
-                        final picked = await picker.pickImage(
-                            source: ImageSource.gallery);
-                        if (picked != null) {
-                          setEditorState(() => avatarPath = picked.path);
-                        }
+                        // 走统一裁剪器：可自由缩放/拖动，输出正方形
+                        final picked = await ImagePicker().pickImage(
+                          source: ImageSource.gallery,
+                          maxWidth: 2048,
+                          maxHeight: 2048,
+                          imageQuality: 92,
+                        );
+                        if (picked == null || !context.mounted) return;
+                        final cropped =
+                            await showImageCropper(context, File(picked.path));
+                        if (cropped == null) return;
+                        setEditorState(() => avatarPath = cropped);
                       },
                       child: CircleAvatar(
                         radius: 36,

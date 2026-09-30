@@ -54,6 +54,9 @@ class GroupChatSession extends Equatable {
   /// 背景图 URL
   final String? backgroundImage;
 
+  /// 横屏背景图。[backgroundImage] 语义为竖屏，保持老数据兼容。
+  final String? backgroundImageLandscape;
+
   /// 群公告
   final String? notice;
 
@@ -109,6 +112,7 @@ class GroupChatSession extends Equatable {
     this.isMuted = false,
     this.isPinned = false,
     this.backgroundImage,
+    this.backgroundImageLandscape,
     this.notice,
     this.syncSeq = 0,
     String? chatId,
@@ -140,6 +144,8 @@ class GroupChatSession extends Equatable {
     bool? isMuted,
     bool? isPinned,
     String? backgroundImage,
+    /// 横屏背景图。[backgroundImage] 语义为竖屏。
+    String? backgroundImageLandscape,
     String? notice,
     int? syncSeq,
     String? chatId,
@@ -155,6 +161,9 @@ class GroupChatSession extends Equatable {
     String? joinSuffix,
     /// 显式把群头像置空（`avatarUrl ?? this.avatarUrl` 传 null 会被忽略）。
     bool clearAvatarUrl = false,
+    /// 显式把背景图置空（传 null 会被 copyWith 忽略）。
+    bool clearBackgroundImage = false,
+    bool clearBackgroundImageLandscape = false,
   }) {
     return GroupChatSession(
       id: id ?? this.id,
@@ -171,7 +180,12 @@ class GroupChatSession extends Equatable {
       updatedAt: updatedAt ?? this.updatedAt,
       isMuted: isMuted ?? this.isMuted,
       isPinned: isPinned ?? this.isPinned,
-      backgroundImage: backgroundImage ?? this.backgroundImage,
+      backgroundImage: clearBackgroundImage
+          ? null
+          : (backgroundImage ?? this.backgroundImage),
+      backgroundImageLandscape: clearBackgroundImageLandscape
+          ? null
+          : (backgroundImageLandscape ?? this.backgroundImageLandscape),
       notice: notice ?? this.notice,
       syncSeq: syncSeq ?? this.syncSeq,
       chatId: chatId ?? this.chatId,
@@ -206,6 +220,7 @@ class GroupChatSession extends Equatable {
       'isMuted': isMuted ? 1 : 0,
       'isPinned': isPinned ? 1 : 0,
       'backgroundImage': backgroundImage,
+      'backgroundImageLandscape': backgroundImageLandscape,
       'notice': notice,
       'sync_seq': syncSeq,
       'chatId': chatId,
@@ -310,6 +325,7 @@ class GroupChatSession extends Equatable {
       isMuted: map['isMuted'] == 1 || map['isMuted'] == true,
       isPinned: map['isPinned'] == 1 || map['isPinned'] == true,
       backgroundImage: map['backgroundImage'] as String?,
+      backgroundImageLandscape: map['backgroundImageLandscape'] as String?,
       notice: map['notice'] as String?,
       syncSeq: (map['sync_seq'] ?? map['syncSeq']) as int? ?? 0,
       chatId: chatIdVal,
@@ -345,6 +361,7 @@ class GroupChatSession extends Equatable {
       'isMuted': isMuted,
       'isPinned': isPinned,
       'backgroundImage': backgroundImage,
+      'backgroundImageLandscape': backgroundImageLandscape,
       'notice': notice,
       'syncSeq': syncSeq,
       'chatId': chatId,
@@ -398,6 +415,7 @@ class GroupChatSession extends Equatable {
       isMuted: json['isMuted'] as bool? ?? false,
       isPinned: json['isPinned'] as bool? ?? false,
       backgroundImage: json['backgroundImage'] as String?,
+      backgroundImageLandscape: json['backgroundImageLandscape'] as String?,
       notice: json['notice'] as String?,
       syncSeq: json['syncSeq'] as int? ?? 0,
       chatId: chatIdVal,
@@ -435,6 +453,7 @@ class GroupChatSession extends Equatable {
         isMuted,
         isPinned,
         backgroundImage,
+        backgroundImageLandscape,
         notice,
         syncSeq,
         chatId,

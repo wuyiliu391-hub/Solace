@@ -64,6 +64,7 @@ class ChatSession extends Equatable {
     this.isMuted = false,
     this.isPinned = false,
     this.backgroundImage,
+    this.backgroundImageLandscape,
     this.isHidden = false,
     this.aiIsOnline = true,
     this.aiCurrentStatus,
@@ -100,6 +101,8 @@ class ChatSession extends Equatable {
     bool? isMuted,
     bool? isPinned,
     String? backgroundImage,
+    /// 横屏背景图。[backgroundImage] 语义为竖屏，保持老数据兼容。
+    String? backgroundImageLandscape,
     bool? isHidden,
     bool? aiIsOnline,
     String? aiCurrentStatus,
@@ -112,6 +115,7 @@ class ChatSession extends Equatable {
     String? sessionType,
     bool clearBlock = false,
     bool clearBackgroundImage = false,
+    bool clearBackgroundImageLandscape = false,
     String? intimacyMode,
     int? streakDays,
     bool? isInFriction,
@@ -141,6 +145,9 @@ class ChatSession extends Equatable {
       backgroundImage: clearBackgroundImage
           ? null
           : (backgroundImage ?? this.backgroundImage),
+      backgroundImageLandscape: clearBackgroundImageLandscape
+          ? null
+          : (backgroundImageLandscape ?? this.backgroundImageLandscape),
       isHidden: isHidden ?? this.isHidden,
       aiIsOnline: aiIsOnline ?? this.aiIsOnline,
       aiCurrentStatus: aiCurrentStatus ?? this.aiCurrentStatus,
@@ -183,6 +190,7 @@ class ChatSession extends Equatable {
       'isMuted': isMuted ? 1 : 0,
       'isPinned': isPinned ? 1 : 0,
       'backgroundImage': backgroundImage,
+      'backgroundImageLandscape': backgroundImageLandscape,
       'isHidden': isHidden ? 1 : 0,
       'aiIsOnline': aiIsOnline ? 1 : 0,
       'aiCurrentStatus': aiCurrentStatus,
@@ -256,6 +264,7 @@ class ChatSession extends Equatable {
       isMuted: map['isMuted'] == 1 || map['isMuted'] == true,
       isPinned: map['isPinned'] == 1 || map['isPinned'] == true,
       backgroundImage: map['backgroundImage'] as String?,
+      backgroundImageLandscape: map['backgroundImageLandscape'] as String?,
       isHidden: map['isHidden'] == 1 || map['isHidden'] == true,
       aiIsOnline: map['aiIsOnline'] == 1 || map['aiIsOnline'] == true,
       aiCurrentStatus: map['aiCurrentStatus'] as String?,
@@ -314,6 +323,7 @@ class ChatSession extends Equatable {
         isMuted,
         isPinned,
         backgroundImage,
+        backgroundImageLandscape,
         isHidden,
         aiIsOnline,
         aiCurrentStatus,

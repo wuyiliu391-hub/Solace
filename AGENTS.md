@@ -183,30 +183,70 @@ flutter test test/xxx_test.dart                        # 单文件
 
 ## 头像自定义与裁剪（2026-09-30）
 
-所有头像都是**圆形**显示（`BoxShape.circle` / `ClipOval`），所以裁剪统一输出**正方形**。
+所有头像都是**圆形**显示（`BoxShape.circle` / `ClipOval`），所以头像裁剪统一输出**正方形**。
 
 核心组件：`lib/widgets/image_cropper.dart`
 
-- `showImageCropper(context, file, {outputSize = 512})` → 打开全屏裁剪页，返回
-  `docs/avatars/avatar_<uuid>.png` 路径；取消返回 null。**已含持久化**，调用方不要再复制一遍。
+- `showImageCropper(context, file, {aspectRatio, outputSize, folder, allowRotate})`
+  → 打开全屏裁剪页，返回 `docs/<folder>/<folder>_<uuid>.png`；取消返回 null。
+  **已含持久化**，调用方不要再复制一遍。
+- 默认参数即头像场景：`aspectRatio: 1.0`、`outputSize: 512`、`folder: 'avatars'`、`allowRotate: true`。
 - 交互：双指缩放（最高 `coverScale × 4`）、单指拖动、90° 旋转、确认裁剪。
-- 约束：图片永远不允许缩到小于取景框（`coverScale`），平移用 `clampOffset` 夹住，四边不露白。
+- 约束：图片永远不允许缩到小于取景框（`coverScaleForBox`），平移用 `clampOffsetForBox`
+  夹住，四边不露白。
 - 纯 `dart:ui`（`PictureRecorder` + `Canvas` + `Transform`），**没有引入 `image_cropper` 等原生插件** ——
   本机无 Android 环境，原生插件无法验证。
 - 几何计算抽成纯函数 `CropGeometry`，`test/image_cropper_test.dart` 直接单测边界。
 
+### 背景图：横屏 / 竖屏分开设置
+
+手机横竖屏可见区域差别很大，一张图只存一个朝向必然有一边被裁得很惨，所以背景图
+**按朝向分两列存储**。
+
+- 取景框比例：竖屏 `9:16`，横屏 `16:9`（`BackgroundOrientation.aspectRatio`）。
+- 输出长边：竖屏 1440，横屏 1920。
+- 统一入口组件：`lib/widgets/background_picker.dart` → `BackgroundPicker`，
+  两行（竖屏 / 横屏）各自选图 + 裁剪 + 清除。
+- 渲染侧统一走 `lib/utils/background_resolver.dart` → `BackgroundResolver.provider()`：
+  **本朝向没图时自动回退到另一朝向**，避免只配了一边出现半边空白。
+  要加新的背景渲染位置就用它，别各写一遍 if。
+- 存储列（db v75 新增，见 `_onUpgrade`）：
+  | 表 | 竖屏 | 横屏 |
+  |----|------|------|
+  | `users` | `backgroundImage`（沿用旧字段，老数据不动） | `backgroundImageLandscape` |
+  | `chat_sessions` | 同上 | 同上 |
+  | `group_chat_sessions` | 同上 | 同上 |
+- 清除必须走 `copyWith(clearBackgroundImage / clearBackgroundImageLandscape: true)`，
+  传 `null` 会被静默忽略。
+
 ### 已接入的入口
+
+**头像**（全部走 `showImageCropper`，正方形）：
 
 | 位置 | 对象 |
 |------|------|
-| `widgets/avatar_picker.dart` | 通用选择器（**群聊设置走它**，所以群头像自动有裁剪） |
+| `widgets/avatar_picker.dart` | 通用选择器（**群聊设置走它**） |
 | `screens/profile/profile_screen.dart` | 用户「我」的头像 |
 | `screens/contacts/contacts_screen.dart` | 角色头像（联系人页） |
 | `screens/character/create_character_screen.dart` | 创建角色头像 |
 | `screens/chat/chat_settings_screen.dart` | 角色头像（单聊设置） |
+| `screens/moments/x/x_edit_profile_screen.dart` | 朋友圈资料头像 |
+| `widgets/moments/identity_picker.dart` | 朋友圈身份头像 |
 
-**新增头像入口时走 `showImageCropper`**，别再抄 `pickImage` + `_copyToPersistentPath` 那套
-（已删除 4 份重复实现）。`screens/moments/x/x_edit_profile_screen.dart` 仍是旧写法，属朋友圈资料，未改造。
+**背景**（走 `BackgroundPicker` + `BackgroundResolver`）：
+
+| 位置 | 对象 |
+|------|------|
+| `screens/profile/profile_screen.dart` | 个人主页背景（AppBar 壁纸按钮） |
+| `screens/moments/x/x_edit_profile_screen.dart` | 朋友圈资料背景 |
+| `screens/chat/chat_settings_screen.dart` | 单聊聊天背景 |
+
+> 群聊的 `backgroundImage` 字段一直存在但**没有 UI 入口**（本次未加）。要加的话在
+> `group_chat_detail_screen` 的 `_showGroupSettings` 里挂一个 `BackgroundPicker`，
+> 配 `GroupChatUpdateSession(backgroundImageLandscape:)`（事件需先补该参数）。
+
+**新增头像/背景入口时一律走 `showImageCropper` / `BackgroundPicker`**，
+别再抄 `pickImage` + 手工 `File.copy` 那套（已删除 5 份重复实现）。
 
 ### 写 dart:ui 相关代码的三个已踩坑（本机无法编译，只能靠 CI 发现）
 
@@ -233,7 +273,7 @@ flutter test test/xxx_test.dart                        # 单文件
 
 ## 数据库
 
-- 版本常量：`lib/config/constants.dart` → `DbDefaults.dbVersion`（**当前 74**）
+- 版本常量：`lib/config/constants.dart` → `DbDefaults.dbVersion`（**当前 75**，v75 新增背景图横竖屏分列）
 - 迁移只走 `local_storage_repository.dart` 的 `_onUpgrade`；自愈靠 `expectedColumns`（补列）+ `createMissingTable`（补表），v74 增加了自愈分支
 - 数据库文件 / `-journal` / `.db` 全部 gitignore（`solace.db` / `solace_backup.db` / `solace_raw.db`）
 - `screens/error/storage_recovery_screen.dart` + `services/storage/storage_recovery_controller.dart` 处理损坏恢复

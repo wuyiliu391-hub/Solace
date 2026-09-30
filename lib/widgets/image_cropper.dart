@@ -24,11 +24,17 @@ class CropGeometry {
         : Size(imgW.toDouble(), imgH.toDouble());
   }
 
-  /// 刚好铺满边长 [box] 正方形取景框所需的缩放（cover）。
+  /// 刚好铺满取景框所需的缩放（cover）。
   /// 图片不允许缩到比它更小，否则取景框会露白。
-  static double coverScale(Size disp, double box) {
-    if (disp.width <= 0 || disp.height <= 0 || box <= 0) return 1.0;
-    return math.max(box / disp.width, box / disp.height);
+  /// [box] 是取景框边长（正方形）。
+  static double coverScale(Size disp, double box) =>
+      coverScaleForBox(disp, Size(box, box));
+
+  /// [boxSize] 为取景框尺寸（可非正方形，背景图用）。
+  static double coverScaleForBox(Size disp, Size boxSize) {
+    if (disp.width <= 0 || disp.height <= 0) return 1.0;
+    if (boxSize.width <= 0 || boxSize.height <= 0) return 1.0;
+    return math.max(boxSize.width / disp.width, boxSize.height / disp.height);
   }
 
   /// 允许的最大放大倍数（相对 [minScale]）。
@@ -44,12 +50,17 @@ class CropGeometry {
   /// 把位移夹在「图片边缘刚好不越过取景框」的范围内。
   /// [offset] 相对取景框中心，[disp] 为旋转后的显示尺寸。
   static Offset clampOffset(
-      Offset offset, Size disp, double box, double scale) {
-    if (box <= 0) return offset;
+      Offset offset, Size disp, double box, double scale) =>
+      clampOffsetForBox(offset, disp, Size(box, box), scale);
+
+  /// [boxSize] 为取景框尺寸（可非正方形）。
+  static Offset clampOffsetForBox(
+      Offset offset, Size disp, Size boxSize, double scale) {
+    if (boxSize.width <= 0 || boxSize.height <= 0) return offset;
     final shownW = disp.width * scale;
     final shownH = disp.height * scale;
-    final maxX = math.max(0.0, (shownW - box) / 2);
-    final maxY = math.max(0.0, (shownH - box) / 2);
+    final maxX = math.max(0.0, (shownW - boxSize.width) / 2);
+    final maxY = math.max(0.0, (shownH - boxSize.height) / 2);
     return Offset(
       offset.dx.clamp(-maxX, maxX).toDouble(),
       offset.dy.clamp(-maxY, maxY).toDouble(),
@@ -75,18 +86,32 @@ class CropGeometry {
 
 /// 打开全屏裁剪页，对 [file] 做「缩放 + 移动 + 旋转 + 裁剪」。
 ///
-/// 返回裁剪后写入 `docs/avatars` 的文件路径；用户取消返回 null。
-/// 输出是 [outputSize] × [outputSize] 的 PNG 正方形，正好对应项目里
-/// 所有头像的圆形显示。
+/// 返回裁剪后写入 `docs/<folder>` 的文件路径；用户取消返回 null。
+///
+/// - [aspectRatio] 取景框宽高比。头像传 1.0（正方形，匹配圆形显示）；
+///   背景图传 16/9 之类的宽幅。
+/// - [outputSize] 输出图长边像素。头像 512；背景图可给 1080/1920。
+/// - [folder] 相对 `docs` 的子目录，默认 `avatars`。
+/// - [allowRotate] 背景图一般不需要旋转，可关掉省一个按钮。
 Future<String?> showImageCropper(
   BuildContext context,
   File file, {
+  double aspectRatio = 1.0,
   int outputSize = 512,
+  String folder = 'avatars',
+  bool allowRotate = true,
 }) {
+  assert(aspectRatio > 0, 'aspectRatio 必须为正数');
   return Navigator.of(context).push<String>(
     MaterialPageRoute(
       fullscreenDialog: true,
-      builder: (_) => _CropperRoute(file: file, outputSize: outputSize),
+      builder: (_) => _CropperRoute(
+        file: file,
+        outputSize: outputSize,
+        aspectRatio: aspectRatio,
+        folder: folder,
+        allowRotate: allowRotate,
+      ),
     ),
   );
 }
@@ -96,23 +121,39 @@ class CropTransform {
   final double scale;
   final Offset offset;
   final int quarterTurns;
-  final double box;
+
+  /// 取景框在屏幕上的尺寸（可非正方形：头像为正方形，背景图为宽幅）。
+  final Size boxSize;
 
   const CropTransform({
     required this.scale,
     required this.offset,
     required this.quarterTurns,
-    required this.box,
+    required this.boxSize,
   });
 
-  static const CropTransform initial =
-      CropTransform(scale: 1, offset: Offset.zero, quarterTurns: 0, box: 0);
+  static const CropTransform initial = CropTransform(
+    scale: 1,
+    offset: Offset.zero,
+    quarterTurns: 0,
+    boxSize: Size.zero,
+  );
 }
 
 class _CropperRoute extends StatefulWidget {
   final File file;
   final int outputSize;
-  const _CropperRoute({required this.file, required this.outputSize});
+  final double aspectRatio;
+  final String folder;
+  final bool allowRotate;
+
+  const _CropperRoute({
+    required this.file,
+    required this.outputSize,
+    required this.aspectRatio,
+    required this.folder,
+    required this.allowRotate,
+  });
 
   @override
   State<_CropperRoute> createState() => _CropperRouteState();
@@ -184,7 +225,7 @@ class _CropperRouteState extends State<_CropperRoute> {
     }
   }
 
-  /// 把取景框内容渲染成正方形 PNG。
+  /// 把取景框内容渲染成 PNG。
   ///
   /// 这里的画布变换顺序（平移 → 旋转 → 缩放 → 以图心绘制）
   /// 必须与 `CropSurface` 的 Transform 顺序一致，否则所见非所得。
@@ -193,10 +234,17 @@ class _CropperRouteState extends State<_CropperRoute> {
     CropTransform t,
     int outputSize,
   ) async {
-    final out = outputSize.toDouble();
-    if (t.box <= 0) throw StateError('取景框尺寸非法: ${t.box}');
-    // 屏幕像素 → 输出像素
-    final k = out / t.box;
+    final box = t.boxSize;
+    if (box.width <= 0 || box.height <= 0) {
+      throw StateError('取景框尺寸非法: $box');
+    }
+    // 输出像素尺寸：保持取景框比例，outputSize 视为长边
+    final outW = box.width >= box.height ? outputSize.toDouble() : 0.0;
+    final outH = box.height >= box.width ? outputSize.toDouble() : 0.0;
+    final finalW = outW > 0 ? outW : (outputSize * box.width / box.height);
+    final finalH = outH > 0 ? outH : (outputSize * box.height / box.width);
+    // 屏幕像素 → 输出像素（两轴比例相同，因为比例一致）
+    final k = finalW / box.width;
 
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
@@ -205,8 +253,8 @@ class _CropperRouteState extends State<_CropperRoute> {
       ..isAntiAlias = true;
 
     canvas.save();
-    canvas.clipRect(Rect.fromLTWH(0, 0, out, out));
-    canvas.translate(out / 2 + t.offset.dx * k, out / 2 + t.offset.dy * k);
+    canvas.clipRect(Rect.fromLTWH(0, 0, finalW, finalH));
+    canvas.translate(finalW / 2 + t.offset.dx * k, finalH / 2 + t.offset.dy * k);
     canvas.rotate(t.quarterTurns * math.pi / 2);
     canvas.scale(t.scale * k);
 
@@ -221,7 +269,7 @@ class _CropperRouteState extends State<_CropperRoute> {
     canvas.restore();
 
     final picture = recorder.endRecording();
-    final outImage = await picture.toImage(outputSize, outputSize);
+    final outImage = await picture.toImage(finalW.round(), finalH.round());
     final data = await outImage.toByteData(format: ui.ImageByteFormat.png);
     outImage.dispose();
     picture.dispose();
@@ -237,9 +285,9 @@ class _CropperRouteState extends State<_CropperRoute> {
       final bytes = await _renderCrop(image, _t, widget.outputSize);
       if (!mounted) return;
       final dir = await getApplicationDocumentsDirectory();
-      final avatars = Directory('${dir.path}/avatars');
-      if (!await avatars.exists()) await avatars.create(recursive: true);
-      final dest = '${avatars.path}/avatar_${const Uuid().v4()}.png';
+      final target = Directory('${dir.path}/${widget.folder}');
+      if (!await target.exists()) await target.create(recursive: true);
+      final dest = '${target.path}/${widget.folder}_${const Uuid().v4()}.png';
       await File(dest).writeAsBytes(bytes, flush: true);
       if (!mounted) return;
       Navigator.of(context).pop(dest);
@@ -278,6 +326,8 @@ class _CropperRouteState extends State<_CropperRoute> {
                     Expanded(
                       child: CropSurface(
                         image: image,
+                        aspectRatio: widget.aspectRatio,
+                        allowRotate: widget.allowRotate,
                         onChanged: (t) => _t = t,
                       ),
                     ),
@@ -329,14 +379,27 @@ class _CropperRouteState extends State<_CropperRoute> {
   }
 }
 
-/// 裁剪交互区：一个正方形取景框，图片可缩放 / 拖动 / 旋转。
+/// 裁剪交互区：一个取景框，图片可缩放 / 拖动 / 旋转。
 ///
 /// 状态唯一持有者：`_turns` 只在这里，父组件通过 [onChanged] 拿到快照。
 class CropSurface extends StatefulWidget {
   final ui.Image image;
+
+  /// 取景框宽高比。1.0 为正方形（头像）；背景图可传 16/9。
+  final double aspectRatio;
+
+  /// 是否显示旋转按钮。
+  final bool allowRotate;
+
   final ValueChanged<CropTransform> onChanged;
 
-  const CropSurface({super.key, required this.image, required this.onChanged});
+  const CropSurface({
+    super.key,
+    required this.image,
+    required this.aspectRatio,
+    required this.allowRotate,
+    required this.onChanged,
+  });
 
   @override
   State<CropSurface> createState() => _CropSurfaceState();
@@ -347,7 +410,9 @@ class _CropSurfaceState extends State<CropSurface> {
   double _scale = 1;
   Offset _offset = Offset.zero;
   int _turns = 0;
-  double _box = 0;
+
+  /// 取景框尺寸（屏幕像素）。由可用空间按 aspectRatio 推出。
+  Size _box = Size.zero;
 
   // 手势开始时的快照，用于算焦点稳定的缩放
   double _startScale = 1;
@@ -357,9 +422,9 @@ class _CropSurfaceState extends State<CropSurface> {
       widget.image.width, widget.image.height, _turns);
 
   void _syncConstraints() {
-    _minScale = CropGeometry.coverScale(_disp, _box);
+    _minScale = CropGeometry.coverScaleForBox(_disp, _box);
     _scale = CropGeometry.clampScale(_scale, _minScale);
-    _offset = CropGeometry.clampOffset(_offset, _disp, _box, _scale);
+    _offset = CropGeometry.clampOffsetForBox(_offset, _disp, _box, _scale);
   }
 
   void _emit() {
@@ -367,7 +432,7 @@ class _CropSurfaceState extends State<CropSurface> {
       scale: _scale,
       offset: _offset,
       quarterTurns: _turns,
-      box: _box,
+      boxSize: _box,
     ));
   }
 
@@ -377,8 +442,8 @@ class _CropSurfaceState extends State<CropSurface> {
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
-    if (_box <= 0) return;
-    final focal = d.localFocalPoint - Offset(_box / 2, _box / 2);
+    if (_box.width <= 0 || _box.height <= 0) return;
+    final focal = d.localFocalPoint - Offset(_box.width / 2, _box.height / 2);
     setState(() {
       if (d.pointerCount >= 2) {
         final next = CropGeometry.clampScale(_startScale * d.scale, _minScale);
@@ -393,7 +458,7 @@ class _CropSurfaceState extends State<CropSurface> {
         // 单指拖动；focalPointDelta 已是相对本控件的位移
         _offset = _offset + d.focalPointDelta;
       }
-      _offset = CropGeometry.clampOffset(_offset, _disp, _box, _scale);
+      _offset = CropGeometry.clampOffsetForBox(_offset, _disp, _box, _scale);
     });
     _emit();
   }
@@ -410,21 +475,33 @@ class _CropSurfaceState extends State<CropSurface> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final side = math.min(constraints.maxWidth, constraints.maxHeight);
-        if (side > 0 && (side - _box).abs() > 0.5) {
-          // 取景框边长变化（首帧 / 转屏）时重算约束。
+        // 由可用空间按 aspectRatio 推出取景框尺寸：
+        // 宽幅（aspectRatio > 1）先吃满宽度，竖幅反之，正方形取较小边。
+        final availW = constraints.maxWidth;
+        final availH = constraints.maxHeight;
+        final ar = widget.aspectRatio > 0 ? widget.aspectRatio : 1.0;
+        var boxW = availW;
+        var boxH = boxW / ar;
+        if (boxH > availH) {
+          boxH = availH;
+          boxW = boxH * ar;
+        }
+        if (boxW > 0 && boxH > 0 &&
+            ((boxW - _box.width).abs() > 0.5 ||
+                (boxH - _box.height).abs() > 0.5)) {
+          // 取景框变化（首帧 / 转屏）时重算约束。
           // 这里只改字段不做 setState：本轮 build 正在计算，用新值渲染即可。
-          _box = side;
+          _box = Size(boxW, boxH);
           _syncConstraints();
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _emit();
           });
         }
-        final box = _box <= 0 ? side : _box;
         // 渲染始终按「图像原始尺寸」摆放，旋转交给外层 Transform。
         // 若这里改用旋转后的尺寸，会与 _renderCrop 的画布变换对不上。
         final w = widget.image.width.toDouble();
         final h = widget.image.height.toDouble();
+        final box = _box.width > 0 ? _box : Size(boxW, boxH);
 
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -436,8 +513,8 @@ class _CropSurfaceState extends State<CropSurface> {
             ),
             const SizedBox(height: 12),
             SizedBox(
-              width: box,
-              height: box,
+              width: box.width,
+              height: box.height,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onScaleStart: _onScaleStart,
@@ -459,8 +536,6 @@ class _CropSurfaceState extends State<CropSurface> {
                         ..scale(_scale),
                       // RawImage 直接吃 ui.Image。Image widget 只接受 ImageProvider，
                       // 传 ui.Image 会报 argument_type_not_assignable。
-                      // 不用 isAntiAlias / filterQuality：这两个参数在仓库里没有先例，
-                      // 无法确认当前 SDK 一定提供；平滑交给 filterQuality 默认值。
                       child: RawImage(
                         image: widget.image,
                         fit: BoxFit.fill,
@@ -470,13 +545,15 @@ class _CropSurfaceState extends State<CropSurface> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-            TextButton.icon(
-              onPressed: _rotate,
-              icon: const Icon(Icons.rotate_right, size: 18),
-              label: const Text('旋转 90°'),
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
-            ),
+            if (widget.allowRotate) ...[
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: _rotate,
+                icon: const Icon(Icons.rotate_right, size: 18),
+                label: const Text('旋转 90°'),
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+              ),
+            ],
           ],
         );
       },

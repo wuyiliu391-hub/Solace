@@ -3,13 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../../blocs/auth/auth_bloc.dart';
 import '../../../config/moments_theme.dart';
 import '../../../models/user.dart';
 import '../../../repositories/local_storage_repository.dart';
 import '../../../services/permission_service.dart';
+import '../../../widgets/image_cropper.dart';
+import '../../../widgets/background_picker.dart';
+import '../../../utils/background_resolver.dart';
 import '../../../widgets/moments/circular_avatar.dart';
 
 class XEditProfileScreen extends StatefulWidget {
@@ -28,6 +30,7 @@ class _XEditProfileScreenState extends State<XEditProfileScreen> {
   late final TextEditingController _websiteController;
   String? _avatarPath;
   String? _backgroundPath;
+  String? _backgroundLandscapePath;
   bool _saving = false;
 
   @override
@@ -45,6 +48,7 @@ class _XEditProfileScreenState extends State<XEditProfileScreen> {
     _nameController.addListener(_refreshHeaderPreview);
     _avatarPath = widget.user.avatarUrl;
     _backgroundPath = widget.user.backgroundImage;
+    _backgroundLandscapePath = widget.user.backgroundImageLandscape;
   }
 
   @override
@@ -147,12 +151,21 @@ class _XEditProfileScreenState extends State<XEditProfileScreen> {
             child: SizedBox(
               height: 136,
               width: double.infinity,
-              child:
-                  _backgroundPath != null && File(_backgroundPath!).existsSync()
-                      ? Image.file(File(_backgroundPath!), fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(color: MomentsTheme.surface(context)),
-                        )
-                      : Container(color: MomentsTheme.surface(context)),
+              child: Builder(builder: (bgCtx) {
+                    // 横竖屏各一张，按当前朝向取；只设了一边时回退
+                    final mq = MediaQuery.sizeOf(bgCtx);
+                    final provider = BackgroundResolver.provider(
+                      portrait: _backgroundPath,
+                      landscape: _backgroundLandscapePath,
+                      isLandscape: mq.width > mq.height,
+                    );
+                    if (provider == null) {
+                      return Container(color: MomentsTheme.surface(context));
+                    }
+                    return Image(provider, fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            Container(color: MomentsTheme.surface(context)));
+                  }),
             ),
           ),
           Positioned.fill(
@@ -248,49 +261,68 @@ class _XEditProfileScreenState extends State<XEditProfileScreen> {
     );
   }
 
+  /// 头像：选图后进裁剪器（正方形），可自由缩放/拖动。
   Future<void> _pickImage({required bool isBackground}) async {
+    if (isBackground) {
+      await _pickBackground();
+      return;
+    }
     if (!await PermissionService.requestStoragePermission()) return;
+    if (!mounted) return;
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
-      maxWidth: 1920,
-      maxHeight: 1920,
-      imageQuality: 88,
+      // 留给裁剪器足够像素，放大后重新构图才不会糊
+      maxWidth: 2048,
+      maxHeight: 2048,
+      imageQuality: 92,
     );
-    if (picked == null) return;
-
-    final path = await _copyToPersistentPath(
-      picked.path,
-      folder: isBackground ? 'profile_backgrounds' : 'avatars',
-      fileName: isBackground ? 'user_bg' : 'user_avatar',
-    );
-
-    if (!mounted) return;
+    if (picked == null || !mounted) return;
+    final cropped =
+        await showImageCropper(context, File(picked.path));
+    if (cropped == null || !mounted) return;
     setState(() {
-      if (isBackground) {
-        _backgroundPath = path;
-      } else {
-        _avatarPath = path;
-      }
+      _avatarPath = cropped;
     });
   }
 
-  Future<String> _copyToPersistentPath(
-    String sourcePath, {
-    required String folder,
-    required String fileName,
-  }) async {
-    final source = File(sourcePath);
-    if (!await source.exists()) return sourcePath;
-    final dir = await getApplicationDocumentsDirectory();
-    final targetDir = Directory('${dir.path}/$folder');
-    if (!await targetDir.exists()) {
-      await targetDir.create(recursive: true);
-    }
-    final ext = sourcePath.contains('.') ? sourcePath.split('.').last : 'jpg';
-    final stamp = DateTime.now().millisecondsSinceEpoch;
-    final destPath = '${targetDir.path}/${fileName}_$stamp.$ext';
-    await source.copy(destPath);
-    return destPath;
+  /// 背景：横屏 / 竖屏分开设置，各自独立裁剪。
+  Future<void> _pickBackground() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('主页背景', style: Theme.of(ctx).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text('横屏和竖屏可见范围不同，可分别设置',
+                style: Theme.of(ctx).textTheme.bodySmall),
+            const SizedBox(height: 16),
+            BackgroundPicker(
+              currentPortrait: _backgroundPath,
+              currentLandscape: _backgroundLandscapePath,
+              onChanged: (orientation, path) {
+                Navigator.pop(ctx);
+                if (!mounted) return;
+                setState(() {
+                  if (orientation == BackgroundOrientation.portrait) {
+                    _backgroundPath = path;
+                  } else {
+                    _backgroundLandscapePath = path;
+                  }
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -307,6 +339,7 @@ class _XEditProfileScreenState extends State<XEditProfileScreen> {
       nickname: name,
       avatarUrl: _avatarPath,
       backgroundImage: _backgroundPath,
+      backgroundImageLandscape: _backgroundLandscapePath,
       bio: _bioController.text.trim(),
       signature: _bioController.text.trim(),
       location: _locationController.text.trim(),

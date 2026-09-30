@@ -2,13 +2,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/chat/chat_bloc.dart';
 import '../../models/user.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/permission_service.dart';
 import '../../widgets/image_cropper.dart';
+import '../../widgets/background_picker.dart';
+import '../../utils/background_resolver.dart';
 import 'wallet_screen.dart';
 import 'edit_profile_screen.dart';
 import 'settings_screen.dart';
@@ -131,8 +132,14 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildSliverAppBar() {
-    final bgFile = _user?.backgroundImage != null ? File(_user!.backgroundImage!) : null;
-    final hasBg = bgFile != null && bgFile.existsSync();
+    // 背景分横竖屏两张，按当前朝向取；只设了一边时另一朝向回退
+    final mq = MediaQuery.sizeOf(context);
+    final bgProvider = BackgroundResolver.provider(
+      portrait: _user?.backgroundImage,
+      landscape: _user?.backgroundImageLandscape,
+      isLandscape: mq.width > mq.height,
+    );
+    final hasBg = bgProvider != null;
     final colorScheme = Theme.of(context).colorScheme;
 
     return SliverAppBar(
@@ -145,7 +152,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         IconButton(
           icon: const Icon(Icons.wallpaper, color: Colors.white, size: 22),
           onPressed: _changeBackgroundImage,
-          tooltip: '更换背景',
+          tooltip: '更换背景（横屏/竖屏）',
         ),
         IconButton(
           icon: const Icon(Icons.settings, color: Colors.white, size: 22),
@@ -157,7 +164,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           fit: StackFit.expand,
           children: [
             if (hasBg)
-              Image.file(bgFile, fit: BoxFit.cover,
+              Image(bgProvider, fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
@@ -454,30 +461,71 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
+  /// 打开「横屏 / 竖屏背景」设置弹窗。
   Future<void> _changeBackgroundImage() async {
-    if (!await PermissionService.requestStoragePermission()) return;
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1920, maxHeight: 1920, imageQuality: 85,
-    );
-    if (pickedFile != null && _user != null) {
-      final dir = await getApplicationDocumentsDirectory();
-      final bgDir = Directory('${dir.path}/profile_backgrounds');
-      if (!await bgDir.exists()) await bgDir.create(recursive: true);
-      final ext = pickedFile.path.contains('.') ? pickedFile.path.split('.').last : 'jpg';
-      final destPath = '${bgDir.path}/user_bg.$ext';
-      await File(pickedFile.path).copy(destPath);
+    final user = _user;
+    if (user == null) return;
 
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final updatedUser = _user!.copyWith(backgroundImage: destPath);
-      await storage.saveUser(updatedUser);
-      final authBloc = context.read<AuthBloc>();
-      if (authBloc.state is AuthAuthenticated) {
-        authBloc.add(AuthUserUpdated(updatedUser));
-      }
-      setState(() { _user = updatedUser; });
+    final result = await showModalBottomSheet<BackgroundOrientation>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('个人主页背景',
+                style: Theme.of(ctx).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              '横屏和竖屏的可见范围不同，可分别设置',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            BackgroundPicker(
+              currentPortrait: user.backgroundImage,
+              currentLandscape: user.backgroundImageLandscape,
+              onChanged: (orientation, path) async {
+                // 立即关闭弹窗，回主界面再裁剪，避免两层全屏路由叠加
+                Navigator.pop(ctx, orientation);
+                await _applyBackground(orientation, path);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+    // result 仅用于语义（弹窗内已就地处理），保留以免误用
+    // ignore: unnecessary_statements
+    result;
+  }
+
+  Future<void> _applyBackground(
+      BackgroundOrientation orientation, String? path) async {
+    final user = _user;
+    if (user == null || !mounted) return;
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    // 清除时必须走 clear* 开关：copyWith 传 null 会被静默忽略
+    final updated = orientation == BackgroundOrientation.portrait
+        ? (path == null
+            ? user.copyWith(clearBackgroundImage: true)
+            : user.copyWith(backgroundImage: path))
+        : (path == null
+            ? user.copyWith(clearBackgroundImageLandscape: true)
+            : user.copyWith(backgroundImageLandscape: path));
+    await storage.saveUser(updated);
+    if (!mounted) return;
+    final authBloc = context.read<AuthBloc>();
+    if (authBloc.state is AuthAuthenticated) {
+      authBloc.add(AuthUserUpdated(updated));
     }
+    setState(() {
+      _user = updated;
+    });
   }
 
   Future<void> _changeAvatar() async {

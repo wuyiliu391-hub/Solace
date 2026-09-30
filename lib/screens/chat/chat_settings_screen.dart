@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import '../../config/business_rules.dart';
 import '../../models/ai_character.dart';
 import '../../models/ai_wallet.dart';
@@ -19,6 +18,8 @@ import 'package:file_picker/file_picker.dart';
 import '../../services/permission_service.dart';
 import '../../widgets/ai_wallet_card.dart';
 import '../../widgets/image_cropper.dart';
+import '../../widgets/background_picker.dart';
+import '../../utils/background_resolver.dart';
 import '../voice/voice_clone_screen.dart';
 import 'interaction_settings_screen.dart';
 import '../../blocs/auth/auth_bloc.dart';
@@ -42,6 +43,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   late bool _isMuted;
   late bool _isPinned;
   String? _backgroundImage;
+  String? _backgroundImageLandscape;
 
   AICharacter? _character;
 
@@ -65,6 +67,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     _isMuted = _localSession.isMuted;
     _isPinned = _localSession.isPinned;
     _backgroundImage = _localSession.backgroundImage;
+    _backgroundImageLandscape =
+        _localSession.backgroundImageLandscape;
     _isBlockedByUser =
         _localSession.isBlocked && _localSession.blockedBy == BlockedBy.user;
     _loadAIStatus();
@@ -131,19 +135,26 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     final bg = (_backgroundImage == null || _backgroundImage!.trim().isEmpty)
         ? null
         : _backgroundImage!.trim();
+    final bgWide = (_backgroundImageLandscape == null ||
+            _backgroundImageLandscape!.trim().isEmpty)
+        ? null
+        : _backgroundImageLandscape!.trim();
     debugPrint(
-        '保存会话设置 - backgroundImage: $bg, lastMessage: ${_localSession.lastMessage}');
+        '保存会话设置 - backgroundImage: $bg, backgroundImageLandscape: $bgWide, lastMessage: ${_localSession.lastMessage}');
     final updatedSession = _localSession.copyWith(
       isMuted: _isMuted,
       isPinned: _isPinned,
       backgroundImage: bg,
       clearBackgroundImage: bg == null,
+      backgroundImageLandscape: bgWide,
+      clearBackgroundImageLandscape: bgWide == null,
       updatedAt: DateTime.now(),
     );
     _localSession = updatedSession;
     await storage.saveChatSession(updatedSession);
     _hasChanges = true;
-    debugPrint('会话设置保存完成 - backgroundImage: ${updatedSession.backgroundImage}');
+    debugPrint('会话设置保存完成 - backgroundImage: ${updatedSession.backgroundImage}'
+        ', backgroundImageLandscape: ${updatedSession.backgroundImageLandscape}');
   }
 
   Future<void> _autoSave() async {
@@ -186,6 +197,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     } catch (_) {}
   }
 
+  /// 打开横屏/竖屏聊天背景设置。
   Future<void> _pickBackgroundImage() async {
     try {
       // 选图前尽量申请权限，但不因 has* 误判直接拦截（部分机型会误报）
@@ -193,63 +205,37 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       if (!hasPermission) {
         await PermissionService.requestStoragePermission();
       }
-
-      final picker = ImagePicker();
-      final pickedFile = await picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1080,
-        maxHeight: 1920,
-        imageQuality: 85,
-      );
-
-      if (pickedFile == null) return;
-
-      // 复制到持久化目录；文件名带时间戳，避免同路径 FileImage 缓存不刷新
-      final dir = await getApplicationDocumentsDirectory();
-      final bgDir = Directory('${dir.path}/chat_backgrounds');
-      if (!await bgDir.exists()) await bgDir.create(recursive: true);
-      final rawExt = pickedFile.path.contains('.')
-          ? pickedFile.path.split('.').last.toLowerCase()
-          : 'jpg';
-      final ext = (rawExt == 'jpeg' ||
-              rawExt == 'jpg' ||
-              rawExt == 'png' ||
-              rawExt == 'webp' ||
-              rawExt == 'heic' ||
-              rawExt == 'heif')
-          ? rawExt
-          : 'jpg';
-      final stamp = DateTime.now().millisecondsSinceEpoch;
-      final destPath = '${bgDir.path}/${widget.session.id}_$stamp.$ext';
-      await File(pickedFile.path).copy(destPath);
-
-      // 清理旧背景文件 + 缓存
-      final oldPath = _backgroundImage;
-      if (oldPath != null &&
-          oldPath.isNotEmpty &&
-          _isLocalBackgroundPath(oldPath) &&
-          oldPath != destPath) {
-        await _evictBackgroundCache(oldPath);
-        try {
-          final oldFile = File(_normalizeLocalPath(oldPath));
-          if (await oldFile.exists()) await oldFile.delete();
-        } catch (_) {}
-      }
-      await _evictBackgroundCache(destPath);
-
       if (!mounted) return;
-      setState(() {
-        _backgroundImage = destPath;
-      });
-      await _autoSave();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('聊天背景已更新'),
-            duration: Duration(seconds: 1),
+
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('聊天背景', style: Theme.of(ctx).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text('横屏和竖屏可见范围不同，可分别设置',
+                  style: Theme.of(ctx).textTheme.bodySmall),
+              const SizedBox(height: 16),
+              BackgroundPicker(
+                currentPortrait: _backgroundImage,
+                currentLandscape: _backgroundImageLandscape,
+                onChanged: (orientation, path) {
+                  Navigator.pop(ctx);
+                  _applyChatBackground(orientation, path);
+                },
+              ),
+            ],
           ),
-        );
-      }
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -259,20 +245,80 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     }
   }
 
-  Future<void> _clearBackgroundImage() async {
-    final oldPath = _backgroundImage;
+  /// 写入某个朝向的聊天背景；[path] 为 null 表示清除。
+  Future<void> _applyChatBackground(
+      BackgroundOrientation orientation, String? path) async {
+    final isPortrait = orientation == BackgroundOrientation.portrait;
+    final oldPath = isPortrait ? _backgroundImage : _backgroundImageLandscape;
+
+    if (path == null) {
+      // 清除：清缓存 + 删文件 + 走 clear 开关（copyWith 传 null 会被忽略）
+      if (oldPath != null && oldPath.isNotEmpty &&
+          _isLocalBackgroundPath(oldPath)) {
+        await _evictBackgroundCache(oldPath);
+        try {
+          final f = File(_normalizeLocalPath(oldPath));
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      setState(() {
+        if (isPortrait) {
+          _backgroundImage = null;
+        } else {
+          _backgroundImageLandscape = null;
+        }
+      });
+      await _autoSave();
+      return;
+    }
+
+    // 替换：先清掉旧的（缓存 + 文件），新图文件名带 uuid 避免 FileImage 缓存不刷新
     if (oldPath != null &&
         oldPath.isNotEmpty &&
-        _isLocalBackgroundPath(oldPath)) {
+        _isLocalBackgroundPath(oldPath) &&
+        oldPath != path) {
       await _evictBackgroundCache(oldPath);
       try {
-        final f = File(_normalizeLocalPath(oldPath));
-        if (await f.exists()) await f.delete();
+        final oldFile = File(_normalizeLocalPath(oldPath));
+        if (await oldFile.exists()) await oldFile.delete();
       } catch (_) {}
+    }
+    await _evictBackgroundCache(path);
+
+    if (!mounted) return;
+    setState(() {
+      if (isPortrait) {
+        _backgroundImage = path;
+      } else {
+        _backgroundImageLandscape = path;
+      }
+    });
+    await _autoSave();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('聊天背景已更新'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  /// 「恢复默认背景」：横屏与竖屏一起清掉。
+  Future<void> _clearBackgroundImage() async {
+    for (final old in [_backgroundImage, _backgroundImageLandscape]) {
+      if (old != null && old.isNotEmpty && _isLocalBackgroundPath(old)) {
+        await _evictBackgroundCache(old);
+        try {
+          final f = File(_normalizeLocalPath(old));
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
     }
     if (!mounted) return;
     setState(() {
       _backgroundImage = null;
+      _backgroundImageLandscape = null;
     });
     await _autoSave();
   }
@@ -1408,6 +1454,31 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   }
 
   Widget _buildBackgroundSection(BuildContext context) {
+    final hasPortrait =
+        _backgroundImage != null && _backgroundImage!.isNotEmpty;
+    final hasLandscape = _backgroundImageLandscape != null &&
+        _backgroundImageLandscape!.isNotEmpty;
+    // 缩略图按当前朝向取
+    final mq = MediaQuery.sizeOf(context);
+    final thumbRaw = mq.width > mq.height ? _backgroundImageLandscape : _backgroundImage;
+    final thumb = (thumbRaw != null && thumbRaw.isNotEmpty) ? thumbRaw : null;
+    final ImageProvider? thumbProvider = (thumb == null)
+        ? null
+        : (_isLocalBackgroundPath(thumb)
+            ? FileImage(File(_normalizeLocalPath(thumb))) as ImageProvider
+            : NetworkImage(thumb));
+
+    final String status;
+    if (hasPortrait && hasLandscape) {
+      status = '横屏 / 竖屏均已设置';
+    } else if (hasPortrait) {
+      status = '仅竖屏已设置';
+    } else if (hasLandscape) {
+      status = '仅横屏已设置';
+    } else {
+      status = '使用默认背景';
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1430,28 +1501,17 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             decoration: BoxDecoration(
               color: Colors.grey[200],
               borderRadius: BorderRadius.circular(8),
-              image: _backgroundImage != null && _backgroundImage!.isNotEmpty
-                  ? DecorationImage(
-                      image: _isLocalBackgroundPath(_backgroundImage!) &&
-                              File(_normalizeLocalPath(_backgroundImage!))
-                                  .existsSync()
-                          ? FileImage(
-                                  File(_normalizeLocalPath(_backgroundImage!)))
-                              as ImageProvider
-                          : NetworkImage(_backgroundImage!),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
+              image: thumbProvider == null
+                  ? null
+                  : DecorationImage(image: thumbProvider, fit: BoxFit.cover),
             ),
-            child: _backgroundImage == null || _backgroundImage!.isEmpty
+            child: thumbProvider == null
                 ? Icon(Icons.image, color: Colors.grey[400])
                 : null,
           ),
           title: const Text('设置聊天背景'),
           subtitle: Text(
-            (_backgroundImage != null && _backgroundImage!.isNotEmpty)
-                ? '已设置自定义背景'
-                : '使用默认背景',
+            status,
             style: TextStyle(
               fontSize: 12,
               color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
@@ -1460,7 +1520,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           trailing: const Icon(Icons.chevron_right),
           onTap: _pickBackgroundImage,
         ),
-        if (_backgroundImage != null && _backgroundImage!.isNotEmpty)
+        if (hasPortrait || hasLandscape)
           ListTile(
             leading:
                 Icon(Icons.restore, color: Theme.of(context).colorScheme.error),

@@ -1086,6 +1086,16 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       await createMissingTable(db, 'group_chat_lorebook_entries');
       debugPrint(' v74 迁移: 群聊分支/世界书表纳入 reconcile');
     }
+    if (oldVersion < 75) {
+      // 背景图按横竖屏分开存。backgroundImage 沿用为竖屏，保持老数据不变；
+      // 新增 backgroundImageLandscape 存横屏。同步 chat_sessions /
+      // group_chat_sessions，两处背景图也支持横竖屏。
+      for (final table in const ['users', 'chat_sessions', 'group_chat_sessions']) {
+        await _addColumnIfNotExists(
+            db, table, 'backgroundImageLandscape', 'TEXT');
+      }
+      debugPrint(' v75 迁移: 背景图横竖屏分列（backgroundImageLandscape）');
+    }
   }
   Future<void> _onCreate(Database db, int version) async {
     await db.execute(
@@ -1733,6 +1743,8 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       'bio': 'TEXT',
       'status': 'TEXT',
       'backgroundImage': 'TEXT',
+      // 横竖屏分别设置背景图：backgroundImage 语义为竖屏，本列为横屏
+      'backgroundImageLandscape': 'TEXT',
       'coins': 'INTEGER NOT NULL DEFAULT 100',
       'totalCoinsEarned': 'INTEGER NOT NULL DEFAULT 100',
       'totalCoinsSpent': 'INTEGER NOT NULL DEFAULT 0',

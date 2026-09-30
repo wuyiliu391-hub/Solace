@@ -21,7 +21,12 @@ class User extends Equatable {
 
   // 自定义状态
   final String? status;            // 当前状态（开心、忙碌、emo等）
-  final String? backgroundImage;   // 个人主页背景图
+
+  /// 个人主页背景图。
+  /// [backgroundImage] 沿用旧字段，语义为「竖屏背景」，保持老数据兼容；
+  /// [backgroundImageLandscape] 是新增的横屏背景。
+  final String? backgroundImage;
+  final String? backgroundImageLandscape;
   final int syncSeq;
 
   const User({
@@ -37,6 +42,7 @@ class User extends Equatable {
     this.bio,
     this.status,
     this.backgroundImage,
+    this.backgroundImageLandscape,
     this.syncSeq = 0,
     this.coins = 100,              // 新用户默认100金币
     this.totalCoinsEarned = 100,
@@ -56,6 +62,7 @@ class User extends Equatable {
     String? bio,
     String? status,
     String? backgroundImage,
+    String? backgroundImageLandscape,
     int? syncSeq,
     int? coins,
     int? totalCoinsEarned,
@@ -63,6 +70,9 @@ class User extends Equatable {
     /// 显式把头像置空。`avatarUrl ?? this.avatarUrl` 无法表达「清空」，
     /// 传 null 会被静默忽略，所以清除头像必须走这个开关。
     bool clearAvatarUrl = false,
+    /// 同上，用于清除竖屏 / 横屏背景图。
+    bool clearBackgroundImage = false,
+    bool clearBackgroundImageLandscape = false,
   }) {
     return User(
       id: id ?? this.id,
@@ -76,7 +86,12 @@ class User extends Equatable {
       location: location ?? this.location,
       bio: bio ?? this.bio,
       status: status ?? this.status,
-      backgroundImage: backgroundImage ?? this.backgroundImage,
+      backgroundImage: clearBackgroundImage
+          ? null
+          : (backgroundImage ?? this.backgroundImage),
+      backgroundImageLandscape: clearBackgroundImageLandscape
+          ? null
+          : (backgroundImageLandscape ?? this.backgroundImageLandscape),
       syncSeq: syncSeq ?? this.syncSeq,
       coins: coins ?? this.coins,
       totalCoinsEarned: totalCoinsEarned ?? this.totalCoinsEarned,
@@ -98,6 +113,7 @@ class User extends Equatable {
       'bio': bio,
       'status': status,
       'backgroundImage': backgroundImage,
+      'backgroundImageLandscape': backgroundImageLandscape,
       'coins': coins,
       'totalCoinsEarned': totalCoinsEarned,
       'totalCoinsSpent': totalCoinsSpent,
@@ -125,6 +141,7 @@ class User extends Equatable {
       bio: map['bio'] as String?,
       status: map['status'] as String?,
       backgroundImage: map['backgroundImage'] as String?,
+      backgroundImageLandscape: map['backgroundImageLandscape'] as String?,
       coins: map['coins'] as int? ?? 100,
       totalCoinsEarned: map['totalCoinsEarned'] as int? ?? 100,
       totalCoinsSpent: map['totalCoinsSpent'] as int? ?? 0,
@@ -134,8 +151,9 @@ class User extends Equatable {
 
   @override
   List<Object?> get props => [
-    id, nickname, avatarUrl, createdAt, lastLoginAt,
-    signature, gender, birthday, location, bio, status, backgroundImage,
-    coins, totalCoinsEarned, totalCoinsSpent, syncSeq,
-  ];
+        id, nickname, avatarUrl, createdAt, lastLoginAt,
+        signature, gender, birthday, location, bio, status, backgroundImage,
+        backgroundImageLandscape,
+        coins, totalCoinsEarned, totalCoinsSpent, syncSeq,
+      ];
 }

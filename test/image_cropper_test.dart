@@ -171,4 +171,98 @@ void main() {
       expect(t.quarterTurns, 0);
     });
   });
+
+  group('CropGeometry 非正方形取景框（背景图横竖屏）', () {
+    const wide = Size(1600, 900); // 横屏取景框
+    const tall = Size(900, 1600); // 竖屏取景框
+
+    test('coverScaleForBox 按瓶颈边铺满', () {
+      // 1600x900 的图放进 1600x900 框 -> scale 1
+      expect(CropGeometry.coverScaleForBox(const Size(1600, 900), wide), 1.0);
+      // 900x1600 的竖图放进横屏框：宽度是瓶颈 -> 1600/900
+      expect(CropGeometry.coverScaleForBox(const Size(900, 1600), wide),
+          closeTo(1600 / 900, 1e-9));
+    });
+
+    test('coverScaleForBox 两个方向都不小于取景框', () {
+      final cases = <List<Size>>[
+        [const Size(4000, 3000), wide],
+        [const Size(3000, 4000), wide],
+        [const Size(4000, 3000), tall],
+        [const Size(1080, 2400), wide],
+        [const Size(500, 500), wide],
+      ];
+      for (final c in cases) {
+        final s = CropGeometry.coverScaleForBox(c[0], c[1]);
+        expect(c[0].width * s, greaterThanOrEqualTo(c[1].width - 1e-9),
+            reason: '宽方向必须铺满 ${c[0]} -> ${c[1]}');
+        expect(c[0].height * s, greaterThanOrEqualTo(c[1].height - 1e-9),
+            reason: '高方向必须铺满 ${c[0]} -> ${c[1]}');
+      }
+    });
+
+    test('coverScale 是 coverScaleForBox 在正方形下的特例', () {
+      const disp = Size(800, 400);
+      expect(CropGeometry.coverScale(disp, 400),
+          closeTo(CropGeometry.coverScaleForBox(disp, const Size(400, 400)),
+              1e-12));
+    });
+
+    test('clampOffsetForBox 宽幅下垂直方向不能露白', () {
+      // 图 1600x900, scale 1 -> 高度正好等于框高，垂直方向位移必须为 0
+      final o = CropGeometry.clampOffsetForBox(
+          const Offset(9999, 9999), const Size(1600, 900), wide, 1.0);
+      expect(o.dy, 0.0);
+      expect(o.dx, 0.0); // 宽度也正好等于框宽
+    });
+
+    test('clampOffsetForBox 放大后两轴都可移动且不越界', () {
+      final o = CropGeometry.clampOffsetForBox(
+          const Offset(99999, -99999), const Size(1600, 900), wide, 2.0);
+      expect(o.dx, 800.0); // (3200-1600)/2
+      expect(o.dy, 450.0); // (1800-900)/2
+    });
+
+    test('clampOffsetForBox 各种缩放下四边始终覆盖取景框', () {
+      for (final scale in [1.0, 1.3, 2.0, 4.0]) {
+        for (final raw in const [
+          Offset.zero,
+          Offset(50, -50),
+          Offset(-99999, 99999),
+        ]) {
+          final o = CropGeometry.clampOffsetForBox(
+              raw, const Size(1600, 900), wide, scale);
+          final sw = 1600 * scale;
+          final sh = 900 * scale;
+          expect(o.dx - sw / 2, lessThanOrEqualTo(-wide.width / 2 + 1e-9));
+          expect(o.dx + sw / 2, greaterThanOrEqualTo(wide.width / 2 - 1e-9));
+          expect(o.dy - sh / 2, lessThanOrEqualTo(-wide.height / 2 + 1e-9));
+          expect(o.dy + sh / 2, greaterThanOrEqualTo(wide.height / 2 - 1e-9));
+        }
+      }
+    });
+
+    test('竖屏取景框同样成立', () {
+      const img = Size(1080, 1920);
+      // 1080x1920 放进 900x1600：两轴比例一致，cover 缩放后正好贴合
+      final s = CropGeometry.coverScaleForBox(img, tall);
+      expect(s, closeTo(1600 / 1920, 1e-9));
+      // 低于 cover 的缩放会被抬回 cover，正好不露白
+      final s2 = CropGeometry.clampScale(0.1, s);
+      expect(s2, closeTo(s, 1e-12));
+
+      final o = CropGeometry.clampOffsetForBox(
+          const Offset(999, 999), img, tall, s2);
+      expect(o.dx.abs(), lessThanOrEqualTo((img.width * s2 - tall.width) / 2 + 1e-9));
+      expect(o.dy.abs(), lessThanOrEqualTo((img.height * s2 - tall.height) / 2 + 1e-9));
+    });
+
+    test('非法取景框原样返回', () {
+      const raw = Offset(3, 4);
+      expect(
+          CropGeometry.clampOffsetForBox(
+              raw, const Size(100, 100), Size.zero, 1.0),
+          raw);
+    });
+  });
 }
