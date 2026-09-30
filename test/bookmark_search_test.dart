@@ -91,7 +91,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       repo = LocalStorageRepository(isWeb: true);
       await repo.initialize();
-      await repo.saveChatSession(const ChatSessionFixture.session);
+      await repo.saveChatSession(ChatSessionFixture.session);
     });
 
     test('空查询直接返回空列表（不查库）', () async {
@@ -157,7 +157,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       repo = LocalStorageRepository(isWeb: true);
       await repo.initialize();
-      await repo.saveGroupChatSession(const GroupChatSessionFixture.session);
+      await repo.saveGroupChatSession(GroupChatSessionFixture.session);
     });
 
     test('命中群聊收藏（bookmarked 在 metadata 里）', () async {
