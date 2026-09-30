@@ -190,7 +190,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   '维度：越高语气起伏越大（撒娇、哽咽更明显），但也更容易'
                   '含糊、吞音。默认 0.7。\n'
                   '想更稳地控制情绪，只能靠参考音频本身的情绪——'
-                  '用带哭腔的音频克隆出的音色，情绪会自然带过来。',
+                  '用带哭腔的音频克隆出的音色，情绪会自然带过来。\n'
+                  '语音通话中会自动钳制（表现力≤0.7、语速=1.0），保证连续对话'
+                  '前后稳定；这里的全范围只对单句试听生效。',
                   style: TextStyle(fontSize: 11, color: Colors.grey),
                 ),
                 const SizedBox(height: 12),

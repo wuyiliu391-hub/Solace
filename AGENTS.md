@@ -138,6 +138,26 @@ multipart 的标量字段全部要转成字符串。
 `format`（`wav`/`pcm`/`mp3`/`opus`）、`sample_rate` 也都在 `TTSRequest` 里。
 `model` 走 **header 或 query 参数**，不在 body。
 
+### 通话钳制（2026-09-30 用户试听反馈后加的）
+
+24 个测试 wav 的共同缺点：前稳后飘 —— 尾段高频噪声是头部的 5 倍、
+同一句比通话安全链路长 46%。根因是 temperature 0.95 + speed 0.85 +
+本地后处理三件套（尾段加重的 tremolo ramp、混响噪声尾巴、呼吸噪声注入）。
+
+注意区分：后处理三件套**只存在于桌面测试脚本**，App 通话链路本来就不做
+本地后处理（`fish_audio_tts_service.dart` 直接播 Fish 原始输出）。
+会进 App 的只有 temperature 过高 + prosody 减速。
+
+所以 App 侧只做最小钳制，不碰单句试听：
+
+- `FishAudioTtsService.callMode`（默认 false）：`voice_call_controller` 在
+  `_beginAfterModels` 重建 TTS 后置 true；置位后 temperature 钳制 ≤0.7
+  （`callTemperatureCap`）、speed 强制 1.0。
+- 音色克隆页 / 聊天语音条是单句试听，保持 false，设置页滑块全范围有效。
+- 设置页文案已注明「通话中自动钳制」，避免用户困惑。
+- 桌面脚本对应物：`--phone-safe`（temperature 0.6 / speed 1.0 / 零后处理，
+  经 `phone_safe_scene` 纯函数实现，原场景不动）。
+
 ### 参考音频要求
 
 `ReferenceAudio` 注明支持 **WAV / MP3 / FLAC**，最佳 **10~30 秒**清晰人声、

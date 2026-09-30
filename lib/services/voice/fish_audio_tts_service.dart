@@ -200,6 +200,20 @@ class FishAudioTtsConfigStore {
 
 /// Fish Audio TTS 服务实现。
 class FishAudioTtsService implements TtsService {
+  /// 通话模式：为连续对话拿表现力换稳定。
+  ///
+  /// 由 voice_call_controller 在通话初始化后置 true。置位后：
+  ///   temperature 钳制到 ≤0.7，speed 强制 1.0。
+  /// 单句试听（音色克隆页、聊天语音条）保持 false，走用户滑块全范围。
+  ///
+  /// 依据（2026-09-30 真实音频对照实验）：temperature 0.95 + speed 0.85 的
+  /// 链路，同一句比通话安全链路长 46%、尾段高频噪声是头部的 5 倍，
+  /// 听感就是「前稳后飘、尾段喘不上气」。连续对话必须钳住。
+  bool callMode = false;
+
+  /// 通话中 temperature 上限。超过则发散到吞音，没必要。
+  static const double callTemperatureCap = 0.7;
+
   @override
   bool get enabled => AppConfig.localTtsEnabled;
 
@@ -323,6 +337,16 @@ class FishAudioTtsService implements TtsService {
     int maxRetries,
   ) async {
     // Fish 要 wav；参考音频已在 VoiceProfileStore 规范化，这里不再重复转码
+    //
+    // 通话模式钳制：callMode 由 voice_call_controller 置位。
+    // temperature 超过 0.7 的部分只增加发散（吞音、尾段漂移），
+    // 对连续对话是负收益；speed 非 1.0 会让句间节奏忽快忽慢。
+    // 单句试听不走这里（callMode=false），滑块全范围有效。
+    final effTemperature =
+        (callMode && config.temperature > FishAudioTtsService.callTemperatureCap)
+            ? FishAudioTtsService.callTemperatureCap
+            : config.temperature;
+    final effSpeed = callMode ? 1.0 : config.speed;
     final body = jsonEncode({
       'text': text,
       'reference_id': referenceId,
@@ -334,9 +358,9 @@ class FishAudioTtsService implements TtsService {
       //   （openapi.json 的 TTSRequest 里确认过；Agent 平台那个 expressive
       //   只存在于 /v1/agent/* 的配置里，不在 TTS API）。
       //   所以风格化只能靠 temperature + prosody + 参考音频本身的情绪。
-      'temperature': config.temperature,
+      'temperature': effTemperature,
       'prosody': {
-        'speed': config.speed,
+        'speed': effSpeed,
         // 统一响度，避免不同角色忽大忽小（对 S2 系列有效）
         'normalize_loudness': true,
       },

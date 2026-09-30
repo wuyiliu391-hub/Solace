@@ -23,6 +23,7 @@ import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../utils/message_sanitizer.dart';
 import 'local_stt_service.dart';
+import 'fish_audio_tts_service.dart';
 import 'mimo_tts_service.dart';
 import 'voice_model_manager.dart';
 import 'voice_player_service.dart';
@@ -678,6 +679,14 @@ class VoiceCallController extends ChangeNotifier {
       debugPrint('[VoiceCall] init: TTS provider 已切换');
     } catch (e) {
       debugPrint('[VoiceCall] init: 读取 TTS provider 失败，沿用默认: $e');
+    }
+    // 通话稳定钳制：Fish 在连续对话中必须锁住表现力与语速，
+    // 否则 temperature > 0.7 会让后半句发散漂移（实测尾段高频噪声是头部 5 倍）。
+    // 单句试听（音色克隆页/聊天语音条）不走这里，滑块全范围仍然有效。
+    final tts = _tts;
+    if (tts is FishAudioTtsService) {
+      tts.callMode = true;
+      debugPrint('[VoiceCall] Fish 通话模式：temperature 钳制 ≤0.7，speed=1.0');
     }
     debugPrint('[VoiceCall] init: 解析参考音色...');
     await _setupVoiceProfile();
