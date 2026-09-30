@@ -1,18 +1,27 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import '../services/permission_service.dart';
+import 'image_cropper.dart';
 
 class AvatarPicker extends StatefulWidget {
   final String? currentAvatar;
   final Function(String?) onAvatarSelected;
+
+  /// 「清除头像」回调。留空则不显示清除按钮。
+  ///
+  /// 注意：清除**不能**复用 [onAvatarSelected] 传 null —— 各模型的
+  /// `copyWith` 都是 `avatarUrl ?? this.avatarUrl` 写法，传 null 会被忽略，
+  /// 旧头像反而清不掉。必须由调用方显式走清除分支。
+  final VoidCallback? onAvatarCleared;
+
   final double size;
 
   const AvatarPicker({
     super.key,
     required this.currentAvatar,
     required this.onAvatarSelected,
+    this.onAvatarCleared,
     this.size = 100,
   });
 
@@ -127,10 +136,6 @@ class _AvatarPickerState extends State<AvatarPicker> {
     );
   }
 
-  Widget _buildDefaultIcon(BuildContext context) {
-    return _buildDefaultAvatar(context);
-  }
-
   Widget _buildDefaultAvatar(BuildContext context) {
     return Container(
       width: widget.size,
@@ -199,7 +204,8 @@ class _AvatarPickerState extends State<AvatarPicker> {
                 _pickImage(ImageSource.camera);
               },
             ),
-            if ((widget.currentAvatar?.isNotEmpty) == true)
+            if ((widget.currentAvatar?.isNotEmpty) == true &&
+                widget.onAvatarCleared != null)
               ListTile(
                 leading: Icon(
                   Icons.delete_outline,
@@ -208,7 +214,7 @@ class _AvatarPickerState extends State<AvatarPicker> {
                 title: const Text('清除头像'),
                 onTap: () {
                   Navigator.pop(context);
-                  widget.onAvatarSelected(null);
+                  widget.onAvatarCleared!();
                 },
               ),
             const SizedBox(height: 16),
@@ -221,9 +227,9 @@ class _AvatarPickerState extends State<AvatarPicker> {
   Future<void> _pickImage(ImageSource source) async {
     try {
       debugPrint('开始选择图片，来源: $source');
-      
+
       bool hasPermission = false;
-      
+
       if (source == ImageSource.camera) {
         debugPrint('检查相机权限');
         hasPermission = await PermissionService.hasCameraPermission();
@@ -250,21 +256,23 @@ class _AvatarPickerState extends State<AvatarPicker> {
         return;
       }
 
-      debugPrint('权限已获取，打开图片选择器');
-      final picker = ImagePicker();
-      final pickedFile = await picker.pickImage(
+      // 这里不再压到 512：要留给裁剪器足够的像素，
+      // 否则放大后重新裁剪会糊。裁剪器内部会再统一缩到 2048 并输出 512。
+      final pickedFile = await ImagePicker().pickImage(
         source: source,
-        maxWidth: 512,
-        maxHeight: 512,
-        imageQuality: 85,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 92,
       );
+      if (pickedFile == null) return;
 
-      debugPrint('选择的文件: $pickedFile');
-
-      if (pickedFile != null) {
-        final localPath = await _copyToCache(pickedFile.path);
-        widget.onAvatarSelected(localPath ?? pickedFile.path);
-      }
+      // 交给裁剪器：可自由缩放 / 拖动 / 旋转，输出正方形并直接落到
+      // docs/avatars（持久目录，不会被清缓存清掉）。
+      final cropped =
+          await showImageCropper(context, File(pickedFile.path));
+      if (cropped == null) return;
+      if (!mounted) return;
+      widget.onAvatarSelected(cropped);
     } catch (e) {
       debugPrint('选择图片失败: $e');
       if (mounted) {
@@ -272,22 +280,6 @@ class _AvatarPickerState extends State<AvatarPicker> {
           SnackBar(content: Text('选择失败: $e')),
         );
       }
-    }
-  }
-
-  Future<String?> _copyToCache(String sourcePath) async {
-    try {
-      // 存到应用文档目录下的 avatars 子目录，避免系统清理 temp 后头像丢失
-      final docs = await getApplicationDocumentsDirectory();
-      final avatarsDir = Directory('${docs.path}/avatars');
-      if (!await avatarsDir.exists()) await avatarsDir.create(recursive: true);
-      final ext = sourcePath.contains('.') ? sourcePath.split('.').last : 'jpg';
-      final dest = '${avatarsDir.path}/avatar_${DateTime.now().millisecondsSinceEpoch}.$ext';
-      await File(sourcePath).copy(dest);
-      return dest;
-    } catch (e) {
-      debugPrint('复制头像到持久目录失败: $e');
-      return null;
     }
   }
 }

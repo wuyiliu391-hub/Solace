@@ -60,11 +60,14 @@ class User extends Equatable {
     int? coins,
     int? totalCoinsEarned,
     int? totalCoinsSpent,
+    /// 显式把头像置空。`avatarUrl ?? this.avatarUrl` 无法表达「清空」，
+    /// 传 null 会被静默忽略，所以清除头像必须走这个开关。
+    bool clearAvatarUrl = false,
   }) {
     return User(
       id: id ?? this.id,
       nickname: nickname ?? this.nickname,
-      avatarUrl: avatarUrl ?? this.avatarUrl,
+      avatarUrl: clearAvatarUrl ? null : (avatarUrl ?? this.avatarUrl),
       createdAt: createdAt ?? this.createdAt,
       lastLoginAt: lastLoginAt ?? this.lastLoginAt,
       signature: signature ?? this.signature,

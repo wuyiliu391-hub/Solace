@@ -8,6 +8,7 @@ import '../../blocs/chat/chat_bloc.dart';
 import '../../models/user.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/permission_service.dart';
+import '../../widgets/image_cropper.dart';
 import 'wallet_screen.dart';
 import 'edit_profile_screen.dart';
 import 'settings_screen.dart';
@@ -481,42 +482,26 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Future<void> _changeAvatar() async {
     if (!await PermissionService.requestStoragePermission()) return;
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(
+    final pickedFile = await ImagePicker().pickImage(
       source: ImageSource.gallery,
-      maxWidth: 1920, maxHeight: 1920, imageQuality: 85,
+      maxWidth: 2048, maxHeight: 2048, imageQuality: 92,
     );
-    if (pickedFile != null && _user != null) {
-      final storage = RepositoryProvider.of<LocalStorageRepository>(context);
-      final persistentPath = await _copyToPersistentPath(pickedFile.path);
-      final updatedUser = _user!.copyWith(avatarUrl: persistentPath);
-      await storage.saveUser(updatedUser);
-      final authBloc = context.read<AuthBloc>();
-      if (authBloc.state is AuthAuthenticated) {
-        authBloc.add(AuthUserUpdated(updatedUser));
-      }
-      setState(() {
-        _user = updatedUser;
-      });
-    }
-  }
+    if (pickedFile == null) return;
 
-  Future<String> _copyToPersistentPath(String sourcePath) async {
-    try {
-      final source = File(sourcePath);
-      if (!await source.exists()) return sourcePath;
-      final dir = await getApplicationDocumentsDirectory();
-      final avatarDir = Directory('${dir.path}/avatars');
-      if (!await avatarDir.exists()) {
-        await avatarDir.create(recursive: true);
-      }
-      final ext = sourcePath.contains('.') ? sourcePath.split('.').last : 'jpg';
-      final destPath = '${avatarDir.path}/user_avatar.$ext';
-      await source.copy(destPath);
-      return destPath;
-    } catch (e) {
-      return sourcePath;
+    // 自由裁剪：双指缩放 / 单指拖动 / 旋转，输出正方形并落到 docs/avatars
+    final cropped = await showImageCropper(context, File(pickedFile.path));
+    if (cropped == null || !mounted || _user == null) return;
+
+    final storage = RepositoryProvider.of<LocalStorageRepository>(context);
+    final updatedUser = _user!.copyWith(avatarUrl: cropped);
+    await storage.saveUser(updatedUser);
+    final authBloc = context.read<AuthBloc>();
+    if (authBloc.state is AuthAuthenticated) {
+      authBloc.add(AuthUserUpdated(updatedUser));
     }
+    setState(() {
+      _user = updatedUser;
+    });
   }
 
   void _editProfile() async {

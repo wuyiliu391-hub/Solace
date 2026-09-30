@@ -153,12 +153,14 @@ class GroupChatSession extends Equatable {
     Map<String, int>? autoModeDelaysByCharacter,
     String? joinPrefix,
     String? joinSuffix,
+    /// 显式把群头像置空（`avatarUrl ?? this.avatarUrl` 传 null 会被忽略）。
+    bool clearAvatarUrl = false,
   }) {
     return GroupChatSession(
       id: id ?? this.id,
       userId: userId ?? this.userId,
       name: name ?? this.name,
-      avatarUrl: avatarUrl ?? this.avatarUrl,
+      avatarUrl: clearAvatarUrl ? null : (avatarUrl ?? this.avatarUrl),
       memberIds: memberIds ?? this.memberIds,
       aiCharacterIds: aiCharacterIds ?? this.aiCharacterIds,
       creatorId: creatorId ?? this.creatorId,

@@ -170,6 +170,8 @@ class GroupChatUpdateSession extends GroupChatEvent {
   final String? backgroundImage;
   final String? notice; // 群公告（存 metadata['notice']）
   final bool? isHidden;
+  /// 显式把群头像置空（avatarUrl 传 null 会被 copyWith 忽略）
+  final bool clearAvatarUrl;
   const GroupChatUpdateSession({
     required this.groupId,
     this.name,
@@ -179,6 +181,7 @@ class GroupChatUpdateSession extends GroupChatEvent {
     this.backgroundImage,
     this.notice,
     this.isHidden,
+    this.clearAvatarUrl = false,
   });
   @override
   List<Object?> get props => [
@@ -190,6 +193,7 @@ class GroupChatUpdateSession extends GroupChatEvent {
         backgroundImage,
         notice,
         isHidden,
+        clearAvatarUrl,
       ];
 }
 

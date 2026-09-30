@@ -340,6 +340,9 @@ class AICharacter extends Equatable {
     String? id,
     String? name,
     String? avatarUrl,
+    /// 显式把头像置空（`avatarUrl ?? this.avatarUrl` 传 null 会被忽略），
+    /// 写法对齐下方既有的 [clearColorHex]。
+    bool clearAvatarUrl = false,
     String? personality,
     String? coreDesire,
     String? moralBoundary,
@@ -390,7 +393,7 @@ class AICharacter extends Equatable {
     return AICharacter(
       id: id ?? this.id,
       name: name ?? this.name,
-      avatarUrl: avatarUrl ?? this.avatarUrl,
+      avatarUrl: clearAvatarUrl ? null : (avatarUrl ?? this.avatarUrl),
       personality: personality ?? this.personality,
       coreDesire: coreDesire ?? this.coreDesire,
       moralBoundary: moralBoundary ?? this.moralBoundary,

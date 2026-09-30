@@ -12,6 +12,7 @@ Future<void> _onUpdateSession(
     final updated = session.copyWith(
       name: event.name,
       avatarUrl: event.avatarUrl,
+      clearAvatarUrl: event.clearAvatarUrl,
       isMuted: event.isMuted,
       isPinned: event.isPinned,
       backgroundImage: event.backgroundImage,

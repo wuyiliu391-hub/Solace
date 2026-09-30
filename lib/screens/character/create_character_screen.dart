@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../models/ai_character.dart';
@@ -10,6 +9,7 @@ import '../../models/chat_session.dart';
 import '../../utils/age_extractor.dart';
 import '../../repositories/local_storage_repository.dart';
 import '../../services/permission_service.dart';
+import '../../widgets/image_cropper.dart';
 
 
 class CreateCharacterScreen extends StatefulWidget {
@@ -1138,13 +1138,16 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
         source: source,
-        maxWidth: 512,
-        maxHeight: 512,
-        imageQuality: 85,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 92,
       );
 
       if (pickedFile != null) {
-        final persistentPath = await _copyToPersistentPath(pickedFile.path);
+        // 自由裁剪：双指缩放 / 单指拖动 / 旋转，输出正方形并落到 docs/avatars
+        final persistentPath =
+            await showImageCropper(context, File(pickedFile.path));
+        if (persistentPath == null || !mounted) return;
         setState(() {
           _selectedAvatar = persistentPath;
         });
@@ -1158,24 +1161,4 @@ class _CreateCharacterScreenState extends State<CreateCharacterScreen> {
     }
   }
 
-  Future<String> _copyToPersistentPath(String sourcePath) async {
-    try {
-      final source = File(sourcePath);
-      if (!await source.exists()) return sourcePath;
-      final dir = await getApplicationDocumentsDirectory();
-      final avatarDir = Directory('${dir.path}/ai_avatars');
-      if (!await avatarDir.exists()) {
-        await avatarDir.create(recursive: true);
-      }
-      final ext = sourcePath.contains('.') ? sourcePath.split('.').last : 'jpg';
-      // Generate a unique filename for new characters
-      final filename = const Uuid().v4();
-      final destPath = '${avatarDir.path}/$filename.$ext';
-      await source.copy(destPath);
-      return destPath;
-    } catch (e) {
-      debugPrint('复制头像失败: $e');
-      return sourcePath;
-    }
-  }
 }

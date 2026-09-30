@@ -18,6 +18,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../services/permission_service.dart';
 import '../../widgets/ai_wallet_card.dart';
+import '../../widgets/image_cropper.dart';
 import '../voice/voice_clone_screen.dart';
 import 'interaction_settings_screen.dart';
 import '../../blocs/auth/auth_bloc.dart';
@@ -1748,13 +1749,16 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 512,
-        maxHeight: 512,
-        imageQuality: 85,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 92,
       );
 
       if (pickedFile != null) {
-        final persistentPath = await _copyToPersistentPath(pickedFile.path);
+        // 自由裁剪：双指缩放 / 单指拖动 / 旋转，输出正方形并落到 docs/avatars
+        final persistentPath =
+            await showImageCropper(context, File(pickedFile.path));
+        if (persistentPath == null || !mounted) return;
         setState(() {
           _newAvatarPath = persistentPath;
           _hasChanges = true;
@@ -1766,24 +1770,6 @@ class _CharacterProfileSheetState extends State<_CharacterProfileSheet> {
           SnackBar(content: Text('选择图片失败: $e')),
         );
       }
-    }
-  }
-
-  Future<String> _copyToPersistentPath(String sourcePath) async {
-    try {
-      final source = File(sourcePath);
-      if (!await source.exists()) return sourcePath;
-      final dir = await getApplicationDocumentsDirectory();
-      final avatarDir = Directory('${dir.path}/ai_avatars');
-      if (!await avatarDir.exists()) {
-        await avatarDir.create(recursive: true);
-      }
-      final ext = sourcePath.contains('.') ? sourcePath.split('.').last : 'jpg';
-      final destPath = '${avatarDir.path}/${_character.id}.$ext';
-      await source.copy(destPath);
-      return destPath;
-    } catch (e) {
-      return sourcePath;
     }
   }
 

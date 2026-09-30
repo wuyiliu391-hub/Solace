@@ -181,6 +181,40 @@ flutter test test/xxx_test.dart                        # 单文件
 `插入U盘` / `把数据插入表格` 会被改坏。修它要区分语境（`插入` 既是普通词也是性描写用词），
 风险大于收益，先记着。**往这两处加词前，先想清楚谁先执行。**
 
+## 头像自定义与裁剪（2026-09-30）
+
+所有头像都是**圆形**显示（`BoxShape.circle` / `ClipOval`），所以裁剪统一输出**正方形**。
+
+核心组件：`lib/widgets/image_cropper.dart`
+
+- `showImageCropper(context, file, {outputSize = 512})` → 打开全屏裁剪页，返回
+  `docs/avatars/avatar_<uuid>.png` 路径；取消返回 null。**已含持久化**，调用方不要再复制一遍。
+- 交互：双指缩放（最高 `coverScale × 4`）、单指拖动、90° 旋转、确认裁剪。
+- 约束：图片永远不允许缩到小于取景框（`coverScale`），平移用 `clampOffset` 夹住，四边不露白。
+- 纯 `dart:ui`（`PictureRecorder` + `Canvas` + `Transform`），**没有引入 `image_cropper` 等原生插件** ——
+  本机无 Android 环境，原生插件无法验证。
+- 几何计算抽成纯函数 `CropGeometry`，`test/image_cropper_test.dart` 直接单测边界。
+
+### 已接入的入口
+
+| 位置 | 对象 |
+|------|------|
+| `widgets/avatar_picker.dart` | 通用选择器（**群聊设置走它**，所以群头像自动有裁剪） |
+| `screens/profile/profile_screen.dart` | 用户「我」的头像 |
+| `screens/contacts/contacts_screen.dart` | 角色头像（联系人页） |
+| `screens/character/create_character_screen.dart` | 创建角色头像 |
+| `screens/chat/chat_settings_screen.dart` | 角色头像（单聊设置） |
+
+**新增头像入口时走 `showImageCropper`**，别再抄 `pickImage` + `_copyToPersistentPath` 那套
+（已删除 4 份重复实现）。`screens/moments/x/x_edit_profile_screen.dart` 仍是旧写法，属朋友圈资料，未改造。
+
+### 清除头像的坑
+
+`copyWith` 普遍写成 `avatarUrl ?? this.avatarUrl`，**传 null 清不掉**。
+已给 `User` / `AICharacter` / `GroupChatSession` 的 `copyWith` 加 `clearAvatarUrl` 开关
+（对齐 `AICharacter` 早已有的 `clearColorHex` 写法），`GroupChatUpdateSession` 事件同步加了同名参数。
+`AvatarPicker` 的清除按钮走独立的 `onAvatarCleared` 回调，**不要**复用 `onAvatarSelected(null)`。
+
 ## 数据库
 
 - 版本常量：`lib/config/constants.dart` → `DbDefaults.dbVersion`（**当前 74**）

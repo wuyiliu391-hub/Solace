@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../models/ai_character.dart';
 import '../../models/group_chat_session.dart';
@@ -17,6 +16,7 @@ import '../../blocs/chat/chat_bloc.dart';
 import '../../services/ai_service.dart';
 import '../../services/bridge/ai_service_adapter.dart';
 import '../../utils/avatar_resolver.dart';
+import '../../widgets/image_cropper.dart';
 
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen({super.key});
@@ -279,17 +279,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final hasPermission = await PermissionService.requestStoragePermission();
     if (!hasPermission) return;
 
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(
+    final pickedFile = await ImagePicker().pickImage(
       source: ImageSource.gallery,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 85,
+      maxWidth: 2048,
+      maxHeight: 2048,
+      imageQuality: 92,
     );
 
     if (pickedFile != null) {
+      // 自由裁剪：双指缩放 / 单指拖动 / 旋转，输出正方形并落到 docs/avatars
       final persistentPath =
-          await _copyToPersistentPath(pickedFile.path, character.id);
+          await showImageCropper(context, File(pickedFile.path));
+      if (persistentPath == null || !context.mounted) return;
       final updated = character.copyWith(
         avatarUrl: persistentPath,
         updatedAt: DateTime.now(),
@@ -320,26 +321,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
       }
 
       _loadCharacters();
-    }
-  }
-
-  Future<String> _copyToPersistentPath(
-      String sourcePath, String characterId) async {
-    try {
-      final source = File(sourcePath);
-      if (!await source.exists()) return sourcePath;
-      final dir = await getApplicationDocumentsDirectory();
-      final avatarDir = Directory('${dir.path}/ai_avatars');
-      if (!await avatarDir.exists()) {
-        await avatarDir.create(recursive: true);
-      }
-      final ext = sourcePath.contains('.') ? sourcePath.split('.').last : 'jpg';
-      final destPath = '${avatarDir.path}/$characterId.$ext';
-      await source.copy(destPath);
-      return destPath;
-    } catch (e) {
-      debugPrint('复制头像失败: $e');
-      return sourcePath;
     }
   }
 

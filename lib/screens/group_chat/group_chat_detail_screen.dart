@@ -1664,6 +1664,16 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                                   ),
                                 );
                           },
+                          // 清除必须显式下发：copyWith 传 null 会被忽略
+                          onAvatarCleared: () {
+                            setAvatar(() => _dialogAvatar = null);
+                            context.read<GroupChatBloc>().add(
+                                  GroupChatUpdateSession(
+                                    groupId: _groupId,
+                                    clearAvatarUrl: true,
+                                  ),
+                                );
+                          },
                           size: 72,
                         ),
                       ),
