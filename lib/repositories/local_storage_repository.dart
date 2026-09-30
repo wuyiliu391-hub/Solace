@@ -1925,6 +1925,10 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       'unresolvedConflict': 'TEXT',
       'recentImportantEvent': 'TEXT',
       'updatedAt': 'TEXT NOT NULL DEFAULT ""',
+      // 番外/分支会话的关系上下文隔离。旧库只在 _onUpgrade 补过这一列，
+      // 一旦那次迁移被跳过（如 user_version 已升但中断）就永远补不上，
+      // 之后任何按 chatId 读写该表的调用都会 SQLITE_ERROR。
+      'chatId': 'TEXT NOT NULL DEFAULT ""',
     },
     'memories': {
       'characterId': 'TEXT NOT NULL DEFAULT ""',
@@ -2172,6 +2176,8 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       'shippingAt': 'TEXT',
       'deliveredAt': 'TEXT',
       'aiReaction': 'TEXT',
+      // toMap 会写 sync_seq，缺列时 INSERT 直接抛 SQLITE_ERROR
+      'sync_seq': 'INTEGER NOT NULL DEFAULT 0',
     },
     'bt_agent_actions': {
       'actionType': 'TEXT NOT NULL DEFAULT ""',
@@ -2292,6 +2298,21 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'updatedAt': 'TEXT',
       'sync_seq': 'INTEGER NOT NULL DEFAULT 0',
+      // ── 以下此前只在 _ensureGroupChatSchema 里补，迁移被跳过就永远补不上 ──
+      // chatId：群聊分支/番外会话隔离。_rebuildGroupChatSessionsTable 会建它，
+      //   但只补列的轻量路径不会 —— 老库缺 chatId 时按分支查群聊直接报错。
+      'chatId': 'TEXT NOT NULL DEFAULT ""',
+      'isHidden': 'INTEGER NOT NULL DEFAULT 0',
+      'activationStrategy': 'TEXT NOT NULL DEFAULT "natural"',
+      'generationMode': 'TEXT NOT NULL DEFAULT "natural"',
+      'allowSelfResponses': 'INTEGER NOT NULL DEFAULT 0',
+      'autoModeDelay': 'INTEGER NOT NULL DEFAULT 0',
+      'autoModeEnabled': 'INTEGER NOT NULL DEFAULT 0',
+      'autoModeDelaysByCharacter': "TEXT NOT NULL DEFAULT '{}'",
+      // 横竖屏背景（v75）
+      'backgroundImageLandscape': 'TEXT',
+      'joinPrefix': 'TEXT NOT NULL DEFAULT ""',
+      'joinSuffix': 'TEXT NOT NULL DEFAULT ""',
     },
     'group_chat_messages': {
       'groupId': 'TEXT NOT NULL DEFAULT ""',
@@ -2304,6 +2325,13 @@ class LocalStorageRepository extends _LocalStorageRepositoryCore with LocalStora
       'createdAt': 'TEXT NOT NULL DEFAULT ""',
       'status': 'TEXT NOT NULL DEFAULT "sent"',
       'metadata': 'TEXT',
+      // 收藏跳转按 chatId 取窗口（getGroupChatMessagesAroundId），
+      // 缺这列会 SQLITE_ERROR；toMap 也写 sync_seq
+      'chatId': 'TEXT NOT NULL DEFAULT ""',
+      'sync_seq': 'INTEGER NOT NULL DEFAULT 0',
+      'swipeHistory': "TEXT NOT NULL DEFAULT '[]'",
+      'swipeIndex': 'INTEGER NOT NULL DEFAULT 0',
+      'parentMessageId': 'TEXT',
     },
     'group_chat_summaries': {
       'groupId': 'TEXT NOT NULL DEFAULT ""',

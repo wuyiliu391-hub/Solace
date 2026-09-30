@@ -27,10 +27,23 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
   /// 当前筛选的角色 ID；null = 全部
   String? _selectedCharacterId;
 
+  /// 搜索：关键词 + 控制器。空 = 显示全部。
+  /// 搜索是**本地过滤**（收藏量小），输入即出结果，不查库。
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  String _searchQuery = '';
+
   @override
   void initState() {
     super.initState();
     _loadBookmarks();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _loadBookmarks() async {
@@ -140,6 +153,45 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
     }
   }
 
+  // ──────────────────────── 搜索 ────────────────────────
+
+  /// 在已加载的收藏里做本地过滤。
+  ///
+  /// 刻意**不查库**：收藏量通常在百级，全量已加载在内存里，
+  /// 本地过滤零延迟、无 loading 闪烁。跨会话/跨群统一处理，
+  /// 匹配内容 + 会话名/群名 + 发言者名。
+  List<Map<String, dynamic>> _applyQuery(List<Map<String, dynamic>> all) {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return all;
+    return all.where((e) {
+      final isGroup = (e['kind'] as String?) == 'group';
+      final content =
+          (isGroup ? (e['groupMessage'] as GroupChatMessage?) : null)
+                  ?.content ??
+              (e['message'] as ChatMessage?)?.content ??
+              '';
+      final sender = (isGroup
+              ? (e['groupMessage'] as GroupChatMessage?)?.senderName
+              : null) ??
+          '';
+      final session = (e['sessionName'] as String?) ?? '';
+      final haystack = '$content $sender $session'.toLowerCase();
+      return haystack.contains(q);
+    }).toList();
+  }
+
+  /// 当前展示的列表：搜索词 + 角色筛选叠加。
+  List<Map<String, dynamic>> get _visibleBookmarks =>
+      _applyQuery(_filteredBookmarks);
+
+  bool get _hasQuery => _searchQuery.trim().isNotEmpty;
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _searchQuery = '');
+    _searchFocusNode.unfocus();
+  }
+
   /// 跳转到原聊天会话
   void _openChatSession(Map<String, dynamic> entry) {
     final kind = entry['kind'] as String? ?? 'single';
@@ -229,14 +281,83 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
               ? _buildEmptyState(cs, isDark)
               : Column(
                   children: [
+                    _buildSearchBar(cs),
                     _buildFilterBar(cs, isDark),
                     Expanded(
-                      child: _filteredBookmarks.isEmpty
-                          ? _buildEmptyState(cs, isDark)
+                      child: _visibleBookmarks.isEmpty
+                          ? _buildNoMatchState(cs)
                           : _buildList(cs, isDark),
                     ),
                   ],
                 ),
+    );
+  }
+
+  /// 收藏搜索栏。搜索 + 角色筛选可叠加。
+  Widget _buildSearchBar(ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: TextField(
+        controller: _searchController,
+        focusNode: _searchFocusNode,
+        onChanged: (v) => setState(() => _searchQuery = v),
+        textInputAction: TextInputAction.search,
+        style: const TextStyle(fontSize: 14),
+        decoration: InputDecoration(
+          hintText: '搜索收藏内容、角色名、群名',
+          hintStyle: TextStyle(
+            fontSize: 13,
+            color: cs.onSurface.withOpacity(0.4),
+          ),
+          prefixIcon: Icon(Icons.search, size: 20, color: cs.primary),
+          suffixIcon: !_hasQuery
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: _clearSearch,
+                  tooltip: '清除',
+                ),
+          isDense: true,
+          filled: true,
+          fillColor: cs.surfaceContainerHighest,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(20),
+            borderSide: BorderSide.none,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 搜索有词但无结果（区别于「一个收藏都没有」）
+  Widget _buildNoMatchState(ColorScheme cs) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off, size: 56, color: cs.onSurface.withOpacity(0.2)),
+            const SizedBox(height: 12),
+            Text(
+              '没有匹配「$_searchQuery」的收藏',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: cs.onSurface.withOpacity(0.5),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _clearSearch,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('清除搜索'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -274,18 +395,28 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
   /// 角色筛选栏（全部 + 各角色）
   Widget _buildFilterBar(ColorScheme cs, bool isDark) {
     final chars = _characters;
+    // 搜索时只保留在搜索结果里出现过的角色，避免用户点了某个角色
+    // 却一条都看不到（因为那条不在搜索结果里）——那种体验最让人困惑。
+    final visible = _searchQuery.trim().isEmpty
+        ? chars
+        : chars.where((c) {
+            final id = c['id'] as String;
+            return _bookmarks
+                .where((b) => (b['characterId'] as String?) == id)
+                .any((b) => _applyQuery([b]).isNotEmpty);
+          }).toList();
     return SizedBox(
       height: 46,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        itemCount: chars.length + 1,
+        itemCount: visible.length + 1,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           if (index == 0) {
             return _buildFilterChip(cs, null, '全部', null);
           }
-          final c = chars[index - 1];
+          final c = visible[index - 1];
           return _buildFilterChip(cs, c['id'] as String, c['name'] as String,
               c['avatar'] as String?);
         },
@@ -316,14 +447,27 @@ class _BookmarkListScreenState extends State<BookmarkListScreen> {
   }
 
   Widget _buildList(ColorScheme cs, bool isDark) {
-    final items = _filteredBookmarks;
+    final items = _visibleBookmarks;
     return RefreshIndicator(
       onRefresh: _loadBookmarks,
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: items.length,
+        itemCount: items.length + (_hasQuery ? 1 : 0),
         itemBuilder: (context, index) {
-          final entry = items[index];
+          // 顶部结果计数条：搜索时告知「匹配 N / 共 M」
+          if (_hasQuery && index == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                '匹配 ${items.length} 条，共 ${_bookmarks.length} 条收藏',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurface.withOpacity(0.5),
+                ),
+              ),
+            );
+          }
+          final entry = items[_hasQuery ? index - 1 : index];
           final isGroup = (entry['kind'] as String?) == 'group';
           final singleMsg = entry['message'] as ChatMessage?;
           final groupMsg = entry['groupMessage'] as GroupChatMessage?;

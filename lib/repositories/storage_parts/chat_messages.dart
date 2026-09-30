@@ -1460,14 +1460,174 @@ mixin LocalStorageRepositoryChatMessagesApi on _LocalStorageRepositoryCore {
     }
   }
 
+  /// Web 模式下取全部会话 id。
+  ///
+  /// ★ 曾经写错成 `_prefs.getStringList('chat_session_ids')`，而
+  /// [saveChatSession] 实际写的是 `session_ids_<userId>` —— key 对不上，
+  /// 导致 web 模式下收藏列表**永远是空的**。这里改为按 `session_ids_`
+  /// 前缀扫全部键，前缀不匹配时回退到旧 key 兼容历史数据。
+  List<String> _webSessionIds() {
+    final prefs = _prefs;
+    if (prefs == null) return const [];
+    final ids = <String>{};
+    for (final key in prefs.getKeys()) {
+      if (key.startsWith('session_ids_')) {
+        ids.addAll(prefs.getStringList(key) ?? const <String>[]);
+      }
+    }
+    if (ids.isEmpty) {
+      // 兼容更早的键名
+      ids.addAll(prefs.getStringList('chat_session_ids') ?? const <String>[]);
+    }
+    return ids.toList();
+  }
+
+  /// 收藏消息全文搜索（跨会话 + 跨群聊）。
+  ///
+  /// [query] 为空/空白时返回空列表（调用方应直接用全量列表，别查库）。
+  /// 匹配范围：消息内容 + 会话名/角色名 + 群名/发言者名。
+  ///
+  /// SQL 层用 LIKE（SQLite 无全文索引，且收藏量通常在百级，
+  /// 全表 LIKE 完全够快）。注意 `%`/`_` 需转义，否则用户搜 `%` 会全表命中。
+  Future<List<Map<String, dynamic>>> searchBookmarkedMessages(
+    String query, {
+    int limit = 200,
+  }) async {
+    final q = query.trim();
+    if (q.isEmpty) return [];
+    // ESCAPE '\' + 转义 LIKE 通配符
+    final escaped = q
+        .replaceAll('\\', '\\\\')
+        .replaceAll('%', '\\%')
+        .replaceAll('_', '\\_');
+    final like = '%$escaped%';
+    final result = <Map<String, dynamic>>[];
+
+    if (_isWeb) {
+      // Web：只能遍历 SP 键后本地过滤（数据量小）
+      for (final chatId in _webSessionIds()) {
+        final ids = _prefs?.getStringList('message_ids_$chatId') ?? [];
+        for (final id in ids) {
+          final data = _prefs?.getString('message_$id');
+          if (data == null) continue;
+          try {
+            final msg = ChatMessage.fromMap(jsonDecode(data));
+            if (!msg.isBookmark) continue;
+            final session = await getChatSession(chatId);
+            final name = session?.aiCharacterName ?? chatId;
+            if (!msg.content.contains(q) && !name.contains(q)) continue;
+            result.add({
+              'message': msg,
+              'sessionName': name,
+              'sessionId': chatId,
+              'characterId': session?.aiCharacterId ?? '',
+              'characterAvatar': session?.aiCharacterAvatar ?? '',
+            });
+          } catch (_) {}
+          if (result.length >= limit) return result;
+        }
+      }
+      return result;
+    }
+
+    try {
+      final db = await _ensureDb();
+      final maps = await db.rawQuery(
+        '''
+        SELECT m.*, s.aiCharacterName AS sessionName,
+               s.aiCharacterId AS characterId,
+               s.aiCharacterAvatar AS characterAvatar
+        FROM chat_messages m
+        LEFT JOIN chat_sessions s ON s.id = m.chatId
+        WHERE m.isBookmark = 1
+          AND (m.content LIKE ? ESCAPE '\\'
+               OR IFNULL(s.aiCharacterName, '') LIKE ? ESCAPE '\\')
+        ORDER BY m.createdAt DESC
+        LIMIT ?
+        ''',
+        [like, like, limit],
+      );
+      for (final map in maps) {
+        try {
+          result.add({
+            'message': ChatMessage.fromMap(map),
+            'sessionName': (map['sessionName'] as String?) ?? '未知会话',
+            'sessionId': map['chatId'] as String? ?? '',
+            'characterId': (map['characterId'] as String?) ?? '',
+            'characterAvatar': (map['characterAvatar'] as String?) ?? '',
+          });
+        } catch (_) {}
+      }
+    } catch (e) {
+      LogService.instance.e('Storage', 'searchBookmarkedMessages failed: $e');
+    }
+    return result;
+  }
+
+  /// 群聊收藏消息全文搜索（跨群）。匹配内容 / 群名 / 发言者名。
+  Future<List<GroupChatMessage>> searchGroupBookmarkedMessages(
+    String query, {
+    int limit = 200,
+  }) async {
+    final q = query.trim();
+    if (q.isEmpty) return [];
+    final escaped = q
+        .replaceAll('\\', '\\\\')
+        .replaceAll('%', '\\%')
+        .replaceAll('_', '\\_');
+    final like = '%$escaped%';
+    if (_isWeb) {
+      final keys = _prefs?.getKeys().where((k) => k.startsWith('gc_msg_')) ??
+          const <String>[];
+      final out = <GroupChatMessage>[];
+      for (final k in keys) {
+        final raw = _prefs?.getString(k);
+        if (raw == null) continue;
+        try {
+          final m = GroupChatMessage.fromMap(jsonDecode(raw));
+          if (!m.isBookmarked) continue;
+          if (!m.content.contains(q) && !m.senderName.contains(q)) continue;
+          out.add(m);
+        } catch (_) {}
+        if (out.length >= limit) break;
+      }
+      out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return out;
+    }
+    try {
+      final db = await _ensureDb();
+      final maps = await db.rawQuery(
+        '''
+        SELECT m.* FROM group_chat_messages m
+        WHERE m.metadata LIKE '%\\"bookmarked\\":true%'
+          AND (m.content LIKE ? ESCAPE '\\'
+               OR IFNULL(m.senderName, '') LIKE ? ESCAPE '\\')
+        ORDER BY m.createdAt DESC
+        LIMIT ?
+        ''',
+        [like, like, limit],
+      );
+      final out = <GroupChatMessage>[];
+      for (final map in maps) {
+        try {
+          out.add(GroupChatMessage.fromMap(map));
+        } catch (_) {}
+      }
+      return out;
+    } catch (e) {
+      LogService.instance.e(
+          'Storage', 'searchGroupBookmarkedMessages failed: $e');
+      return [];
+    }
+  }
+
   /// 获取所有被收藏的消息（isBookmark=true），跨所有会话
   /// 返回的消息附带 sessionName（角色名/会话名）
   Future<List<Map<String, dynamic>>> getBookmarkedMessages() async {
     final result = <Map<String, dynamic>>[];
     if (_isWeb) {
-      // Web 模式：遍历所有会话的 SP 键
-      final sessionIds = _prefs?.getStringList('chat_session_ids') ?? [];
-      for (final chatId in sessionIds) {
+      // Web 模式：遍历所有会话的 SP 键（见 _webSessionIds 的键名说明）
+      for (final chatId in _webSessionIds()) {
         final ids = _prefs?.getStringList('message_ids_$chatId') ?? [];
         for (final id in ids) {
           final data = _prefs?.getString('message_$id');
