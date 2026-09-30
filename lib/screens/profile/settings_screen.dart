@@ -127,6 +127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final config = await FishAudioTtsConfigStore.load();
     final apiKeyController = TextEditingController(text: config?.apiKey ?? '');
     var model = config?.model ?? FishAudioTtsConfig.freeModel;
+    var temperature = config?.temperature ?? 0.7;
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -165,6 +166,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (v) => setDialogState(() => model = v!),
                   ),
                 const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Text('表现力',
+                        style: TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w700)),
+                    const Spacer(),
+                    Text(temperature.toStringAsFixed(2),
+                        style: const TextStyle(
+                            fontSize: 13, color: Colors.blueGrey)),
+                  ],
+                ),
+                Slider(
+                  value: temperature,
+                  min: 0.05,
+                  max: 1.0,
+                  divisions: 19,
+                  label: temperature.toStringAsFixed(2),
+                  onChanged: (v) => setDialogState(() => temperature = v),
+                ),
+                const Text(
+                  'Fish 没有「情绪/风格」参数，temperature 是唯一的原生表现力'
+                  '维度：越高语气起伏越大（撒娇、哽咽更明显），但也更容易'
+                  '含糊、吞音。默认 0.7。\n'
+                  '想更稳地控制情绪，只能靠参考音频本身的情绪——'
+                  '用带哭腔的音频克隆出的音色，情绪会自然带过来。',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
                 const Text(
                   '免费模型 \$0/M 字节，但：\n'
                   '· 免费期至 2026-11-30，官方已多次延期，随时可能变\n'
@@ -186,6 +215,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 await FishAudioTtsConfigStore.save(
                   apiKeyController.text.trim(),
                   model: model,
+                  temperature: temperature,
                 );
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (mounted) {
