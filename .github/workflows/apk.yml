@@ -97,7 +97,7 @@ jobs:
           if [ -n "${KEYSTORE_B64}" ]; then
             echo "$KEYSTORE_B64" | base64 -d > android/solace-release.jks
             cat > android/key.properties <<EOF
-          storeFile=solace-release.jks
+          storeFile=../solace-release.jks
           keyAlias=${KEY_ALIAS}
           keyPassword=${KEY_PASS}
           storePassword=${KEYSTORE_PASS}
@@ -110,12 +110,19 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Solace CI, OU=CI, O=Solace, L=NA, ST=NA, C=NA" >/dev/null 2>&1
             cat > android/key.properties <<EOF
-          storeFile=solace-release.jks
+          storeFile=../solace-release.jks
           keyAlias=solace
           keyPassword=android
           storePassword=android
           EOF
           fi
+          # storeFile 是相对 **app 模块目录**（android/app/）解析的，
+          # keystore 放在 android/ 下，所以必须写 `../`。
+          # 写成 `solace-release.jks` 会去找 android/app/solace-release.jks，
+          # 报 "Keystore file ... not found for signing config 'release'"。
+          test -f android/app/../solace-release.jks \
+            || { echo "::error::keystore missing after decode"; exit 1; }
+          echo "keystore ok: $(ls -l android/solace-release.jks | awk '{print $5}') bytes"
 
       - name: Cache status
         run: |
