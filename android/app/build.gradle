@@ -64,10 +64,17 @@ android {
         targetSdk 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
-        // 仅手机 arm64：去掉 x86_64/armeabi-v7a 原生库（onnxruntime 可省 ~40MB）
-        ndk {
-            abiFilters 'arm64-v8a'
-        }
+        // ★ 这里**不能**写 `ndk { abiFilters 'arm64-v8a' }`。
+        //   `flutter build apk --split-per-abi` 会自己注入 splits.abiFilters，
+        //   两者同时存在时 Gradle 直接报：
+        //     Conflicting configuration : 'arm64-v8a' in ndk abiFilters
+        //     cannot be present when splits abi filters are set : arm64-v8a
+        //   即 apk.yml 与 scripts/deploy.sh 依赖的构建方式 100% 失败。
+        //   arm64-only 由命令行保证：--target-platform android-arm64
+        //   （配合 --split-per-abi 产出 app-arm64-v8a-release.apk，
+        //     正是 deploy.sh 期待的文件名）。
+        //   不带 --split-per-abi 构建时会得到含全部 ABI 的通用包，
+        //   体积更大但仍可安装 —— 这是有意接受的取舍。
     }
 
     buildTypes {

@@ -78,6 +78,24 @@ Flutter 写的 **AI 陪伴应用**（Android 单平台）。多角色聊天 + �
 Linux runner 上直接起不来。**已删除** —— 现在本地靠 `JAVA_HOME`、CI 靠 `actions/setup-java`。
 别再把本机绝对路径写进任何提交文件。
 
+`android/app/build.gradle` 的 `defaultConfig` **不能写 `ndk { abiFilters 'arm64-v8a' }`**
+（2026-10-01 首次跑 apk.yml 才发现）。`flutter build apk --split-per-abi` 会自己注入
+`splits.abiFilters`，两者同时存在 Gradle 直接拒绝：
+`Conflicting configuration : 'arm64-v8a' in ndk abiFilters cannot be present when splits abi filters are set`。
+arm64-only 改由命令行 `--target-platform android-arm64` 保证（见下方发布章节）。
+
+### 签名密钥的真实位置（2026-10-01 实测）
+
+- **仓库里没有任何 `SOLACE_KEYSTORE_*` Secret**；已从 git 历史 `e432942`（init 提交）
+  取出 `android/key.properties` + `android/solace-release.jks` 写入 4 个 Secret。
+- keystore 是 **PKCS#12**（DER SEQUENCE 开头，魔数 `30820aa4`），不是 legacy JKS
+  （`feedfeed`）。用 legacy 魔数去校验会误判为「提取损坏」。
+- ⚠️ **安全风险（未处理）**：这两个文件在 init 提交里以**明文**进过仓库历史，
+  仓库是公开的 → 签名私钥事实上已公开。任何人都能签出被系统当作官方更新的包。
+  正确处置是**换一把新 keystore** 并用 `git filter-repo`/BFG 清史，仅加 gitignore 不够。
+- **PowerShell 提取二进制会损坏**：`git show ... > file` 走文本重定向，keystore 字节被改写。
+  必须用 `git cat-file blob <sha> | python` 之类二进制安全管道。
+
 ## Fish Audio API（2026-09-30 真实调用实测，官方文档没写清的地方）
 
 网上文档和模型记忆里的 Fish Audio 接口**基本都是错的**，下面这些是实测确认的事实。
